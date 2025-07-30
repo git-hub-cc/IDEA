@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web IDEA - 前端原型</title>
+
+    <!-- 引入 CSS 样式 -->
+    <link rel="stylesheet" href="src/css/main.css">
+    <link rel="stylesheet" href="src/css/components.css">
+    <!-- 默认加载 Darcula 主题，可通过设置切换 -->
+    <link id="theme-link" rel="stylesheet" href="src/css/theme-darcula.css">
+
+    <!-- 引入 Font Awesome (CDN) - 用于图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- 引入 xterm.js (用于终端模拟) - 放在这里确保在 terminal-emulator.js 之前加载 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm-addon-fit/0.8.0/xterm-addon-fit.min.js"></script>
+
+    <!-- Stomp.js 和 SockJS 客户端库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <!-- REMOVED: Split.js CDN script tag -->
+
+    <!-- 引入 Monaco Editor Loader (CDN) - 放在这里确保在 code-editor.js 模块被引用之前加载 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.46.0/min/vs/loader.min.js"></script>
+    <!-- 配置 Monaco Editor 路径 - 注意：Monaco的全局'require'在此被配置 -->
+    <script>
+        // Monaco Editor 的 AMD Loader 配置
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.46.0/min/vs' } });
+        // 在此处加载 Monaco Editor 的核心模块，确保 CodeEditor 模块能直接使用 window.monaco
+        require(['vs/editor/editor.main'], () => {
+            console.log('Monaco Editor core loaded.');
+        });
+    </script>
+</head>
+<body class="dark-theme"> <!-- 默认应用深色主题类 -->
+<div id="app-container" class="app-container">
+    <!-- 顶部工具栏 -->
+    <div id="toolbar" class="toolbar">
+        <div class="toolbar-group">
+            <button class="toolbar-btn" data-action="new-file" title="新建文件 (Ctrl+N)">
+                <i class="fas fa-file"></i>
+            </button>
+            <button class="toolbar-btn" data-action="open-file" title="打开文件 (Ctrl+O)">
+                <i class="fas fa-folder-open"></i>
+            </button>
+            <button class="toolbar-btn" data-action="save-file" title="保存文件 (Ctrl+S)">
+                <i class="fas fa-save"></i>
+            </button>
+        </div>
+        <div class="toolbar-group">
+            <button class="toolbar-btn" data-action="run-code" title="运行代码 (Shift+F10)">
+                <i class="fas fa-play"></i>
+            </button>
+            <button class="toolbar-btn" data-action="debug-code" title="调试代码 (Shift+F9)">
+                <i class="fas fa-bug"></i>
+            </button>
+        </div>
+        <div class="toolbar-group">
+            <button class="toolbar-btn" data-action="vcs-commit" title="提交更改 (Ctrl+K)">
+                <i class="fas fa-code-branch"></i>
+            </button>
+            <button class="toolbar-btn" data-action="vcs-pull" title="拉取最新 (Ctrl+T)">
+                <i class="fas fa-download"></i>
+            </button>
+            <button class="toolbar-btn" data-action="vcs-push" title="推送更改 (Ctrl+Shift+K)">
+                <i class="fas fa-upload"></i>
+            </button>
+        </div>
+        <div class="toolbar-group toolbar-right">
+            <button class="toolbar-btn" data-action="settings" title="设置 (Ctrl+,)">
+                <i class="fas fa-cog"></i>
+            </button>
+            <button class="toolbar-btn" data-action="about" title="关于">
+                <i class="fas fa-info-circle"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 主内容区: 左侧文件树 + 中间编辑器 + 右侧/底部面板 -->
+    <div id="main-panels" class="main-panels">
+        <!-- 左侧文件树 -->
+        <div id="left-panel" class="panel resizable-panel">
+            <div class="panel-header">
+                <h3>项目</h3>
+            </div>
+            <div id="file-tree" class="file-tree-container">
+                <!-- 文件树内容将由JS生成 -->
+            </div>
+        </div>
+
+        <!-- 中间编辑器区域 -->
+        <div id="center-panel" class="panel resizable-panel">
+            <div id="editor-tab-bar" class="editor-tab-bar">
+                <!-- 编辑器标签页将由JS管理 -->
+            </div>
+            <div id="editor-area" class="editor-area">
+                <!-- Monaco Editor将挂载到这里 -->
+            </div>
+        </div>
+
+        <!-- 右侧/底部面板 (可切换) -->
+        <div id="bottom-panel" class="panel resizable-panel">
+            <div class="panel-tab-bar">
+                <button class="panel-tab active" data-panel-id="console-output">控制台</button>
+                <button class="panel-tab" data-panel-id="problems-list">问题</button>
+                <button class="panel-tab" data-panel-id="terminal-panel">终端</button>
+                <button class="panel-tab" data-panel-id="debugger-panel">调试</button>
+            </div>
+            <div class="panel-content-area">
+                <!-- 控制台输出 -->
+                <div id="console-output" class="panel-content active">
+                    <pre></pre>
+                </div>
+                <!-- 问题列表 -->
+                <div id="problems-list" class="panel-content">
+                    <ul></ul>
+                </div>
+                <!-- 终端 -->
+                <div id="terminal-panel" class="panel-content">
+                    <!-- xterm.js will be initialized here -->
+                </div>
+                <!-- 调试器 -->
+                <div id="debugger-panel" class="panel-content">
+                    <div class="debugger-controls">
+                        <button data-action="step-over" title="步过 (F8)"><i class="fas fa-step-forward"></i></button>
+                        <button data-action="step-into" title="步入 (F7)"><i class="fas fa-arrow-right-to-bracket"></i></button>
+                        <button data-action="step-out" title="步出 (Shift+F8)"><i class="fas fa-arrow-left"></i></button>
+                        <button data-action="resume-debug" title="恢复程序 (F9)"><i class="fas fa-play-circle"></i></button>
+                        <button data-action="stop-debug" title="停止调试 (Ctrl+F2)"><i class="fas fa-stop-circle"></i></button>
+                    </div>
+                    <div class="debugger-info">
+                        <div class="debugger-section">
+                            <h4>变量</h4>
+                            <ul id="debugger-variables"><li>无信息</li></ul>
+                        </div>
+                        <div class="debugger-section">
+                            <h4>调用栈</h4>
+                            <ul id="debugger-call-stack"><li>无信息</li></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部状态栏 -->
+    <div id="status-bar" class="status-bar">
+        <div class="status-left">
+            <span>就绪</span>
+        </div>
+        <div class="status-center">
+            <span id="file-info">未选择文件</span>
+        </div>
+        <div class="status-right">
+            <span id="cursor-pos">Ln 1, Col 1</span>
+            <span id="encoding">UTF-8</span>
+            <span id="file-type">Text</span>
+            <span id="git-branch"><i class="fas fa-code-branch"></i> master</span>
+            <span id="unsaved-indicator" class="unsaved-indicator" title="文件未保存" style="display: none;">●</span>
+        </div>
+    </div>
+</div>
+
+<!-- 弹窗/模态框容器 -->
+<div id="modal-overlay" class="modal-overlay">
+    <div id="common-modal" class="modal">
+        <div class="modal-header">
+            <h3 id="modal-title"></h3>
+            <button class="modal-close-btn" data-action="close-modal">×</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+            <!-- 弹窗内容将由JS注入 -->
+        </div>
+        <div class="modal-footer" id="modal-footer">
+            <button class="modal-action-btn primary-btn" data-action="confirm-modal">确认</button>
+            <button class="modal-action-btn secondary-btn" data-action="cancel-modal">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 引入 JavaScript 模块 - type="module" 支持 ES Modules -->
+<script type="module" src="src/js/main.js"></script>
+</body>
+</html>

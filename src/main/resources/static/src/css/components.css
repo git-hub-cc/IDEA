@@ -1,0 +1,668 @@
+/* 工具栏样式 */
+.toolbar {
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+    gap: 5px; /* 按钮组之间的间距 */
+    flex-shrink: 0; /* 防止被压缩 */
+    user-select: none; /* 防止工具栏文本被选中 */
+}
+
+.toolbar-group {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    border-right: 1px solid var(--border-color); /* 按钮组之间的分隔线 */
+    padding: 0 5px;
+}
+
+.toolbar-group:last-child {
+    border-right: none; /* 最后一个按钮组没有右侧分隔线 */
+}
+
+.toolbar-group.toolbar-right {
+    margin-left: auto; /* 右侧按钮组推到最右边 */
+}
+
+.toolbar-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+    font-size: 1rem;
+    display: flex; /* 使图标和文本居中 */
+    align-items: center;
+    justify-content: center;
+}
+
+.toolbar-btn:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.toolbar-btn:active {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.toolbar-btn i {
+    font-size: 1.1rem;
+}
+
+/* 状态栏样式 */
+.status-bar {
+    background-color: var(--bg-header);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    font-size: 0.8rem;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    flex-shrink: 0; /* 防止被压缩 */
+    user-select: none;
+}
+
+.status-bar > div {
+    display: flex;
+    align-items: center;
+    gap: 15px; /* 各状态项之间的间距 */
+}
+
+.status-bar .status-left {
+    margin-right: auto; /* 左侧状态文本推到最左边 */
+}
+
+.status-bar .status-center {
+    flex-grow: 1; /* 中间文件信息占据剩余空间 */
+    justify-content: center; /* 居中显示 */
+    overflow: hidden; /* 防止文件路径过长溢出 */
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.status-bar .status-right {
+    margin-left: auto; /* 右侧状态信息推到最右边 */
+}
+
+.unsaved-indicator {
+    color: #ffc107; /* 黄色圆点 */
+    font-size: 1.2em; /* 大一点的圆点 */
+    margin-left: 5px;
+}
+
+
+/* 文件树面板 */
+#left-panel {
+    border-right: 1px solid var(--border-color); /* 与编辑器分隔 */
+}
+
+.file-tree-container {
+    flex-grow: 1;
+    overflow: auto; /* 允许文件树内部滚动 */
+    padding: 5px;
+}
+
+.file-tree {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* --- 文件树 LI 基础样式 (应用于所有文件和文件夹) --- */
+.file-tree li {
+    padding: 5px 8px; /* 内部填充 */
+    cursor: pointer;
+    transition: background-color 0.2s;
+    user-select: none; /* 防止文本被选中 */
+
+    display: flex; /* 使图标和文本在一条线上 */
+    align-items: center; /* 垂直居中对齐 */
+
+    /* 默认行为: 尝试保持单行，并裁剪/省略溢出内容 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    /* 默认不换行，文件夹会覆盖此属性 */
+    flex-wrap: nowrap;
+    /* REMOVED: max-width: 300px; - Let the panel size dictate the width */
+}
+
+.file-tree li:hover {
+    background-color: var(--border-color);
+}
+
+.file-tree li.selected {
+    background-color: var(--selection-color);
+    color: var(--text-primary);
+}
+
+/* --- 文件夹 LI 样式覆盖 (关键改动在这里) --- */
+.file-tree li.folder {
+    flex-wrap: wrap; /* 允许子项（如嵌套的UL）换行到下一行 */
+    align-items: flex-start; /* 将子项（如图标和名称行，以及UL）对齐到容器的开始位置 */
+
+    /* 覆盖父类 li 的默认单行和溢出隐藏，因为文件夹内容可能有多行 */
+    white-space: normal; /* 允许内容换行 */
+    overflow: visible;   /* 显示所有内容 */
+    text-overflow: clip; /* 不再对整个 li 使用省略号 */
+    padding-bottom: 0; /* 底部内边距由子 UL 控制 */
+}
+
+/* 确保文件夹行的内容 (指示器、图标、名称) 自身不换行并显示省略号 */
+.file-tree li.folder > .git-status-indicator,
+.file-tree li.folder > i,
+.file-tree li.folder > .folder-name-wrapper {
+    flex-shrink: 0; /* 防止这些项被压缩 */
+    white-space: nowrap; /* 保持这些项在单行 */
+    overflow: hidden;    /* 隐藏溢出内容 */
+    text-overflow: ellipsis; /* 对这些项应用省略号 */
+}
+
+/* Git 状态指示器 */
+.file-tree li .git-status-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+    flex-shrink: 0; /* 防止被挤压 */
+}
+
+.file-tree li .git-status-indicator.modified {
+    background-color: #e0b400; /* 黄色 */
+}
+.file-tree li .git-status-indicator.added {
+    background-color: #6a9955; /* 绿色 */
+}
+.file-tree li .git-status-indicator.deleted {
+    background-color: #cd3131; /* 红色 */
+}
+.file-tree li .git-status-indicator.untracked {
+    background-color: #808080; /* 灰色 */
+}
+
+
+.file-tree li i {
+    margin-right: 8px;
+    color: var(--text-secondary);
+    width: 14px; /* 统一图标宽度，防止抖动 */
+    text-align: center;
+    flex-shrink: 0; /* 防止被挤压 */
+}
+
+/* 文件夹图标颜色 */
+.file-tree li.folder > i.fas.fa-folder {
+    color: var(--accent-color); /* 蓝色文件夹 */
+}
+
+/* 文件图标颜色 */
+.file-tree li.file > i {
+    color: var(--text-secondary);
+}
+
+/* 文件类型特定图标颜色 */
+.file-tree li.file > i.fab.fa-java {
+    color: #f06a01; /* Java 橙色 */
+}
+.file-tree li.file > i.fab.fa-js {
+    color: #e6a71c; /* JavaScript 黄色 */
+}
+.file-tree li.file > i.fab.fa-html5 {
+    color: #e44f26; /* HTML5 橙红色 */
+}
+.file-tree li.file > i.fab.fa-css3-alt {
+    color: #264de4; /* CSS3 蓝色 */
+}
+.file-tree li.file > i.fab.fa-markdown {
+    color: #6c757d; /* Markdown 灰色 */
+}
+.file-tree li.file > i.fas.fa-file-code { /* XML, POM等通用代码文件 */
+    color: #d4d4d4; /* 浅灰色 */
+}
+.file-tree li.file > i.fas.fa-file-alt { /* JSON, Text等通用文本文件 */
+    color: #abb2bf; /* 文本文件默认色 */
+}
+
+
+/* 文件夹展开/折叠箭头 */
+/* NOTE: HTML structure assumes .folder-name-wrapper is a direct child of li.folder */
+.file-tree li.folder > span { /* This targets .folder-name-wrapper */
+    position: relative;
+    padding-left: 20px; /* 为箭头留出空间 */
+    font-weight: normal; /* 默认不加粗 */
+    flex-grow: 1; /* 允许文件夹名称占据可用空间 */
+    min-width: 0; /* 允许在 flex 容器中正确收缩 */
+}
+
+.file-tree li.folder > .folder-name-wrapper::before { /* 新增wrapper，箭头放wrapper前 */
+    font-family: "Font Awesome 6 Free"; /* 确保使用 Font Awesome 字体 */
+    content: "\f0da"; /* Font Awesome 箭頭向右 (fa-angle-right) */
+    font-weight: 900; /* 使用 Solid 样式 */
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%) rotate(0deg);
+    transition: transform 0.2s ease-in-out;
+    color: var(--text-secondary);
+    font-size: 0.8em;
+}
+
+.file-tree li.folder.expanded > .folder-name-wrapper::before {
+    transform: translateY(-50%) rotate(90deg); /* 旋转90度 */
+}
+
+/* 隐藏未展开的子目录 */
+.file-tree li.folder > ul {
+    width: 100%; /* 确保子 UL 占据整个宽度，强制其换行 */
+    display: none;
+    margin-left: 15px; /* 子目录缩进 */
+    margin-top: 5px; /* 在文件夹名称和子列表之间添加间距 */
+    padding-bottom: 5px; /* 在子列表底部添加内边距 */
+}
+
+.file-tree li.folder.expanded > ul {
+    display: block;
+}
+
+
+/* 编辑器标签页 */
+#center-panel {
+    display: flex;
+    flex-direction: column; /* 标签栏在顶部，编辑器在下方 */
+}
+
+.editor-tab-bar {
+    height: var(--panel-header-height);
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: flex-end; /* 标签页底部对齐 */
+    flex-shrink: 0;
+    overflow-x: auto; /* 允许标签页水平滚动 */
+    padding-left: 5px;
+    user-select: none;
+}
+
+.editor-tab-bar::-webkit-scrollbar {
+    height: 5px; /* 标签页滚动条高度 */
+}
+
+.editor-tab-bar::-webkit-scrollbar-thumb {
+    background: #555;
+}
+
+
+.editor-tab {
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-bottom: none; /* 底部无边框 */
+    border-radius: 6px 6px 0 0; /* 顶部圆角 */
+    padding: 6px 12px;
+    margin-left: 3px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+    font-size: 0.9rem;
+    position: relative;
+    top: 1px; /* 视觉对齐，使其看起来“浮”在边框上 */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap; /* 标签文本不换行 */
+    flex-shrink: 0; /* 防止标签被压缩 */
+}
+
+.editor-tab:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.editor-tab.active {
+    background-color: var(--bg-panel);
+    color: var(--text-primary);
+    border-color: var(--accent-color); /* 激活标签页的边框颜色 */
+    border-bottom-color: var(--bg-panel); /* 使底部边框与背景融合，突出显示 */
+    font-weight: bold;
+}
+
+.editor-tab .close-tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-left: auto; /* 关闭按钮推到右边 */
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 2px;
+}
+
+.editor-tab .close-tab-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--border-color);
+}
+
+.editor-tab .close-tab-btn i { /* 确保关闭按钮的图标样式正确 */
+    font-size: 0.8em;
+    width: auto;
+    margin: 0;
+}
+
+.editor-tab .unsaved-indicator { /* 标签页上的未保存指示器 */
+    color: #ffc107;
+    font-size: 1em;
+    margin-left: -5px; /* 更靠近文件名 */
+    margin-right: -3px;
+    display: none; /* 默认隐藏 */
+}
+.editor-tab.modified .unsaved-indicator {
+    display: inline;
+}
+
+
+/* 底部可切换面板的Tab栏 */
+#bottom-panel {
+    /* No border needed here, gutter provides separation */
+}
+
+.panel-tab-bar {
+    height: var(--panel-header-height);
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.panel-tab {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.panel-tab:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.panel-tab.active {
+    color: var(--accent-color);
+    font-weight: bold;
+    /* border-bottom: 2px solid var(--accent-color); */ /* 可选的激活样式 */
+}
+
+/* 控制台输出 */
+#console-output pre {
+    font-family: var(--font-family-mono);
+    white-space: pre-wrap; /* 自动换行 */
+    word-break: break-all; /* 长单词也强制换行 */
+    color: #abb2bf; /* Monaco 默认输出色 */
+    background-color: #282c34; /* Monaco 默认背景色 */
+    border-radius: 4px;
+    /* 移除以下属性，让父元素 .panel-content 控制尺寸、内边距和滚动 */
+    /* height: 100%; */
+    /* width: 100%; */
+    /* overflow: auto; */
+    /* padding: 10px; */
+    /* box-sizing: border-box; */
+}
+
+/* 问题列表 */
+#problems-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#problems-list li {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px; /* 图标和文本间距 */
+}
+
+#problems-list li:hover {
+    background-color: var(--border-color);
+}
+
+#problems-list li.error {
+    color: #ff6b6b; /* 红色 */
+}
+
+#problems-list li.warning {
+    color: #ffc107; /* 黄色 */
+}
+
+#problems-list li.info { /* 信息 */
+    color: #6a9955; /* 绿色 */
+}
+
+#problems-list li i {
+    font-size: 1rem;
+    width: 16px; /* 统一图标宽度 */
+    text-align: center;
+}
+
+/* --- 关键修复 --- */
+/* 调试器 */
+/* 将 #debugger-panel 的样式移到 .active 状态下 */
+#debugger-panel.active {
+    display: flex;
+    flex-direction: column;
+}
+
+.debugger-controls {
+    display: flex;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.debugger-controls button {
+    background-color: var(--border-color);
+    border: none;
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.9rem;
+}
+
+.debugger-controls button:hover {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.debugger-info {
+    flex-grow: 1;
+    overflow: auto; /* 允许内部滚动 */
+}
+
+.debugger-section {
+    margin-bottom: 15px;
+}
+
+.debugger-section h4 {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.debugger-section ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.debugger-section li {
+    font-family: var(--font-family-mono);
+    font-size: 0.85rem;
+    padding: 4px 0;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.debugger-section li.highlight {
+    background-color: rgba(98, 163, 255, 0.2); /* 强调色半透明背景 */
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 4px 5px;
+}
+
+
+/* 模态框样式 */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6); /* 半透明背景遮罩 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999; /* 确保在最上层 */
+    opacity: 0;
+    visibility: hidden; /* 默认隐藏 */
+    transition: opacity 0.3s ease;
+}
+
+.modal-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal {
+    background-color: var(--bg-panel);
+    border-radius: 8px;
+    box-shadow: 0 5px 15px var(--shadow-color);
+    width: 90%;
+    max-width: 450px; /* 最大宽度 */
+    display: flex;
+    flex-direction: column;
+    transform: translateY(-20px); /* 初始位置略微向上 */
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.modal-overlay.visible .modal {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.modal-close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.modal-close-btn:hover {
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: 20px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    flex-grow: 1;
+}
+
+.modal-body input[type="text"],
+.modal-body textarea,
+.modal-body select { /* 新增 select 样式 */
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    outline: none; /* 移除焦点时的外轮廓 */
+    font-family: var(--font-family-mono);
+    margin-top: 10px; /* 增加间距 */
+}
+
+.modal-body input[type="text"]:focus,
+.modal-body textarea:focus,
+.modal-body select:focus {
+    border-color: var(--accent-color); /* 焦点时边框高亮 */
+}
+
+
+.modal-footer {
+    padding: 15px 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.modal-action-btn {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: bold;
+    transition: background-color 0.2s;
+}
+
+.primary-btn {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.primary-btn:hover {
+    background-color: var(--accent-color-hover);
+}
+
+.secondary-btn {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.secondary-btn:hover {
+    background-color: #606060;
+}
