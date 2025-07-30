@@ -1,37 +1,53 @@
-// theme-manager.js - 主题管理器
-export class ThemeManager {
-    constructor(eventBus, defaultTheme = 'dark-theme') {
-        this.eventBus = eventBus;
+// src/js/utils/theme-manager.js - 主题管理器
+
+import EventBus from './event-emitter.js';
+import NetworkManager from '../managers/NetworkManager.js';
+
+const ThemeManager = {
+    themeLink: null,
+    currentTheme: 'dark-theme',
+
+    init: function() {
         this.themeLink = document.getElementById('theme-link');
-        this.currentTheme = defaultTheme;
-    }
+        this.bindEvents();
 
-    init() {
-        // 设置初始主题
-        this.setTheme(this.currentTheme);
-    }
+        // On startup, try to load settings from the backend to apply the theme
+        EventBus.on('app:ready', async () => {
+            try {
+                const settings = await NetworkManager.getSettings();
+                this.applySettings(settings);
+            } catch (e) {
+                console.warn("Could not load initial settings, using default theme.", e);
+                this.setTheme(this.currentTheme);
+            }
+        });
+    },
 
-    setTheme(themeName) {
-        // 更新<body>上的类
-        document.body.classList.remove('dark-theme', 'light-theme'); // 移除所有已知主题类
-        document.body.classList.add(themeName); // 添加新主题类
+    bindEvents: function() {
+        EventBus.on('settings:changed', this.applySettings.bind(this));
+    },
 
-        // 更新CSS链接
-        this.themeLink.href = `src/css/${themeName}.css`;
+    applySettings: function(settings) {
+        if (settings && settings.theme) {
+            this.setTheme(settings.theme);
+        }
+    },
+
+    setTheme: function(themeName) {
+        if (!themeName) return;
+        document.body.classList.remove('dark-theme', 'light-theme');
+        document.body.classList.add(themeName);
+
+        const themeFileName = themeName.split('-')[0];
+        this.themeLink.href = `src/css/theme-${themeFileName}.css`;
         this.currentTheme = themeName;
 
-        // 通知Monaco Editor更新主题
-        if (window.monaco && window.monaco.editor) {
-            // Monaco Editor 内置的主题名和我们的CSS主题名可能不同
-            // 需要映射：dark-theme -> vs-dark, light-theme -> vs-light
-            const monacoTheme = themeName === 'dark-theme' ? 'vs-dark' : 'vs-light';
-            window.monaco.editor.setTheme(monacoTheme);
-        }
+        EventBus.emit('theme:changed', themeName);
+    },
 
-        this.eventBus.emit('themeChanged', themeName);
-    }
-
-    getCurrentTheme() {
+    getCurrentTheme: function() {
         return this.currentTheme;
     }
-}
+};
+
+export default ThemeManager;

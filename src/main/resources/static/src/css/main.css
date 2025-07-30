@@ -1,6 +1,11 @@
-/* 全局样式与基础重置 */
+/* src/css/main.css - 全局样式与基础布局 */
+
+/*
+ * 默认主题变量 (Darcula)
+ * 这些变量将被主题文件覆盖。
+ */
 :root {
-    /* 默认颜色变量 (可在 theme-darcula.css / theme-light.css 中覆盖) */
+    /* 颜色变量 */
     --bg-primary: #21252b;
     --bg-panel: #2b2b2b;
     --bg-header: #3c3c3c;
@@ -12,21 +17,30 @@
     --selection-color: #264e6e;
     --shadow-color: rgba(0, 0, 0, 0.3);
 
+    /* 错误/警告颜色 */
+    --color-error: #ff6b6b;
+    --color-warning: #ffc107;
+    --color-info: #6a9955;
+    --color-untracked: #808080;
+    --color-modified: #e0b400;
+    --color-added: #6a9955;
+    --color-deleted: #cd3131;
+
     /* 字体定义 */
     --font-family-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --font-family-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Monaco', monospace; /* 需要自行安装或引入 */
+    --font-family-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
 
     /* 尺寸变量 */
-    --panel-header-height: 35px; /* 面板标题栏高度 */
-    --toolbar-height: 40px;      /* 工具栏高度 */
-    --status-bar-height: 25px;   /* 状态栏高度 */
+    --panel-header-height: 35px;
+    --toolbar-height: 40px;
+    --status-bar-height: 25px;
 }
 
 /* 通用重置 */
 * {
     margin: 0;
     padding: 0;
-    box-sizing: border-box; /* 盒模型为 border-box，更易布局 */
+    box-sizing: border-box;
 }
 
 /* HTML, Body 基础样式 */
@@ -34,130 +48,118 @@ html, body {
     height: 100%;
     width: 100%;
     font-family: var(--font-family-main);
-    background-color: var(--bg-primary); /* 使用变量 */
-    color: var(--text-primary); /* 使用变量 */
-    overflow: hidden; /* 防止主页面出现滚动条，由内部面板控制 */
-    transition: background-color 0.3s, color 0.3s; /* 主题切换平滑过渡 */
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 /* App 容器 - 使用 CSS Grid 实现整体布局 */
 .app-container {
     display: grid;
-    grid-template-rows: var(--toolbar-height) 1fr var(--status-bar-height); /* 顶部工具栏 | 主内容区 | 底部状态栏 */
-    grid-template-columns: 1fr; /* 单列 */
+    grid-template-rows: var(--toolbar-height) 1fr var(--status-bar-height);
+    grid-template-columns: 1fr;
     height: 100%;
     width: 100%;
 }
 
 /* 主内容区 - 使用 CSS Flex 实现三栏布局 */
 #main-panels {
-    display: flex; /* Changed from grid to flex for ResizableLayout */
-    flex-direction: row; /* Horizontal layout */
-    gap: 0;
-    padding: 0;
+    display: flex;
     overflow: hidden;
 }
 
 /* 面板通用样式 */
 .panel {
-    background-color: var(--bg-panel); /* 使用变量 */
-    border-radius: 0; /* 移除圆角，使面板之间无缝连接 */
-    overflow: hidden; /* 防止内容溢出面板 */
+    background-color: var(--bg-panel);
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    /* Ensure panels are flex items for the ResizableLayout */
-    flex-grow: 1;   /* Allow panels to grow to fill space if no flex-basis is set */
-    flex-shrink: 0; /* Important for flex-basis to control size accurately */
+    flex-grow: 1;
+    flex-shrink: 0;
+    flex-basis: 0; /* 让 flex-grow 控制初始大小 */
 }
 
 .panel-header {
     height: var(--panel-header-height);
-    background-color: var(--bg-header); /* 使用变量 */
-    border-bottom: 1px solid var(--border-color); /* 使用变量 */
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     padding: 0 10px;
-    flex-shrink: 0; /* 防止被挤压 */
+    flex-shrink: 0;
 }
 
 .panel-header h3 {
     font-size: 0.9rem;
     font-weight: normal;
-    color: var(--text-secondary); /* 使用变量 */
+    color: var(--text-secondary);
 }
 
-/* 面板内容区域，用于承载实际内容并控制滚动 */
+/* 面板内容区域 */
 .panel-content-area {
-    flex-grow: 1; /* 占据剩余空间 */
-    position: relative; /* 为内部的绝对定位内容做准备 */
-    overflow: hidden; /* 隐藏内容区域自身的滚动条，由内部子元素控制 */
+    flex-grow: 1;
+    position: relative;
+    overflow: hidden;
 }
 
-/* 可切换面板内容（如控制台、问题、终端、调试） */
 .panel-content {
-    position: absolute; /* 绝对定位，覆盖整个 panel-content-area */
+    position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    overflow: auto; /* 允许内容滚动 */
-    display: none; /* 默认隐藏 */
+    overflow: auto;
+    display: none;
     padding: 10px;
     font-size: 0.9rem;
     line-height: 1.5;
-    color: var(--text-primary); /* 使用变量 */
+    color: var(--text-primary);
 }
 
 .panel-content.active {
-    display: block; /* 激活时显示 */
+    display: block;
 }
 
 /* Monaco Editor 的挂载点 */
 #editor-area {
-    flex-grow: 1; /* 占据中心面板剩余空间 */
-    position: relative; /* Monaco Editor 需要相对定位的父容器 */
-    overflow: hidden; /* 隐藏编辑器区域本身的滚动条，由 Monaco 内部控制 */
+    flex-grow: 1;
+    position: relative;
+    overflow: hidden;
 }
 
-/* Custom Splitter/Gutter styles (replacing Split.js styles) */
+/* 可拖拽分隔条样式 */
 .custom-gutter {
     background-color: var(--bg-header);
-    background-repeat: no-repeat;
-    background-position: 50%;
+    flex-shrink: 0;
+    z-index: 10;
     transition: background-color 0.1s ease-in-out;
-    box-sizing: border-box; /* Ensures padding/border are included in size */
-    flex-shrink: 0; /* Essential to prevent the gutter from shrinking */
-    z-index: 10; /* Ensure it's above panels */
 }
 
-/* Horizontal gutters (for horizontal panel splits) */
 .custom-gutter.horizontal {
-    width: 5px; /* Standard gutter width */
-    cursor: ew-resize; /* East-West resize cursor */
+    width: 5px;
+    cursor: ew-resize;
 }
 
-/* Vertical gutters (for vertical panel splits, if implemented) */
 .custom-gutter.vertical {
-    height: 5px; /* Standard gutter height */
-    cursor: ns-resize; /* North-South resize cursor */
+    height: 5px;
+    cursor: ns-resize;
 }
 
-/* Gutter hover and dragging states */
 .custom-gutter:hover,
 .custom-gutter.is-dragging {
-    background-color: var(--accent-color); /* Highlight color on hover/drag */
+    background-color: var(--accent-color);
 }
 
-/* Body class during resizing to prevent text selection and other pointer events */
+/* 拖拽时禁用页面选择 */
 body.is-resizing {
-    user-select: none !important; /* Prevent text selection */
-    cursor: ew-resize !important; /* Set consistent cursor during horizontal drag */
+    user-select: none !important;
+    cursor: ew-resize !important;
 }
 
 body.is-resizing * {
-    pointer-events: none !important; /* Disable all pointer events on children */
+    pointer-events: none !important;
 }
-
 
 /* 自定义滚动条 (Webkit) */
 ::-webkit-scrollbar {
@@ -166,14 +168,14 @@ body.is-resizing * {
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--bg-primary); /* 滚动条轨道颜色 */
+    background: var(--bg-primary);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--border-color); /* 滚动条滑块颜色 */
+    background: var(--border-color);
     border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #606060; /* 滑块悬停颜色 */
+    background: #606060;
 }

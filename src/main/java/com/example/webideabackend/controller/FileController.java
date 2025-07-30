@@ -1,4 +1,3 @@
-// src/main/java/com/example/webideabackend/controller/FileController.java
 package com.example.webideabackend.controller;
 
 import com.example.webideabackend.model.CreateFileRequest;
@@ -6,12 +5,14 @@ import com.example.webideabackend.model.FileContentRequest;
 import com.example.webideabackend.model.FileNode;
 import com.example.webideabackend.model.RenameFileRequest;
 import com.example.webideabackend.service.FileService;
+import com.example.webideabackend.service.LanguageServerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 
@@ -19,13 +20,15 @@ import java.io.IOException;
 @RequestMapping("/api/files")
 public class FileController {
 
-    private static final Logger logger = LoggerFactory.getLogger(FileController.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(FileController.class);
 
     private final FileService fileService;
+    private final LanguageServerService languageServerService;
 
     @Autowired
-    public FileController(FileService fileService) {
+    public FileController(FileService fileService, LanguageServerService languageServerService) {
         this.fileService = fileService;
+        this.languageServerService = languageServerService;
     }
 
     @GetMapping("/tree")
@@ -34,10 +37,11 @@ public class FileController {
             FileNode fileTree = fileService.getFileTree(path);
             return ResponseEntity.ok(fileTree);
         } catch (IOException e) {
-            logger.error("Error getting file tree for path: " + path, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to retrieve file tree: " + e.getMessage());
+            LOGGER.error("Error getting file tree for path: {}", path, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to retrieve file tree: " + e.getMessage());
         } catch (IllegalArgumentException e) {
-            logger.error("Invalid path argument: " + path, e);
+            LOGGER.error("Invalid path argument: {}", path, e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
     }
@@ -46,9 +50,10 @@ public class FileController {
     public ResponseEntity<String> getFileContent(@RequestParam String path) {
         try {
             String content = fileService.readFileContent(path);
+            languageServerService.fileOpened(path, content);
             return ResponseEntity.ok(content);
         } catch (IOException e) {
-            logger.error("Error reading file content for path: " + path, e);
+            LOGGER.error("Error reading file content for path: {}", path, e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
         }
     }
@@ -56,10 +61,11 @@ public class FileController {
     @PostMapping("/content")
     public ResponseEntity<String> saveFileContent(@RequestBody FileContentRequest request) {
         try {
-            fileService.writeFileContent(request.getPath(), request.getContent());
+            fileService.writeFileContent(request.path(), request.content());
+            languageServerService.fileSaved(request.path());
             return ResponseEntity.ok("File saved successfully.");
         } catch (IOException e) {
-            logger.error("Failed to save file: " + request.getPath(), e);
+            LOGGER.error("Failed to save file: {}", request.path(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to save file: " + e.getMessage());
         }
     }
@@ -67,13 +73,13 @@ public class FileController {
     @PostMapping("/create")
     public ResponseEntity<String> createFile(@RequestBody CreateFileRequest request) {
         try {
-            fileService.createFile(request.getParentPath(), request.getName(), request.getType());
-            return ResponseEntity.ok("Created " + request.getType() + ": " + request.getName());
+            fileService.createFile(request.parentPath(), request.name(), request.type());
+            return ResponseEntity.ok("Created " + request.type() + ": " + request.name());
         } catch (IOException e) {
-            logger.error("Failed to create " + request.getType() + ": " + request.getParentPath() + "/" + request.getName(), e);
+            LOGGER.error("Failed to create {}: {}/{}", request.type(), request.parentPath(), request.name(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to create: " + e.getMessage());
         } catch (IllegalArgumentException e) {
-            logger.error("Invalid type for creation: " + request.getType(), e);
+            LOGGER.error("Invalid type for creation: {}", request.type(), e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
     }
@@ -84,7 +90,7 @@ public class FileController {
             fileService.deleteFile(path);
             return ResponseEntity.ok("Deleted: " + path);
         } catch (IOException e) {
-            logger.error("Failed to delete: " + path, e);
+            LOGGER.error("Failed to delete: {}", path, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to delete: " + e.getMessage());
         }
     }
@@ -92,12 +98,25 @@ public class FileController {
     @PutMapping("/rename")
     public ResponseEntity<String> renameFile(@RequestBody RenameFileRequest request) {
         try {
-            // New path here should be just the new file/folder name
-            fileService.renameFile(request.getOldPath(), request.getNewPath());
-            return ResponseEntity.ok("Renamed " + request.getOldPath() + " to " + request.getNewPath());
+            fileService.renameFile(request.oldPath(), request.newName());
+            return ResponseEntity.ok("Renamed " + request.oldPath() + " to " + request.newName());
         } catch (IOException e) {
-            logger.error("Failed to rename " + request.getOldPath() + " to " + request.getNewPath(), e);
+            LOGGER.error("Failed to rename {} to {}", request.oldPath(), request.newName(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to rename: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/replace-project")
+    public ResponseEntity<?> replaceProject(
+            @RequestParam("projectPath") String projectPath,
+            @RequestParam("files") MultipartFile[] files) {
+        try {
+            fileService.replaceProject(projectPath, files);
+            return ResponseEntity.ok("Project replaced successfully.");
+        } catch (IOException e) {
+            LOGGER.error("Failed to replace project at path: {}", projectPath, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to replace project: " + e.getMessage());
         }
     }
 }

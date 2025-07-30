@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  app:
+    # 使用一个同时包含Java 17和Maven的官方镜像
+    image: maven:3.9-eclipse-temurin-17
+    container_name: my-app-8082
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./:/app
+    working_dir: /app
+    # 直接启动java应用，因为maven已经内置在镜像里了
+    command: java -Duser.timezone=Asia/Shanghai -jar app.jar

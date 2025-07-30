@@ -1,98 +1,65 @@
+/**
+ * SystemCommandExecutor.java
+ *
+ * 这是一个工具类，负责以跨平台的方式安全地执行外部系统命令。
+ * 它现在接受一个命令列表，以避免路径中存在空格导致的问题。
+ */
 package com.example.webideabackend.util;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component; // 确保导入
+import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
-// --- 关键改动：添加 @Component 注解 ---
 @Component
 public class SystemCommandExecutor {
 
-    private static final Logger logger = LoggerFactory.getLogger(SystemCommandExecutor.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SystemCommandExecutor.class);
 
     /**
-     * Executes a system command and streams its output.
+     * 异步执行一个系统命令并流式传输其标准输出和错误流。
      *
-     * @param command The command to execute (e.g., "mvn clean install").
-     * @param workingDirectory The directory where the command should be executed.
-     * @param outputConsumer A consumer to process each line of the command's output.
-     * @return A CompletableFuture that completes when the command finishes, containing the exit code.
+     * @param commandList      要执行的命令及其参数列表。
+     * @param workingDirectory 命令执行的工作目录。
+     * @param outputConsumer   一个消费者，用于处理命令输出的每一行。
+     * @return 一个CompletableFuture，当命令执行完毕时完成，其值为进程的退出码。
      */
-    public CompletableFuture<Integer> executeCommand(String command, File workingDirectory, Consumer<String> outputConsumer) {
+    public CompletableFuture<Integer> executeCommand(List<String> commandList, File workingDirectory, Consumer<String> outputConsumer) {
         return CompletableFuture.supplyAsync(() -> {
-            Process process = null;
-            BufferedReader reader = null;
+            if (commandList == null || commandList.isEmpty()) {
+                outputConsumer.accept("FATAL: Command cannot be empty.");
+                return -1;
+            }
             try {
-                // Determine OS and adjust command
-                String[] cmdArray;
-                boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+                LOGGER.info("Executing command: {} in directory: {}", commandList, workingDirectory.getAbsolutePath());
 
-                if (isWindows) {
-                    // On Windows, use cmd /c. Split the command string correctly.
-                    // Example: "mvnw clean install" -> ["cmd.exe", "/c", "mvnw.cmd", "clean", "install"]
-                    String baseCommand = command.split(" ")[0];
-                    if (baseCommand.equals("mvnw") || baseCommand.equals("gradlew")) {
-                        // The command itself will be mvnw.cmd, followed by args
-                        cmdArray = command.replaceFirst(baseCommand, baseCommand + ".cmd").split(" ");
-                        cmdArray = new String[]{"cmd.exe", "/c", String.join(" ", cmdArray)};
-                    } else {
-                        cmdArray = command.split(" ");
-                    }
-                } else {
-                    // On Unix-like systems
-                    String baseCommand = command.split(" ")[0];
-                    if (baseCommand.startsWith("./")) { // if already has ./
-                        cmdArray = command.split(" ");
-                    } else if (baseCommand.equals("mvnw") || baseCommand.equals("gradlew")) {
-                        // Prepend ./ to wrapper scripts
-                        cmdArray = command.replaceFirst(baseCommand, "./" + baseCommand).split(" ");
-                    }
-                    else {
-                        cmdArray = command.split(" ");
-                    }
-                }
+                var processBuilder = new ProcessBuilder(commandList)
+                        .directory(workingDirectory)
+                        .redirectErrorStream(true); // 将错误流重定向到标准输出流
 
-                logger.info("Executing command array: {} in directory: {}", Arrays.toString(cmdArray), workingDirectory.getAbsolutePath());
+                var process = processBuilder.start();
 
-                ProcessBuilder pb = new ProcessBuilder(cmdArray);
-                pb.directory(workingDirectory);
-                pb.redirectErrorStream(true); // Redirect error stream to standard output stream
-
-                process = pb.start();
-                reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    outputConsumer.accept(line); // Pass each line to the consumer
+                try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    reader.lines().forEach(outputConsumer);
                 }
 
                 int exitCode = process.waitFor();
-                logger.info("Command exited with code: {}", exitCode);
+                LOGGER.info("Command finished with exit code: {}", exitCode);
                 return exitCode;
 
             } catch (IOException | InterruptedException e) {
-                logger.error("Error executing command: " + command, e);
-                outputConsumer.accept("Error executing command: " + e.getMessage());
-                Thread.currentThread().interrupt(); // Restore interrupted status
-                return -1; // Indicate an error
-            } finally {
-                if (reader != null) {
-                    try {
-                        reader.close();
-                    } catch (IOException e) {
-                        logger.warn("Error closing reader", e);
-                    }
+                LOGGER.error("Error executing command: {}", commandList, e);
+                outputConsumer.accept("FATAL: Command execution failed. " + e.getMessage());
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
                 }
-                if (process != null) {
-                    process.destroy(); // Ensure process is terminated
-                }
+                return -1;
             }
         });
     }

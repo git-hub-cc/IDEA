@@ -1,3 +1,15 @@
+/**
+ * JavaCompilerRunnerService.java
+ *
+ * 该服务类封装了执行系统命令以构建（使用Maven）和运行Java应用程序的核心逻辑。
+ * 已重构为使用命令列表来避免路径分割问题。
+ *
+ * 版本修正:
+ * 为了解决在Linux/Docker环境中因`mvnw`脚本换行符问题导致的 "ZipException: zip END header not found" 错误，
+ * 此版本将构建命令从依赖平台相关的 `./mvnw` 或 `mvnw.cmd` 脚本，修改为直接调用 `mvn` 命令。
+ * 这一改动要求运行此服务的Docker容器环境中必须已安装Maven并将其添加到了系统PATH中。
+ * 推荐使用如 `maven:3.9-eclipse-temurin-17` 的官方镜像。
+ */
 package com.example.webideabackend.service;
 
 import com.example.webideabackend.util.SystemCommandExecutor;
@@ -6,102 +18,126 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class JavaCompilerRunnerService {
 
-    @Value("${app.workspace-root}")
-    private String workspaceRootPath;
-
+    private final Path workspaceRoot;
     private final SystemCommandExecutor commandExecutor;
     private final WebSocketLogService logService;
 
+    private static final String BUILD_LOG_TOPIC = "/topic/build-log";
+    private static final String RUN_LOG_TOPIC = "/topic/run-log";
+    private static final String DEBUG_LOG_TOPIC = "/topic/debug-events";
+
+    public record DebugLaunchResult(Process process, int port) {}
+
     @Autowired
-    public JavaCompilerRunnerService(SystemCommandExecutor commandExecutor, WebSocketLogService logService) {
+    public JavaCompilerRunnerService(
+            @Value("${app.workspace-root}") String workspaceRootPath,
+            SystemCommandExecutor commandExecutor,
+            WebSocketLogService logService) {
+        this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
         this.commandExecutor = commandExecutor;
         this.logService = logService;
     }
 
-    /**
-     * Executes a Maven build command within a specified project directory.
-     *
-     * @param projectRelativePath The relative path to the project directory within the workspace.
-     * @param mavenCommand        The Maven command to execute (e.g., "mvnw clean install").
-     * @return A CompletableFuture that completes with the exit code of the command.
-     */
-    public CompletableFuture<Integer> runMavenBuild(String projectRelativePath, String mavenCommand) {
-        File projectDir = Paths.get(workspaceRootPath, projectRelativePath).toFile();
+    public DebugLaunchResult launchForDebug(String projectRelativePath, String mainClass) throws IOException {
+        var projectDir = workspaceRoot.resolve(projectRelativePath).toFile();
+        if (!projectDir.exists() || !projectDir.isDirectory()) {
+            throw new IOException("Project directory not found: " + projectDir.getAbsolutePath());
+        }
+
+        int port = findFreePort();
+        String jdwpOptions = String.format("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:%d", port);
+
+        List<String> commandList = buildJavaCommandList(projectDir, mainClass, jdwpOptions);
+        if (commandList == null) {
+            throw new IOException("No compiled artifacts found. Please build the project first.");
+        }
+
+        logService.sendMessage(DEBUG_LOG_TOPIC, "Starting debug session with command: " + String.join(" ", commandList));
+
+        // 使用ProcessBuilder直接启动，因为我们只需要进程对象
+        ProcessBuilder pb = new ProcessBuilder(commandList).directory(projectDir);
+        return new DebugLaunchResult(pb.start(), port);
+    }
+
+    private List<String> buildJavaCommandList(File projectDir, String mainClass, String jvmOptions) {
+        var targetDir = new File(projectDir, "target");
+        var jarFile = new File(targetDir, projectDir.getName() + "-1.0-SNAPSHOT.jar");
+        var classesDir = new File(targetDir, "classes");
+        String effectiveClassPath;
+
+        if (jarFile.exists()) {
+            effectiveClassPath = jarFile.getAbsolutePath();
+        } else if (classesDir.exists()) {
+            effectiveClassPath = classesDir.getAbsolutePath();
+        } else {
+            return null; // No compiled artifacts
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add("java");
+        if (jvmOptions != null && !jvmOptions.isBlank()) {
+            command.add(jvmOptions);
+        }
+        command.add("-Dfile.encoding=UTF-8");
+        command.add("-cp");
+        command.add(effectiveClassPath);
+        command.add(mainClass);
+
+        return command;
+    }
+
+    private static int findFreePort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        }
+    }
+
+    public CompletableFuture<Integer> runMavenBuild(String projectRelativePath) {
+        var projectDir = workspaceRoot.resolve(projectRelativePath).toFile();
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             String errorMessage = "Error: Project directory not found: " + projectDir.getAbsolutePath();
-            logService.sendMessage("/topic/build-log", errorMessage);
+            logService.sendMessage(BUILD_LOG_TOPIC, errorMessage);
             return CompletableFuture.completedFuture(-1);
         }
 
-        // The SystemCommandExecutor will handle OS-specific command wrapping (e.g., cmd /c on Windows).
-        logService.sendMessage("/topic/build-log", "Executing: " + mavenCommand + " in " + projectDir.getAbsolutePath());
+        // ==================== 关键修改点 START ====================
+        // 原代码依赖于平台特定的 mvnw 或 mvnw.cmd 脚本，这在跨平台部署（尤其是在Docker中）时
+        // 容易因文件权限或换行符格式问题而出错。
+        // 新代码直接调用 'mvn' 命令，前提是运行环境（如Docker容器）中已安装Maven。
+        // 这使得构建过程更健壮、更标准。
+        List<String> mavenCommand = Arrays.asList("mvn", "clean", "install", "-U", "-Dfile.encoding=UTF-8");
+        // ==================== 关键修改点 END ======================
+
+        logService.sendMessage(BUILD_LOG_TOPIC, "Executing: " + String.join(" ", mavenCommand) + " in " + projectDir.getAbsolutePath());
         return commandExecutor.executeCommand(mavenCommand, projectDir,
-                line -> logService.sendMessage("/topic/build-log", line)
+                line -> logService.sendMessage(BUILD_LOG_TOPIC, line)
         );
     }
 
-    /**
-     * Runs a compiled Java application. This method first looks for a standard Maven-produced JAR file.
-     * If found, it runs the application using `java -cp <jarfile> <mainClass>`, which is more robust
-     * than `java -jar` as it does not depend on the MANIFEST.MF file's Main-Class entry.
-     * If no JAR is found, it falls back to running from the `target/classes` directory.
-     *
-     * @param projectRelativePath The relative path to the project directory within the workspace.
-     * @param mainClass           The fully qualified name of the main class (e.g., "com.example.Main").
-     * @return A CompletableFuture that completes with the exit code of the application.
-     */
     public CompletableFuture<Integer> runJavaApplication(String projectRelativePath, String mainClass) {
-        File projectDir = Paths.get(workspaceRootPath, projectRelativePath).toFile();
-        if (!projectDir.exists() || !projectDir.isDirectory()) {
-            String errorMessage = "Error: Project directory not found: " + projectDir.getAbsolutePath();
-            logService.sendMessage("/topic/run-log", errorMessage);
+        var projectDir = workspaceRoot.resolve(projectRelativePath).toFile();
+        List<String> commandList = buildJavaCommandList(projectDir, mainClass, "");
+        if (commandList == null) {
+            logService.sendMessage(RUN_LOG_TOPIC, "Error: No compiled artifacts found. Please build the project first.");
             return CompletableFuture.completedFuture(-1);
         }
 
-        File targetDir = new File(projectDir, "target");
-
-        // Construct the expected JAR file name based on artifactId and version from pom.xml (common convention)
-        // A more robust solution would be to parse pom.xml, but this covers the standard case.
-        String jarFileName = projectDir.getName() + "-1.0-SNAPSHOT.jar";
-        File jarFile = new File(targetDir, jarFileName);
-
-        File classesDir = new File(targetDir, "classes");
-
-        String javaCommand;
-        // Options to ensure consistent output encoding across platforms
-        String javaOpts = "-Dfile.encoding=UTF-8";
-
-        // **Strategy**: Prefer running from JAR using `java -cp`, as it's more reliable.
-        if (jarFile.exists()) {
-            String classpath = jarFile.getAbsolutePath();
-            // **Robust approach**: Use `java -cp` which does not rely on MANIFEST.MF `Main-Class`.
-            // This directly specifies the main class to run, avoiding "Main class not found" errors.
-            javaCommand = "java " + javaOpts + " -cp \"" + classpath + "\" " + mainClass;
-            logService.sendMessage("/topic/run-log", "Running from JAR with explicit main class: " + jarFile.getName());
-
-        } else if (classesDir.exists()) {
-            // Fallback strategy: run from the compiled .class files directly.
-            String classpath = classesDir.getAbsolutePath();
-            javaCommand = "java " + javaOpts + " -cp \"" + classpath + "\" " + mainClass;
-            logService.sendMessage("/topic/run-log", "Running from classes directory: " + classesDir.getName());
-
-        } else {
-            // If neither JAR nor classes directory is found, report an error.
-            String errorMessage = "Error: No compiled JAR (" + jarFileName + ") or classes directory found in 'target'. " +
-                    "Please ensure the project has been built successfully with 'mvn clean install'.";
-            logService.sendMessage("/topic/run-log", errorMessage);
-            return CompletableFuture.completedFuture(-1);
-        }
-
-        logService.sendMessage("/topic/run-log", "Executing: " + javaCommand);
-        return commandExecutor.executeCommand(javaCommand, projectDir,
-                line -> logService.sendMessage("/topic/run-log", line)
+        logService.sendMessage(RUN_LOG_TOPIC, "Executing: " + String.join(" ", commandList));
+        return commandExecutor.executeCommand(commandList, projectDir,
+                line -> logService.sendMessage(RUN_LOG_TOPIC, line)
         );
     }
 }

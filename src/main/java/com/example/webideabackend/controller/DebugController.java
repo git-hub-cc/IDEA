@@ -1,86 +1,78 @@
+/**
+ * DebugController.java
+ *
+ * 该RESTful控制器用于处理调试会话的启动、停止和单步操作。
+ * 它将所有请求委托给DebugService来执行真正的调试操作。
+ */
 package com.example.webideabackend.controller;
 
-import com.example.webideabackend.service.WebSocketLogService;
+import com.example.webideabackend.model.Breakpoint;
+import com.example.webideabackend.service.DebugService;
+import com.sun.jdi.connect.IllegalConnectorArgumentsException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/debug")
 public class DebugController {
 
-    private final WebSocketLogService logService;
-    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    private boolean debugging = false;
+    private final DebugService debugService;
 
     @Autowired
-    public DebugController(WebSocketLogService logService) {
-        this.logService = logService;
+    public DebugController(DebugService debugService) {
+        this.debugService = debugService;
     }
 
     @PostMapping("/start")
     public ResponseEntity<String> startDebug(@RequestParam String projectPath, @RequestParam String mainClass) {
-        if (debugging) {
-            return ResponseEntity.badRequest().body("Debugging already in progress.");
+        try {
+            debugService.startDebugSession(projectPath, mainClass);
+            return ResponseEntity.ok("Debug session started.");
+        } catch (IOException | IllegalConnectorArgumentsException | IllegalStateException e) {
+            return ResponseEntity.internalServerError().body("Failed to start debug session: " + e.getMessage());
         }
-        debugging = true;
-        logService.sendMessage("/topic/debug-events", "DEBUG: Debugging session started for " + mainClass + " in " + projectPath);
-
-        // Simulate debug events
-        scheduler = Executors.newScheduledThreadPool(1);
-        scheduler.scheduleAtFixedRate(() -> {
-            if (!debugging) {
-                scheduler.shutdown();
-                return;
-            }
-            Random rand = new Random();
-            int line = rand.nextInt(100) + 1; // Simulate random line number
-            String currentMethod = "method" + (rand.nextInt(3) + 1);
-
-            logService.sendMessage("/topic/debug-events", "DEBUG: Paused at " + mainClass + "." + currentMethod + "(" + line + ")");
-            logService.sendMessage("/topic/debug-events", "VARIABLES: {\"counter\": " + rand.nextInt(10) + ", \"name\": \"Value" + rand.nextInt(5) + "\"}");
-            logService.sendMessage("/topic/debug-events", "CALLSTACK: [\"" + mainClass + ".main()\", \"" + mainClass + "." + currentMethod + "()\"]");
-
-        }, 0, 3, TimeUnit.SECONDS); // Every 3 seconds send a debug event
-
-        return ResponseEntity.ok("Debug started (simulated).");
     }
 
     @PostMapping("/stop")
     public ResponseEntity<String> stopDebug() {
-        if (!debugging) {
-            return ResponseEntity.badRequest().body("No debugging session active.");
-        }
-        debugging = false;
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdownNow();
-        }
-        logService.sendMessage("/topic/debug-events", "DEBUG: Debugging session stopped.");
-        return ResponseEntity.ok("Debug stopped (simulated).");
-    }
-
-    @PostMapping("/stepOver")
-    public ResponseEntity<String> stepOver() {
-        logService.sendMessage("/topic/debug-events", "DEBUG: Stepping over...");
-        return ResponseEntity.ok("Step Over (simulated)");
-    }
-
-    @PostMapping("/stepInto")
-    public ResponseEntity<String> stepInto() {
-        logService.sendMessage("/topic/debug-events", "DEBUG: Stepping into...");
-        return ResponseEntity.ok("Step Into (simulated)");
+        debugService.cleanupSession();
+        return ResponseEntity.ok("Debug session stopped.");
     }
 
     @PostMapping("/resume")
     public ResponseEntity<String> resume() {
-        logService.sendMessage("/topic/debug-events", "DEBUG: Resuming program...");
-        return ResponseEntity.ok("Resume (simulated)");
+        debugService.resume();
+        return ResponseEntity.ok("Resume command sent.");
     }
 
-    // You can add more simulated debug actions like setBreakpoint, getVariables, etc.
+    @PostMapping("/stepOver")
+    public ResponseEntity<String> stepOver() {
+        debugService.stepOver();
+        return ResponseEntity.ok("Step Over command sent.");
+    }
+
+    @PostMapping("/stepInto")
+    public ResponseEntity<String> stepInto() {
+        debugService.stepInto();
+        return ResponseEntity.ok("Step Into command sent.");
+    }
+
+    @PostMapping("/stepOut")
+    public ResponseEntity<String> stepOut() {
+        debugService.stepOut();
+        return ResponseEntity.ok("Step Out command sent.");
+    }
+
+    @PostMapping("/breakpoint/toggle")
+    public ResponseEntity<String> toggleBreakpoint(@RequestBody Breakpoint breakpoint) {
+        try {
+            debugService.toggleBreakpoint(breakpoint);
+            return ResponseEntity.ok("Breakpoint toggled.");
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Failed to toggle breakpoint: " + e.getMessage());
+        }
+    }
 }

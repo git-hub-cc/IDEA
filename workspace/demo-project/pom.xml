@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>demo-project</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <!-- 指定项目使用 Java 17 -->
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        
+        <!-- 指定插件版本 -->
+        <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <maven-jar-plugin.version>3.3.0</maven-jar-plugin.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <!-- 1. 编译器插件 -->
+            <!-- 确保 Maven 使用与 Java 17 兼容的编译器插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
+                <!-- 注意：对于 Java 9+, 推荐使用 <release> 而不是 <source> 和 <target> -->
+                <!-- <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration> -->
+            </plugin>
+            
+            <!-- 2. JAR 打包插件 -->
+            <!-- 这是解决问题的关键：配置 MANIFEST.MF 文件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>${maven-jar-plugin.version}</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <!-- 在清单中添加 classpath (对于有依赖的 JAR 很重要) -->
+                            <addClasspath>true</addClasspath>
+                            <!-- **核心配置**: 指定可执行 JAR 的主类入口 -->
+                            <mainClass>com.example.Main</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

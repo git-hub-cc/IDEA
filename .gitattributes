@@ -1,0 +1,7 @@
+# 将所有文本文件都规范化为LF换行符
+* text=auto
+
+# 明确指定这些文件类型使用LF换行符
+*.sh    eol=lf
+*.bash  eol=lf
+mvnw    eol=lf
