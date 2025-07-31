@@ -31,7 +31,7 @@ const CodeEditorManager = {
             return;
         }
         this.monacoInstance = window.monaco.editor.create(this.editorArea, {
-            value: '// 欢迎使用 Web IDEA！请从左侧文件树中选择一个文件以开始。',
+            value: '// 欢迎使用 Web IDEA！请从顶部选择一个项目，然后从左侧文件树中选择一个文件。',
             language: 'plaintext',
             theme: 'vs-dark',
             automaticLayout: true,
@@ -58,6 +58,13 @@ const CodeEditorManager = {
         EventBus.on('theme:changed', (theme) => this.setTheme(theme));
         EventBus.on('settings:changed', this.applySettings.bind(this));
         EventBus.on('diagnostics:updated', this.updateDiagnostics.bind(this));
+        EventBus.on('project:activated', this.handleProjectChange.bind(this));
+    },
+
+    handleProjectChange: function() {
+        // 当项目改变时，关闭所有打开的文件
+        const openFilePaths = Array.from(this.openFiles.keys());
+        openFilePaths.forEach(path => this.closeFile(path));
     },
 
     openFile: async function(filePath) {

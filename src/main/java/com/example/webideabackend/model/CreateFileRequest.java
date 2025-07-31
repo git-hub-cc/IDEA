@@ -11,13 +11,14 @@ import jakarta.validation.constraints.Pattern;
 
 /**
  * 一个记录(record)，封装了创建新文件或目录所需的数据。
- * 使用 JDK 17 的 record 类型，可以自动获得构造函数、equals、hashCode和toString方法。
  *
- * @param parentPath 新建项的父目录路径
- * @param name       新建文件或目录的名称
- * @param type       创建的类型，必须是 "file" 或 "directory"
+ * @param projectPath 目标所属的项目名称。
+ * @param parentPath 新建项的父目录路径。
+ * @param name       新建文件或目录的名称。
+ * @param type       创建的类型，必须是 "file" 或 "directory"。
  */
 public record CreateFileRequest(
+        @NotBlank String projectPath,
         @NotBlank String parentPath,
         @NotBlank String name,
         @NotBlank @Pattern(regexp = "file|directory|folder", message = "Type must be 'file', 'directory', or 'folder'") String type) {

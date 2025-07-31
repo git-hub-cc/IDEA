@@ -42,6 +42,11 @@
     <!-- 顶部工具栏 -->
     <div id="toolbar" class="toolbar">
         <div class="toolbar-group">
+            <!-- ================== 新增项目选择器 ================== -->
+            <select id="project-selector" class="toolbar-selector" title="选择活动项目">
+                <option value="">-- 选择项目 --</option>
+            </select>
+            <!-- =================================================== -->
             <button class="toolbar-btn" data-action="new-file" title="新建文件 (Ctrl+N)">
                 <i class="fas fa-file"></i>
             </button>
@@ -61,6 +66,9 @@
             </button>
         </div>
         <div class="toolbar-group">
+            <button class="toolbar-btn" data-action="vcs-clone" title="克隆仓库">
+                <i class="fas fa-cloud-download-alt"></i>
+            </button>
             <button class="toolbar-btn" data-action="vcs-commit" title="提交更改 (Ctrl+K)">
                 <i class="fas fa-code-branch"></i>
             </button>

@@ -2,7 +2,8 @@
  * DebugService.java
  *
  * This is the core service for debugging. It uses the Java Debug Interface (JDI)
- * to launch, connect to, and control a debuggee Java process.
+ * to launch, connect to, and control a debuggee Java process. It now maintains
+ * the context of the currently active project for a debug session.
  */
 package com.example.webideabackend.service;
 
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +42,7 @@ public class DebugService implements DisposableBean {
 
     private final JavaCompilerRunnerService runnerService;
     private final WebSocketLogService webSocketLogService;
-    private final String workspaceRoot;
+    private final Path workspaceRoot;
 
     private volatile VirtualMachine vm;
     private volatile Process debuggeeProcess;
@@ -49,13 +51,16 @@ public class DebugService implements DisposableBean {
 
     private volatile ThreadReference pausedThread = null;
 
+    // 关键修改: 记住当前正在调试的项目，以确保路径解析正确。
+    private volatile String currentDebugProjectPath = null;
+
     private static final String DEBUG_TOPIC = "/topic/debug-events";
 
     @Autowired
-    public DebugService(JavaCompilerRunnerService runnerService, WebSocketLogService webSocketLogService, @Value("${app.workspace-root}") String workspaceRoot) {
+    public DebugService(JavaCompilerRunnerService runnerService, WebSocketLogService webSocketLogService, @Value("${app.workspace-root}") String workspaceRootPath) {
         this.runnerService = runnerService;
         this.webSocketLogService = webSocketLogService;
-        this.workspaceRoot = workspaceRoot;
+        this.workspaceRoot = Paths.get(workspaceRootPath);
     }
 
     public synchronized void startDebugSession(String projectPath, String mainClass) throws IOException, IllegalConnectorArgumentsException {
@@ -63,6 +68,9 @@ public class DebugService implements DisposableBean {
             throw new IllegalStateException("A debug session is already active.");
         }
         cleanupSession();
+
+        // 关键修改: 在会话开始时保存项目上下文。
+        this.currentDebugProjectPath = projectPath;
 
         JavaCompilerRunnerService.DebugLaunchResult launchResult = runnerService.launchForDebug(projectPath, mainClass);
         this.debuggeeProcess = launchResult.process();
@@ -136,7 +144,14 @@ public class DebugService implements DisposableBean {
 
     // --- Data Extraction Helpers ---
     private LocationInfo extractLocationInfo(Location loc) throws AbsentInformationException {
-        String relativePath = Path.of(workspaceRoot).relativize(Path.of(loc.sourcePath())).toString().replace('\\', '/');
+        // 关键修改: 使用当前调试的项目路径来计算相对路径，确保前端能正确定位文件。
+        if (currentDebugProjectPath == null) {
+            log.warn("Cannot determine relative path, debug project context is not set. Falling back to absolute path.");
+            return new LocationInfo(loc.sourcePath(), loc.sourceName(), loc.lineNumber());
+        }
+        Path projectDir = workspaceRoot.resolve(currentDebugProjectPath);
+        // JDI 可能返回一个绝对路径，我们需要将其转换为相对于当前项目根目录的路径
+        String relativePath = projectDir.relativize(Paths.get(loc.sourcePath())).toString().replace('\\', '/');
         return new LocationInfo(relativePath, loc.sourceName(), loc.lineNumber());
     }
 
@@ -151,6 +166,7 @@ public class DebugService implements DisposableBean {
                 }
             }).collect(Collectors.toList());
         } catch (IncompatibleThreadStateException e) {
+            log.warn("Could not extract call stack due to thread state.", e);
             return new ArrayList<>();
         }
     }
@@ -160,7 +176,6 @@ public class DebugService implements DisposableBean {
             return frame.visibleVariables().stream()
                     .map(variable -> {
                         try {
-                            // 修正 #1: 使用完全限定名称 com.sun.jdi.Value 来消除歧义
                             com.sun.jdi.Value value = frame.getValue(variable);
                             String valueStr = (value == null) ? "null" : value.toString();
                             if (value instanceof StringReference) {
@@ -214,6 +229,15 @@ public class DebugService implements DisposableBean {
 
     public void toggleBreakpoint(Breakpoint bp) {
         if (vm == null) throw new IllegalStateException("Debug session not active.");
+
+        // 关键修改: 验证断点请求的项目是否与当前调试的项目匹配。
+        if (!Objects.equals(this.currentDebugProjectPath, bp.projectPath())) {
+            throw new IllegalStateException(
+                    String.format("Breakpoint request for project '%s' does not match active debug session for project '%s'.",
+                            bp.projectPath(), this.currentDebugProjectPath)
+            );
+        }
+
         String className = bp.filePath()
                 .replaceFirst("^src/main/java/", "")
                 .replace(".java", "")
@@ -279,6 +303,8 @@ public class DebugService implements DisposableBean {
         }
         activeBreakpoints.clear();
         pausedThread = null;
+        // 关键修改: 清理会话时，重置项目上下文。
+        currentDebugProjectPath = null;
         webSocketLogService.sendMessage(DEBUG_TOPIC, DebugEvent.terminated());
         log.info("Debug session cleaned up.");
     }

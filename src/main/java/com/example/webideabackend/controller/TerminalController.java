@@ -1,9 +1,3 @@
-/**
- * TerminalController.java
- *
- * 该控制器处理与交互式终端相关的WebSocket消息。
- * 它管理终端会话的生命周期，并将前端输入路由到相应的后端shell进程。
- */
 package com.example.webideabackend.controller;
 
 import com.example.webideabackend.service.TerminalService;
@@ -27,12 +21,7 @@ public class TerminalController {
         this.terminalService = terminalService;
     }
 
-    /**
-     * 当客户端断开WebSocket连接时，结束对应的终端会话。
-     * 这是管理终端生命周期的关键。
-     *
-     * @param event 断开连接事件。
-     */
+    // ... handleWebSocketDisconnectListener remains the same ...
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         String sessionId = event.getSessionId();
@@ -45,22 +34,18 @@ public class TerminalController {
     /**
      * 处理前端请求启动一个新的终端会话。
      *
+     * @param projectPath    The project context to start the terminal in.
      * @param headerAccessor 消息头访问器，用于获取会话ID。
      */
     @MessageMapping("/terminal/start")
-    public void startTerminal(SimpMessageHeaderAccessor headerAccessor) {
+    public void startTerminal(@Payload String projectPath, SimpMessageHeaderAccessor headerAccessor) {
         String sessionId = headerAccessor.getSessionId();
         if (sessionId != null) {
-            terminalService.startSession(sessionId);
+            terminalService.startSession(sessionId, projectPath);
         }
     }
 
-    /**
-     * 接收来自前端的终端输入。
-     *
-     * @param input          前端发送的输入数据。
-     * @param headerAccessor 消息头访问器，用于获取会话ID。
-     */
+    // ... handleInput remains the same ...
     @MessageMapping("/terminal/input")
     public void handleInput(@Payload String input, SimpMessageHeaderAccessor headerAccessor) {
         String sessionId = headerAccessor.getSessionId();

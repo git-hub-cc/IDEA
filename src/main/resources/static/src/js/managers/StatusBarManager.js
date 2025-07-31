@@ -33,7 +33,9 @@ const StatusBarManager = {
 
         this.bindAppEvents();
         this.updateStatus('就绪');
-        this.updateGitStatus();
+        // ================== 关键修正：移除此处的调用 ==================
+        // this.updateGitStatus();
+        // ==========================================================
     },
 
     bindAppEvents: function() {
@@ -54,6 +56,7 @@ const StatusBarManager = {
         this.progressLabel.textContent = message || `0 / ${total}`;
         this.progressBar.style.width = '0%';
         this.progressIndicator.style.display = 'flex';
+        if (this.statusTimeout) clearTimeout(this.statusTimeout);
     },
 
     updateProgress: function({ value, total, message }) {
@@ -64,7 +67,7 @@ const StatusBarManager = {
 
     hideProgress: function() {
         this.progressIndicator.style.display = 'none';
-        this.updateStatus('就绪'); // Reset main status after progress is done
+        this.updateStatus('就绪');
     },
 
     updateStatus: function(message, timeout = 0) {
@@ -72,7 +75,6 @@ const StatusBarManager = {
         if (this.statusTimeout) clearTimeout(this.statusTimeout);
         if (timeout > 0) {
             this.statusTimeout = setTimeout(() => {
-                // Do not override status if a progress bar is active
                 if (this.progressIndicator.style.display === 'none') {
                     this.updateStatus('就绪');
                 }
@@ -105,6 +107,21 @@ const StatusBarManager = {
     updateGitStatus: async function() {
         try {
             const status = await NetworkManager.getGitStatus();
+
+            // ========================= 关键修正 START =========================
+            // 如果项目未被选择 (N/A) 或不是一个Git仓库 (not-a-repo)，则显示相应提示并返回
+            if (status.currentBranch === 'N/A') {
+                // 'N/A' 是前端在没有活动项目时返回的，保持默认显示
+                this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> master`;
+                return;
+            }
+            if (status.currentBranch === 'not-a-repo') {
+                this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> Git: 未初始化`;
+                EventBus.emit('log:info', `Git状态: 当前项目不是一个Git仓库。`);
+                return;
+            }
+            // ========================= 关键修正 END ===========================
+
             const counts = status.counts;
             let statusText = '';
             if (counts.modified > 0) statusText += ` M:${counts.modified}`;
@@ -114,6 +131,7 @@ const StatusBarManager = {
             if (counts.conflicting > 0) statusText += ` C:${counts.conflicting}`;
             this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> ${status.currentBranch}${statusText}`;
         } catch (error) {
+            // 这个 catch 块现在只处理真正的网络/服务器错误
             this.gitBranch.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Git: 不可用`;
             EventBus.emit('log:warn', `无法获取Git状态: ${error.message}`);
         }

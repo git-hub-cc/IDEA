@@ -1,69 +1,44 @@
-// src/js/managers/ActionManager.js - 应用行为协调器
-
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 import NetworkManager from './NetworkManager.js';
 import FileTreeManager from './FileTreeManager.js';
+import ModalManager from './ModalManager.js';
 
 const ActionManager = {
-    /**
-     * @description 初始化动作管理器，绑定所有 action:* 事件。
-     */
     init: function() {
         this.bindAppEvents();
     },
 
     bindAppEvents: function() {
-        // --- 基本文件操作 ---
         EventBus.on('action:new-file', () => this.handleNewFile());
         EventBus.on('action:open-folder', this.handleOpenFolder.bind(this));
         EventBus.on('action:save-file', this.handleSaveFile.bind(this));
-
-        // --- 构建与调试 ---
         EventBus.on('action:run-code', this.handleRunCode.bind(this));
         EventBus.on('action:debug-code', this.handleDebugCode.bind(this));
-
-        // --- 调试器控制 ---
         EventBus.on('action:step-over', NetworkManager.stepOver);
         EventBus.on('action:step-into', NetworkManager.stepInto);
         EventBus.on('action:step-out', NetworkManager.stepOut);
         EventBus.on('action:resume-debug', NetworkManager.resumeDebug);
         EventBus.on('action:stop-debug', NetworkManager.stopDebug);
-
-        // --- VCS (Git) ---
+        EventBus.on('action:vcs-clone', this.handleVCSClone.bind(this));
         EventBus.on('action:vcs-commit', this.handleVCSCommit.bind(this));
         EventBus.on('action:vcs-pull', this.handleVCSPull.bind(this));
         EventBus.on('action:vcs-push', this.handleVCSPush.bind(this));
-
-        // --- 其他全局动作 ---
         EventBus.on('action:settings', this.handleSettings.bind(this));
         EventBus.on('action:about', this.handleAbout.bind(this));
-
-        // --- 文件树右键菜单动作 ---
         EventBus.on('context-action:new-file', ({ path }) => this.handleNewFile(path, 'folder'));
         EventBus.on('context-action:new-folder', ({ path }) => this.handleNewFolder(path));
         EventBus.on('context-action:rename', ({ path, type }) => this.handleRenamePath(path, type));
         EventBus.on('context-action:delete', this.handleDeletePath.bind(this));
     },
 
-    /**
-     * @description 获取当前文件创建的上下文路径。
-     * @returns {string} 目标父目录的路径。
-     */
     _getCreationContextPath: function() {
         const focusedItem = FileTreeManager.getFocusedItem();
-        if (!focusedItem) {
-            return ''; // 没有焦点，则返回根目录
-        }
-
-        if (focusedItem.type === 'folder') {
-            return focusedItem.path; // 焦点是文件夹，直接使用其路径
-        } else {
-            // 焦点是文件，使用其父目录的路径
-            const pathParts = focusedItem.path.split('/');
-            pathParts.pop();
-            return pathParts.join('/');
-        }
+        if (!focusedItem) return '';
+        if (focusedItem.type === 'folder') return focusedItem.path;
+        const pathParts = focusedItem.path.split('/');
+        pathParts.pop();
+        return pathParts.join('/');
     },
 
     handleNewFile: function(contextPath, contextType) {
@@ -112,28 +87,29 @@ const ActionManager = {
 
     handleOpenFolder: async function() {
         if (!('showDirectoryPicker' in window)) {
-            EventBus.emit('modal:showAlert', {
-                title: '浏览器不支持',
-                message: '您的浏览器不支持文件夹选择功能。请使用最新的Chrome、Edge或Opera浏览器。'
-            });
+            EventBus.emit('modal:showAlert', { title: '浏览器不支持', message: '您的浏览器不支持文件夹选择功能。' });
             return;
         }
 
         EventBus.emit('modal:showConfirm', {
             title: '打开新项目',
-            message: '这将替换当前工作区的所有内容。所有未保存的更改将丢失。您确定要继续吗？',
+            message: '这将替换工作区中的同名项目（如果存在）。您确定要继续吗？',
             onConfirm: async () => {
                 try {
                     const directoryHandle = await window.showDirectoryPicker();
-                    await NetworkManager.uploadProject(directoryHandle);
-                    EventBus.emit('modal:showAlert', { title: '成功', message: '项目已成功加载！' });
+                    const projectName = directoryHandle.name;
+
+                    await NetworkManager.uploadProject(directoryHandle, projectName);
+
+                    Config.setActiveProject(projectName);
+
+                    EventBus.emit('modal:showAlert', { title: '成功', message: `项目 '${projectName}' 已成功加载！` });
+                    EventBus.emit('filesystem:changed');
                 } catch (error) {
-                    if (error.name === 'AbortError') {
-                        EventBus.emit('log:info', '用户取消了文件夹选择。');
-                        return;
+                    if (error.name !== 'AbortError') {
+                        EventBus.emit('log:error', `打开文件夹失败: ${error.message}`);
+                        EventBus.emit('modal:showAlert', { title: '打开失败', message: `无法加载项目: ${error.message}` });
                     }
-                    EventBus.emit('log:error', `打开文件夹失败: ${error.message}`);
-                    EventBus.emit('modal:showAlert', { title: '打开失败', message: `无法加载项目: ${error.message}` });
                 }
             }
         });
@@ -164,11 +140,15 @@ const ActionManager = {
     },
 
     handleRunCode: async function() {
+        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            return;
+        }
         EventBus.emit('ui:activateBottomPanelTab', 'console-output');
         EventBus.emit('console:clear');
-        EventBus.emit('statusbar:updateStatus', '构建与运行中...');
+        EventBus.emit('statusbar:updateStatus', `正在构建 ${Config.activeProjectName}...`);
         try {
-            await NetworkManager.buildProject(Config.CURRENT_PROJECT_PATH);
+            await NetworkManager.buildProject();
             EventBus.emit('log:info', '构建与运行请求已发送。');
         } catch (error) {
             EventBus.emit('log:error', `构建请求失败: ${error.message}`);
@@ -177,12 +157,17 @@ const ActionManager = {
     },
 
     handleDebugCode: async function() {
+        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            return;
+        }
+        const mainClass = 'com.example.Main';
         EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
         EventBus.emit('debugger:clear');
         EventBus.emit('console:clear');
         EventBus.emit('statusbar:updateStatus', '启动调试器...');
         try {
-            await NetworkManager.startDebug(Config.CURRENT_PROJECT_PATH, Config.MAIN_CLASS_PATH);
+            await NetworkManager.startDebug(mainClass);
             EventBus.emit('log:info', '调试会话启动请求已发送。');
         } catch (error) {
             EventBus.emit('log:error', `启动调试失败: ${error.message}`);
@@ -190,7 +175,65 @@ const ActionManager = {
         }
     },
 
+    handleVCSClone: async function() {
+        EventBus.emit('statusbar:updateStatus', '正在从Gitee获取仓库列表...');
+        let repos;
+        try {
+            repos = await NetworkManager.getGiteeRepos();
+            EventBus.emit('statusbar:updateStatus', '就绪');
+        } catch (error) {
+            EventBus.emit('log:error', `获取Gitee仓库列表失败: ${error.message}`);
+            EventBus.emit('modal:showAlert', { title: 'API错误', message: '无法连接到Gitee获取仓库列表。' });
+            EventBus.emit('statusbar:updateStatus', '获取仓库失败', 3000);
+            return; // 获取列表失败，直接终止流程
+        }
+
+        if (repos.length === 0) {
+            EventBus.emit('modal:showAlert', { title: '无仓库', message: '在Gitee上找不到任何公开仓库，或接口被限流了。' });
+            return;
+        }
+
+        try {
+            // 现在 await 只会因为用户确认选择而 resolve，或因为取消而 reject
+            const selectedSshUrl = await ModalManager.showRepoSelectionModal(repos);
+
+            // 如果能走到这里，说明 selectedSshUrl 肯定有值
+            EventBus.emit('statusbar:updateStatus', '正在克隆选择的仓库...', 0);
+            EventBus.emit('progress:start', { message: '正在克隆...' });
+
+            try {
+                const response = await NetworkManager.cloneSpecificRepo(selectedSshUrl);
+                const newProjectName = response.projectName;
+
+                Config.setActiveProject(newProjectName);
+
+                EventBus.emit('log:info', `项目 '${newProjectName}' 克隆成功!`);
+                EventBus.emit('statusbar:updateStatus', '克隆成功!', 3000);
+                EventBus.emit('filesystem:changed');
+            } catch (cloneError) {
+                EventBus.emit('log:error', `克隆失败: ${cloneError.message}`);
+                EventBus.emit('modal:showAlert', { title: '克隆失败', message: cloneError.message });
+                EventBus.emit('statusbar:updateStatus', '克隆失败', 3000);
+            } finally {
+                EventBus.emit('progress:finish');
+            }
+
+        } catch (error) {
+            // 这个 catch 现在只处理用户取消操作
+            if (error.message === '用户取消了操作。') {
+                EventBus.emit('log:info', '用户取消了仓库选择。');
+            } else {
+                // 处理其他意外的模态框错误
+                EventBus.emit('log:error', `显示仓库选择时出错: ${error.message}`);
+            }
+        }
+    },
+
     handleVCSCommit: function() {
+        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            return;
+        }
         EventBus.emit('modal:showPrompt', {
             title: 'Git 提交',
             message: '请输入提交信息:',
@@ -198,8 +241,8 @@ const ActionManager = {
                 if (!message) return;
                 EventBus.emit('statusbar:updateStatus', '正在提交...');
                 try {
-                    const result = await NetworkManager.gitCommit(message);
-                    EventBus.emit('log:info', `提交成功: ${result}`);
+                    await NetworkManager.gitCommit(message);
+                    EventBus.emit('log:info', '提交成功!');
                     EventBus.emit('statusbar:updateStatus', '提交成功!', 2000);
                     EventBus.emit('git:statusChanged');
                 } catch (error) {
@@ -212,6 +255,10 @@ const ActionManager = {
     },
 
     handleVCSPull: async function() {
+        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            return;
+        }
         EventBus.emit('statusbar:updateStatus', '正在拉取...');
         try {
             const result = await NetworkManager.gitPull();
@@ -228,6 +275,10 @@ const ActionManager = {
     },
 
     handleVCSPush: async function() {
+        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            return;
+        }
         EventBus.emit('statusbar:updateStatus', '正在推送...');
         try {
             const result = await NetworkManager.gitPush();
@@ -254,7 +305,7 @@ const ActionManager = {
     handleAbout: function() {
         EventBus.emit('modal:showAlert', {
             title: '关于 Web IDEA',
-            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 2.3.0-final'
+            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 2.6.0-project-model'
         });
     },
 
@@ -276,5 +327,4 @@ const ActionManager = {
         });
     }
 };
-
 export default ActionManager;

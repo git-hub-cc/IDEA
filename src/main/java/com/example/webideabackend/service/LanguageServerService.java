@@ -5,6 +5,7 @@
  * an external Java Language Server (LS) process. It implements LSP4J's LanguageClient
  * interface to receive notifications (like diagnostics) from the LS and forwards
  * them to the frontend via WebSockets.
+ * It is now project-aware, handling file paths within a specific project context.
  */
 package com.example.webideabackend.service;
 
@@ -90,8 +91,10 @@ public class LanguageServerService implements LanguageClient, DisposableBean {
         try {
             InitializeParams params = new InitializeParams();
             params.setProcessId((int) lsProcess.pid());
+            // The root URI for the LS is the entire workspace, not a specific project.
             params.setRootUri(Path.of(workspaceRootPath).toUri().toString());
             params.setCapabilities(new ClientCapabilities());
+            // The LS can be aware of multiple project folders within the workspace.
             params.setWorkspaceFolders(Collections.singletonList(new WorkspaceFolder(params.getRootUri(), "workspace")));
 
             CompletableFuture<InitializeResult> future = languageServer.initialize(params);
@@ -105,41 +108,41 @@ public class LanguageServerService implements LanguageClient, DisposableBean {
 
     // --- File Lifecycle Notifications to LS ---
 
-    public void fileOpened(String filePath, String content) {
+    public void fileOpened(String projectPath, String filePath, String content) {
         if (languageServer == null) return;
         TextDocumentItem item = new TextDocumentItem(
-                Path.of(workspaceRootPath).resolve(filePath).toUri().toString(),
+                toFileUri(projectPath, filePath),
                 "java",
                 1,
                 content
         );
         languageServer.getTextDocumentService().didOpen(new DidOpenTextDocumentParams(item));
-        log.debug("Sent didOpen for {}", filePath);
+        log.debug("Sent didOpen for {} in project {}", filePath, projectPath);
     }
 
-    public void fileChanged(String filePath, String newContent) {
+    public void fileChanged(String projectPath, String filePath, String newContent) {
         if (languageServer == null) return;
         TextDocumentContentChangeEvent changeEvent = new TextDocumentContentChangeEvent(newContent);
-        VersionedTextDocumentIdentifier identifier = new VersionedTextDocumentIdentifier(Path.of(workspaceRootPath).resolve(filePath).toUri().toString(), 1);
+        VersionedTextDocumentIdentifier identifier = new VersionedTextDocumentIdentifier(toFileUri(projectPath, filePath), 1);
         languageServer.getTextDocumentService().didChange(new DidChangeTextDocumentParams(identifier, Collections.singletonList(changeEvent)));
-        log.debug("Sent didChange for {}", filePath);
+        log.debug("Sent didChange for {} in project {}", filePath, projectPath);
     }
 
-    public void fileSaved(String filePath) {
+    public void fileSaved(String projectPath, String filePath) {
         if (languageServer == null) return;
-        DidSaveTextDocumentParams params = new DidSaveTextDocumentParams(new TextDocumentIdentifier(Path.of(workspaceRootPath).resolve(filePath).toUri().toString()));
+        DidSaveTextDocumentParams params = new DidSaveTextDocumentParams(new TextDocumentIdentifier(toFileUri(projectPath, filePath)));
         languageServer.getTextDocumentService().didSave(params);
-        log.debug("Sent didSave for {}", filePath);
+        log.debug("Sent didSave for {} in project {}", filePath, projectPath);
     }
 
     // --- Request from Frontend to LS ---
 
-    public CompletableFuture<Either<List<CompletionItem>, CompletionList>> requestCompletion(String filePath, int line, int character) {
+    public CompletableFuture<Either<List<CompletionItem>, CompletionList>> requestCompletion(String projectPath, String filePath, int line, int character) {
         if (languageServer == null) {
             return CompletableFuture.completedFuture(Either.forLeft(Collections.emptyList()));
         }
         CompletionParams params = new CompletionParams(
-                new TextDocumentIdentifier(Path.of(workspaceRootPath).resolve(filePath).toUri().toString()),
+                new TextDocumentIdentifier(toFileUri(projectPath, filePath)),
                 new Position(line, character)
         );
         return languageServer.getTextDocumentService().completion(params);
@@ -151,16 +154,24 @@ public class LanguageServerService implements LanguageClient, DisposableBean {
 
     @Override
     public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
-        String relativePath;
+        String fullUri = diagnostics.getUri();
         try {
-            relativePath = Path.of(workspaceRootPath).relativize(Path.of(URI.create(diagnostics.getUri()))).toString().replace('\\', '/');
+            // Convert the absolute file URI from the LS back to a project-relative path.
+            Path absolutePath = Path.of(URI.create(fullUri));
+            String workspaceRelativePath = Path.of(workspaceRootPath).relativize(absolutePath).toString().replace('\\', '/');
+
+            // Send a custom object to the frontend that includes the relative path for easier handling.
+            var frontendDiagnostics = new FrontendDiagnostics(workspaceRelativePath, diagnostics.getDiagnostics());
+
+            log.info("Received diagnostics for file: {}", workspaceRelativePath);
+            webSocketLogService.sendMessage(DIAGNOSTICS_TOPIC, frontendDiagnostics);
         } catch (Exception e) {
-            log.warn("Could not relativize path for diagnostics URI: {}", diagnostics.getUri(), e);
-            return;
+            log.warn("Could not relativize path for diagnostics URI: {}. Error: {}", fullUri, e.getMessage());
         }
-        log.info("Received diagnostics for file: {}", relativePath);
-        webSocketLogService.sendMessage(DIAGNOSTICS_TOPIC, diagnostics);
     }
+
+    // A simple DTO record for sending structured diagnostic data to the frontend.
+    private record FrontendDiagnostics(String filePath, List<Diagnostic> diagnostics) {}
 
     @Override
     public void showMessage(MessageParams messageParams) {
@@ -172,24 +183,11 @@ public class LanguageServerService implements LanguageClient, DisposableBean {
         log.debug("[LS Log]: {} - {}", messageParams.getType(), messageParams.getMessage());
     }
 
-    // =================================================================================
-    // NEWLY ADDED - MISSING METHOD IMPLEMENTATIONS
-    // =================================================================================
-
-    /**
-     * Handles telemetry events from the language server.
-     * We just log it for now.
-     */
     @Override
     public void telemetryEvent(Object object) {
         log.debug("[LS Telemetry]: {}", object);
     }
 
-    /**
-     * Handles a request from the server to show a message with actions to the client.
-     * Since our backend is non-interactive, we cannot prompt a user.
-     * We log the request and return a completed future with `null`, indicating no action was taken.
-     */
     @Override
     public CompletableFuture<MessageActionItem> showMessageRequest(ShowMessageRequestParams requestParams) {
         log.info("[LS Message Request]: {} - {}", requestParams.getType(), requestParams.getMessage());
@@ -215,5 +213,15 @@ public class LanguageServerService implements LanguageClient, DisposableBean {
                 executor.shutdownNow();
             }
         }
+    }
+
+    /**
+     * Helper method to convert a project-relative path to an absolute file URI string.
+     * @param projectPath The name of the project.
+     * @param filePath The relative path of the file within the project.
+     * @return The file URI string (e.g., "file:///path/to/workspace/project/src/Main.java").
+     */
+    private String toFileUri(String projectPath, String filePath) {
+        return Path.of(workspaceRootPath).resolve(projectPath).resolve(filePath).toUri().toString();
     }
 }

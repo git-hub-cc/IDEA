@@ -12,8 +12,10 @@ import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,8 +43,9 @@ public class TerminalService implements DisposableBean {
     /**
      * 为给定的WebSocket会话ID启动一个新的shell进程。
      * @param sessionId WebSocket会话ID。
+     * @param projectPath 要在其中启动终端的项目路径。如果为空，则在工作区根目录启动。
      */
-    public void startSession(String sessionId) {
+    public void startSession(String sessionId, String projectPath) {
         if (sessions.containsKey(sessionId)) {
             log.warn("Terminal session {} already exists.", sessionId);
             return;
@@ -56,11 +59,26 @@ public class TerminalService implements DisposableBean {
                 // 使用 -i 标志尝试启动一个交互式shell
                 processBuilder = new ProcessBuilder("bash", "-i");
             }
-            processBuilder.directory(workspaceRoot.toFile());
+
+            // ========================= 关键修正 START =========================
+            // Set the working directory based on the provided projectPath
+            Path workingDirectory;
+            if (StringUtils.hasText(projectPath)) {
+                workingDirectory = workspaceRoot.resolve(projectPath).normalize();
+                if (!Files.exists(workingDirectory) || !Files.isDirectory(workingDirectory)) {
+                    log.warn("Project path for terminal not found: {}. Defaulting to workspace root.", workingDirectory);
+                    workingDirectory = workspaceRoot;
+                }
+            } else {
+                workingDirectory = workspaceRoot;
+            }
+            processBuilder.directory(workingDirectory.toFile());
+            // ========================= 关键修正 END ===========================
+
             processBuilder.redirectErrorStream(true); // 合并 stdout 和 stderr
 
             Process process = processBuilder.start();
-            log.info("Started new terminal process for session {}", sessionId);
+            log.info("Started new terminal process for session {} in directory {}", sessionId, workingDirectory);
 
             // 异步读取进程的输出并发送到WebSocket
             executorService.submit(() -> {
@@ -87,11 +105,7 @@ public class TerminalService implements DisposableBean {
         }
     }
 
-    /**
-     * 接收来自前端的输入并写入到对应的shell进程。
-     * @param sessionId WebSocket会话ID。
-     * @param data 要写入的输入数据。
-     */
+    // ... receiveInput, endSession, destroy, TerminalSession record remain the same ...
     public void receiveInput(String sessionId, String data) {
         TerminalSession session = sessions.get(sessionId);
         if (session == null) {
@@ -108,10 +122,6 @@ public class TerminalService implements DisposableBean {
         }
     }
 
-    /**
-     * 结束并清理一个shell会话。
-     * @param sessionId WebSocket会话ID。
-     */
     public void endSession(String sessionId) {
         TerminalSession session = sessions.remove(sessionId);
         if (session != null) {
@@ -131,13 +141,11 @@ public class TerminalService implements DisposableBean {
     @Override
     public void destroy() {
         log.info("Shutting down TerminalService. Destroying all active terminal sessions.");
-        // 复制一份keys以避免在迭代时修改map
         for (String sessionId : sessions.keySet()) {
             endSession(sessionId);
         }
         executorService.shutdownNow();
     }
 
-    // 内部记录类，用于封装会话资源
     private record TerminalSession(Process process, BufferedWriter writer) {}
 }

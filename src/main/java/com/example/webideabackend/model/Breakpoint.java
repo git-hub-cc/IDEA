@@ -12,11 +12,13 @@ import jakarta.validation.constraints.NotBlank;
 /**
  * 封装断点信息的记录。
  *
+ * @param projectPath 断点所属的项目名称。
  * @param filePath 要设置断点的文件的相对路径。
  * @param lineNumber 断点所在的行号 (从1开始)。
  * @param enabled 断点是启用还是禁用。
  */
 public record Breakpoint(
+        @NotBlank String projectPath,
         @NotBlank String filePath,
         @Min(1) int lineNumber,
         boolean enabled // true for setting, false for removing

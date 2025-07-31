@@ -38,20 +38,25 @@ public class LanguageServerController {
     @PostMapping("/completion")
     public CompletableFuture<ResponseEntity<List<CompletionItem>>> getCompletions(@RequestBody Map<String, Object> payload) {
         try {
+            // 从请求体中获取所有必需的参数
+            String projectPath = (String) payload.get("projectPath");
             String filePath = (String) payload.get("filePath");
             int line = (Integer) payload.get("line") - 1;       // Monaco(1-based) to LSP(0-based)
             int character = (Integer) payload.get("character") - 1; // Monaco(1-based) to LSP(0-based)
 
-            if (filePath == null) {
+            if (projectPath == null || filePath == null) {
                 return CompletableFuture.completedFuture(ResponseEntity.badRequest().body(null));
             }
 
-            return languageServerService.requestCompletion(filePath, line, character)
+            // ========================= 关键修正 START =========================
+            // 在调用 languageServerService.requestCompletion 时传入 projectPath
+            return languageServerService.requestCompletion(projectPath, filePath, line, character)
                     .thenApply(this::toCompletionItemsResponseEntity) // 使用辅助方法转换
                     .exceptionally(ex -> {
                         log.error("Failed to get code completion", ex);
                         return ResponseEntity.internalServerError().body(null);
                     });
+            // ========================= 关键修正 END ===========================
 
         } catch (Exception e) {
             log.error("Invalid payload for completion request", e);

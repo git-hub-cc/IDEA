@@ -36,6 +36,24 @@
 }
 .toolbar-btn i { font-size: 1.1rem; }
 
+/* ================== 新增选择器样式 ================== */
+.toolbar-selector {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-right: 5px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    outline: none;
+}
+.toolbar-selector:hover {
+    border-color: var(--accent-color);
+}
+/* =================================================== */
+
+
 /* --- 状态栏 --- */
 .status-bar {
     background-color: var(--bg-header);
@@ -98,6 +116,16 @@
 .file-tree li.folder.expanded > ul { display: block; }
 .file-tree li i { margin-right: 8px; width: 14px; text-align: center; }
 .file-tree li.folder > i { color: var(--accent-color); }
+
+/* ==================== 新增拖放样式 START ==================== */
+.file-tree-container.drag-over {
+    /* 使用虚线边框和半透明背景作为视觉提示 */
+    border: 2px dashed var(--accent-color);
+    background-color: var(--selection-color);
+    opacity: 0.8;
+}
+/* ==================== 新增拖放样式 END ====================== */
+
 
 /* --- 上下文菜单 --- */
 .context-menu {
@@ -239,7 +267,7 @@
     border-radius: 8px;
     box-shadow: 0 5px 15px var(--shadow-color);
     width: 90%;
-    max-width: 450px;
+    max-width: 500px; /* 稍微加宽以容纳单选按钮 */
     display: flex;
     flex-direction: column;
     transform: translateY(-20px);
@@ -264,6 +292,69 @@
 }
 .modal-body input:focus, .modal-body select:focus, .modal-body textarea:focus { border-color: var(--accent-color); }
 .modal-body label { display: block; margin-top: 15px; font-size: 0.9rem; color: var(--text-secondary); }
+
+/* ================== 新增 Git 仓库选择列表样式 START ================== */
+.repo-item-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s;
+}
+.repo-item-label:last-child {
+    border-bottom: none;
+}
+.repo-item-label:hover {
+    background-color: var(--selection-color);
+}
+.repo-item-label.selected {
+    background-color: var(--accent-color);
+    color: #fff;
+}
+.repo-item-label.selected strong {
+    color: #fff; /* 确保在选中时标题也是白色 */
+}
+.repo-item-label.selected p {
+    color: #e0e0e0; /* 选中时描述文字为浅灰色 */
+}
+.repo-item-details {
+    flex-grow: 1;
+    margin-right: 15px;
+    line-height: 1.4;
+}
+.repo-item-details strong {
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+.repo-item-details p {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    margin: 4px 0 0 0;
+}
+/* 单选按钮本身的样式 */
+.repo-item-label input[type="radio"] {
+    flex-shrink: 0;
+    margin: 0;
+    accent-color: var(--accent-color); /* 让单选按钮颜色跟随主题 */
+    display: none;
+}
+
+/* ================== 新增 Git 仓库选择列表样式 END ==================== */
+
+.modal-footer { padding: 15px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
+.modal-action-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: opacity 0.2s; }
+.modal-action-btn.primary-btn { background-color: var(--accent-color); color: white; }
+.modal-action-btn.primary-btn:hover:not(:disabled) { background-color: var(--accent-color-hover); }
+.modal-action-btn.secondary-btn { background-color: var(--border-color); color: var(--text-primary); }
+
+/* ================== 新增禁用按钮样式 ================== */
+.modal-action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+/* ======================================================= */
 .modal-footer { padding: 15px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
 .modal-action-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: bold; }
 .modal-action-btn.primary-btn { background-color: var(--accent-color); color: white; }

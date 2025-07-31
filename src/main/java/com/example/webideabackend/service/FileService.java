@@ -40,20 +40,31 @@ public class FileService {
         }
     }
 
-    public FileNode getFileTree(String path) throws IOException {
-        var absPath = getAbsolutePath(path);
+    public List<String> getProjectList() throws IOException {
+        try (Stream<Path> stream = Files.list(workspaceRoot)) {
+            return stream
+                    .filter(Files::isDirectory)
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> !name.startsWith(".")) // Exclude hidden directories like .ide
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .collect(Collectors.toList());
+        }
+    }
+
+    public FileNode getFileTree(String projectPath, String relativePathInProject) throws IOException {
+        var absPath = getAbsoluteProjectPath(projectPath, relativePathInProject);
         if (Files.notExists(absPath)) {
             throw new IOException("Path not found: " + absPath);
         }
-        return buildFileNode(absPath);
+        return buildFileNode(projectPath, absPath);
     }
 
-    private FileNode buildFileNode(Path path) throws IOException {
+    private FileNode buildFileNode(String projectPath, Path path) throws IOException {
         var file = path.toFile();
         var node = new FileNode();
 
         node.setName(file.getName());
-        node.setPath(getRelativePath(path));
+        node.setPath(getRelativePathInProject(projectPath, path));
         node.setType(file.isDirectory() ? "folder" : "file");
         node.setSize(file.length());
         node.setLastModified(file.lastModified());
@@ -64,7 +75,7 @@ public class FileService {
                         .filter(p -> !p.getFileName().toString().startsWith("."))
                         .map(p -> {
                             try {
-                                return buildFileNode(p);
+                                return buildFileNode(projectPath, p);
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
                             }
@@ -79,22 +90,22 @@ public class FileService {
         return node;
     }
 
-    public String readFileContent(String path) throws IOException {
-        var absPath = getAbsolutePath(path);
+    public String readFileContent(String projectPath, String relativePathInProject) throws IOException {
+        var absPath = getAbsoluteProjectPath(projectPath, relativePathInProject);
         if (Files.isDirectory(absPath)) {
             throw new IOException("Cannot read content of a directory: " + absPath);
         }
         return Files.readString(absPath);
     }
 
-    public void writeFileContent(String path, String content) throws IOException {
-        var absPath = getAbsolutePath(path);
+    public void writeFileContent(String projectPath, String relativePathInProject, String content) throws IOException {
+        var absPath = getAbsoluteProjectPath(projectPath, relativePathInProject);
         Files.createDirectories(absPath.getParent());
         Files.writeString(absPath, content);
     }
 
-    public void createFile(String parentPath, String name, String type) throws IOException {
-        var parentAbsPath = getAbsolutePath(parentPath);
+    public void createFile(String projectPath, String parentRelativePath, String name, String type) throws IOException {
+        var parentAbsPath = getAbsoluteProjectPath(projectPath, parentRelativePath);
         var newPath = parentAbsPath.resolve(name);
 
         if (Files.exists(newPath)) {
@@ -108,8 +119,8 @@ public class FileService {
         }
     }
 
-    public void deleteFile(String path) throws IOException {
-        var absPath = getAbsolutePath(path);
+    public void deleteFile(String projectPath, String relativePathInProject) throws IOException {
+        var absPath = getAbsoluteProjectPath(projectPath, relativePathInProject);
         if (Files.isDirectory(absPath)) {
             FileUtils.deleteDirectory(absPath.toFile());
         } else {
@@ -117,8 +128,8 @@ public class FileService {
         }
     }
 
-    public void renameFile(String oldPath, String newName) throws IOException {
-        var oldAbsPath = getAbsolutePath(oldPath);
+    public void renameFile(String projectPath, String oldRelativePath, String newName) throws IOException {
+        var oldAbsPath = getAbsoluteProjectPath(projectPath, oldRelativePath);
         if (Files.notExists(oldAbsPath)) {
             throw new IOException("Source path not found: " + oldAbsPath);
         }
@@ -129,8 +140,8 @@ public class FileService {
         Files.move(oldAbsPath, newAbsPath);
     }
 
-    public void replaceProject(String projectRelativePath, MultipartFile[] files) throws IOException {
-        Path projectRoot = getAbsolutePath(projectRelativePath);
+    public void replaceProject(String projectPath, MultipartFile[] files) throws IOException {
+        Path projectRoot = getAbsoluteProjectPath(projectPath, "");
 
         if (Files.exists(projectRoot)) {
             LOGGER.warn("Deleting existing project directory: {}", projectRoot);
@@ -146,7 +157,6 @@ public class FileService {
                 continue;
             }
 
-            // 安全性检查：确保相对路径不会跳出项目根目录
             Path targetPath = projectRoot.resolve(relativePath).normalize();
             if (!targetPath.startsWith(projectRoot)) {
                 LOGGER.error("Path traversal attempt blocked for uploaded file: {}", relativePath);
@@ -157,22 +167,31 @@ public class FileService {
             file.transferTo(targetPath);
             LOGGER.debug("Wrote uploaded file to: {}", targetPath);
         }
-        LOGGER.info("Successfully replaced project '{}' with {} files.", projectRelativePath, files.length);
+        LOGGER.info("Successfully replaced project '{}' with {} files.", projectPath, files.length);
     }
 
-    private Path getAbsolutePath(String relativePath) {
-        if (!StringUtils.hasText(relativePath) || ".".equals(relativePath)) {
-            return workspaceRoot;
+    private Path getAbsoluteProjectPath(String projectPath, String relativePathInProject) {
+        Path projectRoot = workspaceRoot.resolve(projectPath).normalize();
+        // Security check to ensure projectPath doesn't go up directories
+        if (!projectRoot.startsWith(workspaceRoot) || projectPath.contains("..")) {
+            throw new IllegalArgumentException("Invalid project path specified: " + projectPath);
         }
-        Path resolvedPath = workspaceRoot.resolve(relativePath).normalize();
-        if (!resolvedPath.startsWith(workspaceRoot)) {
-            throw new IllegalArgumentException("Path traversal attempt detected: " + relativePath);
+
+        if (!StringUtils.hasText(relativePathInProject) || ".".equals(relativePathInProject) || "/".equals(relativePathInProject)) {
+            return projectRoot;
+        }
+
+        Path resolvedPath = projectRoot.resolve(relativePathInProject).normalize();
+        if (!resolvedPath.startsWith(projectRoot)) {
+            throw new IllegalArgumentException("Path traversal attempt detected: " + relativePathInProject);
         }
         return resolvedPath;
     }
 
-    private String getRelativePath(Path absolutePath) {
-        String relative = workspaceRoot.relativize(absolutePath).toString();
+    private String getRelativePathInProject(String projectPath, Path absolutePath) {
+        Path projectRoot = workspaceRoot.resolve(projectPath);
+        String relative = projectRoot.relativize(absolutePath).toString();
+        // Ensure consistent path separators
         return relative.replace(File.separator, "/");
     }
 }

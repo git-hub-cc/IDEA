@@ -2,7 +2,6 @@ version: '3'
 
 services:
   app:
-    # 使用一个同时包含Java 17和Maven的官方镜像
     image: maven:3.9-eclipse-temurin-17
     container_name: my-app-8082
     ports:
@@ -10,5 +9,10 @@ services:
     volumes:
       - ./:/app
     working_dir: /app
-    # 直接启动java应用，因为maven已经内置在镜像里了
+    # ========================= 关键修改 START =========================
+    # 从 .env 文件或当前shell环境中读取环境变量
+    environment:
+      # 语法 `${VAR_NAME}` 会让 Docker Compose 查找名为 VAR_NAME 的环境变量
+      - GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY=${GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY}
+    # ========================= 关键修改 END ===========================
     command: java -Duser.timezone=Asia/Shanghai -jar app.jar

@@ -1,17 +1,20 @@
-// src/js/managers/NetworkManager.js - 后端网络通信管理器
-
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 
 const NetworkManager = {
-    // baseUrl 保持为空，我们将使用页面相对路径
-    baseUrl: '',
+    baseUrl: '', // Will be initialized
     stompClient: null,
     isConnected: false,
     sessionId: null,
     terminalSubscription: null,
 
     init: function() {
+        // ========================= 关键修正 START =========================
+        // Dynamically determine the base URL from the current page's location
+        this.baseUrl = `${window.location.protocol}//${window.location.host}/`;
+        console.log(`NetworkManager initialized with baseUrl: ${this.baseUrl}`);
+        // ========================= 关键修正 END ===========================
+
         this.onBuildLogReceived = this.onBuildLogReceived.bind(this);
         this.onRunLogReceived = this.onRunLogReceived.bind(this);
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
@@ -22,12 +25,8 @@ const NetworkManager = {
     connectWebSocket: function() {
         if (this.isConnected) return Promise.resolve();
         return new Promise((resolve, reject) => {
-            // ==================== 关键修改点 1 START ====================
-            // 原代码: const socket = new SockJS(this.baseUrl + '/ws');
-            // 修改后: 去掉开头的 '/'，使其成为页面相对路径
+            // Now this uses the correctly initialized baseUrl
             const socket = new SockJS(this.baseUrl + 'ws');
-            // ==================== 关键修改点 1 END ======================
-
             this.stompClient = Stomp.over(socket);
             this.stompClient.debug = null;
             this.stompClient.connect({}, (frame) => {
@@ -35,7 +34,6 @@ const NetworkManager = {
                 this.isConnected = true;
                 const urlParts = socket._transport.url.split('/');
                 this.sessionId = urlParts[urlParts.length - 2];
-                console.log('WebSocket Session ID:', this.sessionId);
                 this.subscribeToTopics();
                 EventBus.emit('network:websocketConnected');
                 resolve();
@@ -49,9 +47,9 @@ const NetworkManager = {
         });
     },
 
+    // ... a lot of methods remain unchanged ...
     subscribeToTopics: function() {
         if (!this.stompClient || !this.isConnected) return;
-        // 这些是STOMP的目标地址，它们本身就是根相对的，不需要修改
         this.stompClient.subscribe('/topic/build-log', this.onBuildLogReceived);
         this.stompClient.subscribe('/topic/run-log', this.onRunLogReceived);
         this.stompClient.subscribe('/topic/debug-events', this.onDebugEventReceived);
@@ -69,11 +67,15 @@ const NetworkManager = {
         catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); }
     },
     onDiagnosticsReceived: function(message) {
-        try { EventBus.emit('diagnostics:updated', JSON.parse(message.body)); }
+        try {
+            const data = JSON.parse(message.body);
+            EventBus.emit('diagnostics:updated', data);
+        }
         catch (e) { EventBus.emit('log:error', '解析诊断信息失败: ' + e.message); }
     },
 
-    fetchApi: async function(endpoint, options = {}) {
+    _rawFetchApi: async function(endpoint, options = {}) {
+        // The URL construction now correctly uses the full baseUrl
         const url = this.baseUrl + endpoint;
         try {
             const response = await fetch(url, {
@@ -93,35 +95,125 @@ const NetworkManager = {
         }
     },
 
-    // ==================== 关键修改点 2 START ====================
-    // --- API Methods (所有端点路径开头的 '/' 都被移除) ---
-    getFileTree: (path = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(path)}`),
-    getFileContent: (path) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(path)}`),
-    saveFileContent: (path, content) => NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path, content }) }),
-    createFileOrDir: (parentPath, name, type) => NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }),
-    deletePath: (path) => NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
-    renamePath: (oldPath, newName) => NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }),
-    buildProject: (projectPath) => NetworkManager.fetchApi(`api/java/build?projectPath=${encodeURIComponent(projectPath)}`, { method: 'POST' }),
-    startDebug: (projectPath, mainClass) => NetworkManager.fetchApi(`api/debug/start?projectPath=${encodeURIComponent(projectPath)}&mainClass=${encodeURIComponent(mainClass)}`, { method: 'POST' }),
+    fetchApi: async function(endpoint, options = {}) {
+        let finalEndpoint = endpoint;
+        let finalOptions = { ...options };
+
+        if (Config.currentProject) {
+            const method = (finalOptions.method || 'GET').toUpperCase();
+            let injectedInBody = false;
+
+            // 尝试将 projectPath 注入到 POST/PUT 请求的 JSON 体中
+            if (['POST', 'PUT'].includes(method) && finalOptions.body && typeof finalOptions.body === 'string') {
+                try {
+                    const bodyData = JSON.parse(finalOptions.body);
+                    if (typeof bodyData === 'object' && bodyData !== null && !('projectPath' in bodyData)) {
+                        bodyData.projectPath = Config.currentProject;
+                        finalOptions.body = JSON.stringify(bodyData);
+                    }
+                    // 无论 bodyData 中是否已有 projectPath，我们都认为它在 body 中被处理了
+                    injectedInBody = true;
+                } catch (e) {
+                    // 不是 JSON body，将由下面的 URL 参数逻辑处理
+                    injectedInBody = false;
+                }
+            }
+
+            // 如果 projectPath 没有被注入到 body 中，则将其作为 URL 参数添加
+            if (!injectedInBody) {
+                const url = new URL(finalEndpoint, this.baseUrl);
+                if (!url.searchParams.has('projectPath')) {
+                    url.searchParams.append('projectPath', Config.currentProject);
+                }
+                // 从完整的 URL 中提取路径和查询字符串
+                finalEndpoint = url.pathname.substring(1) + url.search;
+            }
+        }
+        return this._rawFetchApi(finalEndpoint, finalOptions);
+    },
+
+    // --- API Methods (no changes needed here, they will just work now) ---
+    getProjects: () => NetworkManager.fetchApi('api/projects'),
+
+    getFileTree: (relativePath = '') => {
+        if (!Config.currentProject) return Promise.resolve(null);
+        return NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`);
+    },
+    getFileContent: (relativePath) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`);
+    },
+    saveFileContent: (relativePath, content) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) });
+    },
+    buildProject: () => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi(`api/java/build`, { method: 'POST' });
+    },
+    startDebug: (mainClass) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi(`api/debug/start?mainClass=${encodeURIComponent(mainClass)}`, { method: 'POST' });
+    },
+    getGitStatus: () => {
+        if (!Config.currentProject) return Promise.resolve({ currentBranch: 'N/A', counts: {} });
+        return NetworkManager.fetchApi(`api/git/status`);
+    },
+    gitCommit: (message) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) });
+    },
+    gitPull: () => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi(`api/git/pull`, { method: 'POST' });
+    },
+    gitPush: () => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi(`api/git/push`, { method: 'POST' });
+    },
+    createFileOrDir: (parentPath, name, type) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) });
+    },
+    deletePath: (path) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+    },
+    renamePath: (oldPath, newName) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) });
+    },
+    getCompletions: (filePath, line, character) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi('api/language/completion', {
+            method: 'POST',
+            body: JSON.stringify({ filePath, line, character })
+        });
+    },
+    toggleBreakpoint: (breakpoint) => {
+        if (!Config.currentProject) return Promise.reject(new Error("No active project."));
+        return NetworkManager.fetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify(breakpoint) });
+    },
+    getGiteeRepos: () => NetworkManager.fetchApi('api/git/gitee-repos'),
+    cloneSpecificRepo: (sshUrl) => NetworkManager.fetchApi('api/git/clone-specific', {
+        method: 'POST',
+        body: JSON.stringify({ sshUrl })
+    }),
     stopDebug: () => NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }),
     stepOver: () => NetworkManager.fetchApi('api/debug/stepOver', { method: 'POST' }),
     stepInto: () => NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }),
     stepOut: () => NetworkManager.fetchApi('api/debug/stepOut', { method: 'POST' }),
     resumeDebug: () => NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }),
-    toggleBreakpoint: (breakpoint) => NetworkManager.fetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify(breakpoint) }),
-    getCompletions: (filePath, line, character) => NetworkManager.fetchApi('api/language/completion', { method: 'POST', body: JSON.stringify({ filePath, line, character }) }),
-    getGitStatus: () => NetworkManager.fetchApi('api/git/status'),
-    gitCommit: (message) => NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) }),
-    gitPull: () => NetworkManager.fetchApi('api/git/pull', { method: 'POST' }),
-    gitPush: () => NetworkManager.fetchApi('api/git/push', { method: 'POST' }),
     getSettings: () => NetworkManager.fetchApi('api/settings'),
     saveSettings: (settings) => NetworkManager.fetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
-    // STOMP 的 send 地址是绝对路径，不需要修改
-    startTerminal: () => { if (NetworkManager.stompClient && NetworkManager.isConnected) NetworkManager.stompClient.send('/app/terminal/start'); },
+    startTerminal: () => {
+        if (NetworkManager.stompClient && NetworkManager.isConnected) {
+            NetworkManager.stompClient.send('/app/terminal/start', {}, Config.currentProject || "");
+        }
+    },
     sendTerminalInput: (data) => { if (NetworkManager.stompClient && NetworkManager.isConnected) NetworkManager.stompClient.send('/app/terminal/input', {}, data); },
-    // ==================== 关键修改点 2 END ======================
 
-    uploadProject: function(directoryHandle) {
+    uploadProject: function(directoryHandle, projectName) {
         return new Promise(async (resolve, reject) => {
             EventBus.emit('statusbar:updateStatus', '正在分析文件夹...');
             const filesToUpload = await this._getFilesRecursively(directoryHandle);
@@ -131,14 +223,12 @@ const NetworkManager = {
             }
 
             const formData = new FormData();
-            formData.append('projectPath', Config.CURRENT_PROJECT_PATH);
+            formData.append('projectPath', projectName);
             filesToUpload.forEach(({ file, path }) => formData.append('files', file, path));
 
             const xhr = new XMLHttpRequest();
-            // ==================== 关键修改点 3 START ====================
-            // 同样，移除开头的 '/'
+            // baseUrl is now correct
             xhr.open('POST', this.baseUrl + 'api/files/replace-project', true);
-            // ==================== 关键修改点 3 END ======================
 
             xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {
@@ -149,7 +239,6 @@ const NetworkManager = {
             xhr.onload = () => {
                 if (xhr.status >= 200 && xhr.status < 300) {
                     EventBus.emit('log:info', '项目上传完成。');
-                    EventBus.emit('filesystem:changed');
                     resolve(xhr.responseText);
                 } else {
                     const errorMsg = `上传失败: ${xhr.responseText}`;

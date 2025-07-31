@@ -16,10 +16,10 @@
 
     <properties>
         <java.version>17</java.version>
-        <jgit.version>6.8.0.202311291450-r</jgit.version>
+        <jgit.version>6.9.0.202403050737-r</jgit.version>
         <lsp4j.version>0.22.0</lsp4j.version>
         <gson.version>2.10.1</gson.version>
-        <sshd.version>2.11.0</sshd.version>
+        <lombok.version>1.18.32</lombok.version>
     </properties>
 
     <dependencies>
@@ -41,22 +41,33 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <optional>true</optional>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
             <version>2.15.1</version>
         </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>${gson.version}</version>
+        </dependency>
 
-        <!-- 1. JGit: Java实现的Git库，用于版本控制功能 -->
+        <!-- 1. JGit: Java实现的Git库 -->
         <dependency>
             <groupId>org.eclipse.jgit</groupId>
             <artifactId>org.eclipse.jgit</artifactId>
             <version>${jgit.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit.ssh.jsch</artifactId>
+            <version>${jgit.version}</version>
+        </dependency>
 
-        <!-- 2. LSP4J: 语言服务器协议(LSP)的Java实现，用于代码补全和诊断 -->
+        <!-- 2. LSP4J: 语言服务器协议(LSP)的Java实现 -->
         <dependency>
             <groupId>org.eclipse.lsp4j</groupId>
             <artifactId>org.eclipse.lsp4j</artifactId>
@@ -67,32 +78,6 @@
             <artifactId>org.eclipse.lsp4j.jsonrpc</artifactId>
             <version>${lsp4j.version}</version>
         </dependency>
-        <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>${gson.version}</version>
-        </dependency>
-
-        <!-- 3. Apache SSHD: 用于创建真正的伪终端(PTY)，实现交互式Shell -->
-        <dependency>
-            <groupId>org.apache.sshd</groupId>
-            <artifactId>sshd-core</artifactId>
-            <version>${sshd.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.sshd</groupId>
-            <artifactId>sshd-putty</artifactId>
-            <version>${sshd.version}</version>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.jetbrains.pty4j/pty4j -->
-        <dependency>
-            <groupId>org.jetbrains.pty4j</groupId>
-            <artifactId>pty4j</artifactId>
-            <version>0.13.1</version>
-            <scope>runtime</scope>
-        </dependency>
-
-
 
         <!-- 测试依赖 -->
         <dependency>
@@ -100,32 +85,7 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>${gson.version}</version>
-        </dependency>
-
-        <!-- 3. Jansi: 用于处理ANSI转义码，尤其是在Windows上 -->
-        <dependency>
-            <groupId>org.fusesource.jansi</groupId>
-            <artifactId>jansi</artifactId>
-            <version>2.4.0</version>
-        </dependency>
     </dependencies>
-
-    <!--
-      确保这里没有 <repositories>...</repositories> 标签指向 jitpack.io。
-      如果您的POM文件中有类似下面的部分，请将其整个删除，因为所有依赖都可以在Maven中央仓库找到。
-
-      <repositories>
-          <repository>
-              <id>jitpack.io</id>
-              <url>https://jitpack.io</url>
-          </repository>
-      </repositories>
-    -->
 
     <build>
         <plugins>
@@ -139,6 +99,23 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
         </plugins>

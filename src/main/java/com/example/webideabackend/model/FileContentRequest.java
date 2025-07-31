@@ -11,10 +11,12 @@ import jakarta.validation.constraints.NotBlank;
 /**
  * 一个记录(record)，用于封装文件路径及其新内容。
  *
- * @param path    要写入的文件的相对路径
- * @param content 要写入的新文件内容
+ * @param projectPath 目标文件所属的项目名称。
+ * @param path    要写入的文件的相对路径（相对于项目根目录）。
+ * @param content 要写入的新文件内容。
  */
 public record FileContentRequest(
+        @NotBlank String projectPath,
         @NotBlank String path,
         String content) {
 }
