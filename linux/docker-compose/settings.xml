@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <mirrors>
+        <!-- mirror
+         | Specifies a repository mirror site to use instead of a given repository. The repository that
+         | this mirror serves has an ID that matches the mirrorOf element of this mirror. IDs are used
+         | for inheritance and direct lookup purposes, and must be unique across the set of mirrors.
+         |
+        <mirror>
+          <id>mirrorId</id>
+          <mirrorOf>repositoryId</mirrorOf>
+          <name>Human Readable Name for this Mirror.</name>
+          <url>http://my.repository.com/repo/path</url>
+        </mirror>
+         -->
+
+        <mirror>
+            <id>tencentcloud-maven</id>
+            <name>Tencent Cloud Maven (China)</name>
+            <url>https://mirrors.cloud.tencent.com/nexus/repository/maven-public/</url>
+            <mirrorOf>central</mirrorOf>
+        </mirror>
+
+<!--        <mirror>-->
+<!--            <id>nexus</id>-->
+<!--            <name>internal nexus repository</name>-->
+<!--            &lt;!&ndash; <url>http://192.168.1.100:8081/nexus/content/groups/public/</url>&ndash;&gt;-->
+<!--            <url>https://repo.maven.apache.org/maven2/</url>-->
+<!--            <mirrorOf>central</mirrorOf>-->
+<!--        </mirror>-->
+
+    </mirrors>
+</settings>
+        <!-- 来源：https://blog.csdn.net/weixin_45886609/article/details/107139013 -->

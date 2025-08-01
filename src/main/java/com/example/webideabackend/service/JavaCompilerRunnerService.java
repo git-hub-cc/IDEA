@@ -107,28 +107,13 @@ public class JavaCompilerRunnerService {
         }
 
         boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
-        String mvnwCommandName = isWindows ? "mvnw.cmd" : "mvnw";
-        File mvnwScriptFile = new File(projectDir, mvnwCommandName);
-
-        if (!mvnwScriptFile.exists()) {
-            String errorMessage = "Error: Maven wrapper script '" + mvnwCommandName + "' not found in project directory. Build cannot proceed.";
-            logService.sendMessage(BUILD_LOG_TOPIC, errorMessage);
-            return CompletableFuture.completedFuture(-1);
-        }
-
-        if (!isWindows) {
-            if (!mvnwScriptFile.canExecute()) {
-                logService.sendMessage(BUILD_LOG_TOPIC, "Attempting to set executable permission for mvnw script...");
-                if (mvnwScriptFile.setExecutable(true)) {
-                    logService.sendMessage(BUILD_LOG_TOPIC, "Successfully set executable permission for mvnw.");
-                } else {
-                    logService.sendMessage(BUILD_LOG_TOPIC, "Warning: Failed to set executable permission for mvnw. The build might fail.");
-                }
-            }
-        }
+        // BUG FIX: The Maven wrapper (mvnw) can fail with ZipException on corrupted downloads.
+        // To create a more robust build process, we will now use the system-installed 'mvn' command,
+        // assuming it is on the PATH. This bypasses the wrapper's bootstrapping mechanism.
+        String mvnCommandName = isWindows ? "mvn.cmd" : "mvn";
 
         List<String> mavenCommand = Arrays.asList(
-                mvnwScriptFile.getAbsolutePath(),
+                mvnCommandName,
                 "clean",
                 "install",
                 "-U",

@@ -1,20 +1,17 @@
+// src/js/managers/NetworkManager.js - 结合了相对路径和自动项目注入的最佳版本
+
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 
 const NetworkManager = {
-    baseUrl: '', // Will be initialized
+    // 使用空字符串，让所有请求都成为页面相对路径
+    baseUrl: '',
     stompClient: null,
     isConnected: false,
     sessionId: null,
     terminalSubscription: null,
 
     init: function() {
-        // ========================= 关键修正 START =========================
-        // Dynamically determine the base URL from the current page's location
-        this.baseUrl = `${window.location.protocol}//${window.location.host}/`;
-        console.log(`NetworkManager initialized with baseUrl: ${this.baseUrl}`);
-        // ========================= 关键修正 END ===========================
-
         this.onBuildLogReceived = this.onBuildLogReceived.bind(this);
         this.onRunLogReceived = this.onRunLogReceived.bind(this);
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
@@ -25,7 +22,7 @@ const NetworkManager = {
     connectWebSocket: function() {
         if (this.isConnected) return Promise.resolve();
         return new Promise((resolve, reject) => {
-            // Now this uses the correctly initialized baseUrl
+            // 'ws' 将被浏览器自动解析为相对于当前页面的路径
             const socket = new SockJS(this.baseUrl + 'ws');
             this.stompClient = Stomp.over(socket);
             this.stompClient.debug = null;
@@ -47,7 +44,6 @@ const NetworkManager = {
         });
     },
 
-    // ... a lot of methods remain unchanged ...
     subscribeToTopics: function() {
         if (!this.stompClient || !this.isConnected) return;
         this.stompClient.subscribe('/topic/build-log', this.onBuildLogReceived);
@@ -75,7 +71,7 @@ const NetworkManager = {
     },
 
     _rawFetchApi: async function(endpoint, options = {}) {
-        // The URL construction now correctly uses the full baseUrl
+        // endpoint 是相对路径, e.g., 'api/projects'
         const url = this.baseUrl + endpoint;
         try {
             const response = await fetch(url, {
@@ -95,6 +91,7 @@ const NetworkManager = {
         }
     },
 
+    // 这个 fetchApi 包装器是关键，它会自动处理 projectPath
     fetchApi: async function(endpoint, options = {}) {
         let finalEndpoint = endpoint;
         let finalOptions = { ...options };
@@ -111,28 +108,27 @@ const NetworkManager = {
                         bodyData.projectPath = Config.currentProject;
                         finalOptions.body = JSON.stringify(bodyData);
                     }
-                    // 无论 bodyData 中是否已有 projectPath，我们都认为它在 body 中被处理了
                     injectedInBody = true;
                 } catch (e) {
-                    // 不是 JSON body，将由下面的 URL 参数逻辑处理
                     injectedInBody = false;
                 }
             }
 
-            // 如果 projectPath 没有被注入到 body 中，则将其作为 URL 参数添加
+            // 如果没注入到 body，则作为 URL 参数添加
             if (!injectedInBody) {
-                const url = new URL(finalEndpoint, this.baseUrl);
+                // 使用一个临时的、无意义的基础URL来操作URLSearchParams
+                const tempBase = 'http://localhost/';
+                const url = new URL(finalEndpoint, tempBase);
                 if (!url.searchParams.has('projectPath')) {
                     url.searchParams.append('projectPath', Config.currentProject);
                 }
-                // 从完整的 URL 中提取路径和查询字符串
                 finalEndpoint = url.pathname.substring(1) + url.search;
             }
         }
         return this._rawFetchApi(finalEndpoint, finalOptions);
     },
 
-    // --- API Methods (no changes needed here, they will just work now) ---
+    // --- API Methods (这些方法现在可以无缝工作) ---
     getProjects: () => NetworkManager.fetchApi('api/projects'),
 
     getFileTree: (relativePath = '') => {
@@ -227,7 +223,7 @@ const NetworkManager = {
             filesToUpload.forEach(({ file, path }) => formData.append('files', file, path));
 
             const xhr = new XMLHttpRequest();
-            // baseUrl is now correct
+            // 使用相对路径 'api/files/replace-project'
             xhr.open('POST', this.baseUrl + 'api/files/replace-project', true);
 
             xhr.upload.onprogress = (event) => {
