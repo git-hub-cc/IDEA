@@ -1,3 +1,5 @@
+// src/js/managers/ActionManager.js
+
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 import NetworkManager from './NetworkManager.js';
@@ -10,9 +12,10 @@ const ActionManager = {
     },
 
     bindAppEvents: function() {
-        EventBus.on('action:new-file', () => this.handleNewFile());
+        EventBus.on('action:new-file', ({ path } = {}) => this.handleNewFile(path));
         EventBus.on('action:open-folder', this.handleOpenFolder.bind(this));
         EventBus.on('action:save-file', this.handleSaveFile.bind(this));
+        // ... (其他toolbar action监听器保持不变)
         EventBus.on('action:run-code', this.handleRunCode.bind(this));
         EventBus.on('action:debug-code', this.handleDebugCode.bind(this));
         EventBus.on('action:step-over', NetworkManager.stepOver);
@@ -21,17 +24,30 @@ const ActionManager = {
         EventBus.on('action:resume-debug', NetworkManager.resumeDebug);
         EventBus.on('action:stop-debug', NetworkManager.stopDebug);
         EventBus.on('action:vcs-clone', this.handleVCSClone.bind(this));
+        EventBus.on('action:clone-from-url', this.handleCloneFromUrl.bind(this));
         EventBus.on('action:vcs-commit', this.handleVCSCommit.bind(this));
         EventBus.on('action:vcs-pull', this.handleVCSPull.bind(this));
         EventBus.on('action:vcs-push', this.handleVCSPush.bind(this));
         EventBus.on('action:settings', this.handleSettings.bind(this));
         EventBus.on('action:about', this.handleAbout.bind(this));
+
+        // 文件树上下文菜单动作
         EventBus.on('context-action:new-file', ({ path }) => this.handleNewFile(path, 'folder'));
         EventBus.on('context-action:new-folder', ({ path }) => this.handleNewFolder(path));
         EventBus.on('context-action:rename', ({ path, type }) => this.handleRenamePath(path, type));
         EventBus.on('context-action:delete', this.handleDeletePath.bind(this));
+        EventBus.on('context-action:download', this.handleDownloadFile.bind(this));
+
+        // ========================= 关键修改 START =========================
+        // 编辑器标签页上下文菜单动作
+        EventBus.on('context-action:close-tab', this.handleCloseTab.bind(this));
+        EventBus.on('context-action:close-other-tabs', this.handleCloseOtherTabs.bind(this));
+        EventBus.on('context-action:close-tabs-to-the-right', this.handleCloseTabsToRight.bind(this));
+        EventBus.on('context-action:close-tabs-to-the-left', this.handleCloseTabsToLeft.bind(this));
+        // ========================= 关键修改 END ===========================
     },
 
+    // ... (其他handle方法保持不变)
     _getCreationContextPath: function() {
         const focusedItem = FileTreeManager.getFocusedItem();
         if (!focusedItem) return '';
@@ -127,6 +143,8 @@ const ActionManager = {
                     await NetworkManager.renamePath(path, newName);
                     EventBus.emit('log:info', `'${oldName}' 已重命名为 '${newName}'。`);
                     EventBus.emit('filesystem:changed');
+                    const newPath = path.substring(0, path.lastIndexOf('/') + 1) + newName;
+                    EventBus.emit('file:renameRequest', { oldPath: path, newPath: newPath });
                 } catch (error) {
                     EventBus.emit('log:error', `重命名失败: ${error.message}`);
                     EventBus.emit('modal:showAlert', { title: '错误', message: `重命名失败: ${error.message}` });
@@ -140,13 +158,15 @@ const ActionManager = {
     },
 
     handleRunCode: async function() {
-        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+        if (!Config.currentProject) {
             EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
             return;
         }
+
         EventBus.emit('ui:activateBottomPanelTab', 'console-output');
         EventBus.emit('console:clear');
         EventBus.emit('statusbar:updateStatus', `正在构建 ${Config.activeProjectName}...`);
+
         try {
             await NetworkManager.buildProject();
             EventBus.emit('log:info', '构建与运行请求已发送。');
@@ -157,11 +177,11 @@ const ActionManager = {
     },
 
     handleDebugCode: async function() {
-        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+        if (!Config.currentProject) {
             EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
             return;
         }
-        const mainClass = 'com.example.Main';
+        const mainClass = 'com.example.Main'; // 应当从项目配置读取
         EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
         EventBus.emit('debugger:clear');
         EventBus.emit('console:clear');
@@ -185,26 +205,26 @@ const ActionManager = {
             EventBus.emit('log:error', `获取Gitee仓库列表失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: 'API错误', message: '无法连接到Gitee获取仓库列表。' });
             EventBus.emit('statusbar:updateStatus', '获取仓库失败', 3000);
-            return; // 获取列表失败，直接终止流程
+            return;
         }
 
         if (repos.length === 0) {
-            EventBus.emit('modal:showAlert', { title: '无仓库', message: '在Gitee上找不到任何公开仓库，或接口被限流了。' });
+            EventBus.emit('modal:showAlert', { title: '无仓库', message: '在Gitee上找不到任何公开仓库，或令牌无效/限流。' });
             return;
         }
 
         try {
-            // 现在 await 只会因为用户确认选择而 resolve，或因为取消而 reject
-            const selectedSshUrl = await ModalManager.showRepoSelectionModal(repos);
+            const selectedCloneUrl = await ModalManager.showRepoSelectionModal(repos);
 
-            // 如果能走到这里，说明 selectedSshUrl 肯定有值
             EventBus.emit('statusbar:updateStatus', '正在克隆选择的仓库...', 0);
             EventBus.emit('progress:start', { message: '正在克隆...' });
 
             try {
-                const response = await NetworkManager.cloneSpecificRepo(selectedSshUrl);
+                const response = await NetworkManager.cloneSpecificRepo(selectedCloneUrl);
                 const newProjectName = response.projectName;
 
+                const updatedProjects = await NetworkManager.getProjects();
+                Config.setProjectList(updatedProjects);
                 Config.setActiveProject(newProjectName);
 
                 EventBus.emit('log:info', `项目 '${newProjectName}' 克隆成功!`);
@@ -219,18 +239,55 @@ const ActionManager = {
             }
 
         } catch (error) {
-            // 这个 catch 现在只处理用户取消操作
             if (error.message === '用户取消了操作。') {
                 EventBus.emit('log:info', '用户取消了仓库选择。');
             } else {
-                // 处理其他意外的模态框错误
                 EventBus.emit('log:error', `显示仓库选择时出错: ${error.message}`);
             }
         }
     },
 
+    handleCloneFromUrl: async function() {
+        EventBus.emit('modal:showPrompt', {
+            title: '从 URL 克隆',
+            message: '请输入 Git 仓库的 HTTPS URL:',
+            defaultValue: 'https://gitee.com/',
+            onConfirm: async (repoUrl) => {
+                if (!repoUrl || !repoUrl.startsWith('https://')) {
+                    EventBus.emit('modal:showAlert', { title: '无效的 URL', message: '请输入一个有效的 HTTPS Git URL。' });
+                    return;
+                }
+
+                EventBus.emit('statusbar:updateStatus', '正在克隆仓库...', 0);
+                EventBus.emit('progress:start', { message: '正在克隆...' });
+
+                try {
+                    const response = await NetworkManager.cloneSpecificRepo(repoUrl);
+                    const newProjectName = response.projectName;
+
+                    const updatedProjects = await NetworkManager.getProjects();
+                    Config.setProjectList(updatedProjects);
+                    Config.setActiveProject(newProjectName);
+
+                    EventBus.emit('log:info', `项目 '${newProjectName}' 克隆成功!`);
+                    EventBus.emit('statusbar:updateStatus', '克隆成功!', 3000);
+                    EventBus.emit('filesystem:changed');
+                } catch (cloneError) {
+                    EventBus.emit('log:error', `克隆失败: ${cloneError.message}`);
+                    EventBus.emit('modal:showAlert', { title: '克隆失败', message: cloneError.message });
+                    EventBus.emit('statusbar:updateStatus', '克隆失败', 3000);
+                } finally {
+                    EventBus.emit('progress:finish');
+                }
+            },
+            onCancel: () => {
+                EventBus.emit('log:info', '用户取消了从 URL 克隆操作。');
+            }
+        });
+    },
+
     handleVCSCommit: function() {
-        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+        if (!Config.currentProject) {
             EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
             return;
         }
@@ -255,7 +312,7 @@ const ActionManager = {
     },
 
     handleVCSPull: async function() {
-        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+        if (!Config.currentProject) {
             EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
             return;
         }
@@ -275,7 +332,7 @@ const ActionManager = {
     },
 
     handleVCSPush: async function() {
-        if (!Config.currentProject) { // 关键修正: ACTIVE_PROJECT -> currentProject
+        if (!Config.currentProject) {
             EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
             return;
         }
@@ -305,7 +362,7 @@ const ActionManager = {
     handleAbout: function() {
         EventBus.emit('modal:showAlert', {
             title: '关于 Web IDEA',
-            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 2.6.0-project-model'
+            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 2.8.0-pom-jdk'
         });
     },
 
@@ -325,6 +382,51 @@ const ActionManager = {
                 }
             }
         });
-    }
+    },
+
+    handleDownloadFile: async function({ path }) {
+        const filename = path.split('/').pop();
+        EventBus.emit('statusbar:updateStatus', `正在下载 ${filename}...`);
+        try {
+            const blob = await NetworkManager.downloadFileAsBlob(path);
+            this._downloadBlob(blob, filename);
+            EventBus.emit('log:info', `文件 '${filename}' 已开始下载。`);
+            EventBus.emit('statusbar:updateStatus', '下载成功', 2000);
+        } catch(error) {
+            EventBus.emit('log:error', `下载文件 ${filename} 失败: ${error.message}`);
+            EventBus.emit('modal:showAlert', { title: '下载失败', message: error.message });
+            EventBus.emit('statusbar:updateStatus', '下载失败', 3000);
+        }
+    },
+
+    _downloadBlob: function(blob, filename) {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+    },
+
+    // ========================= 关键修改 START =========================
+    handleCloseTab: function({ filePath }) {
+        EventBus.emit('file:closeRequest', filePath);
+    },
+
+    handleCloseOtherTabs: function({ filePath }) {
+        EventBus.emit('editor:closeOtherTabs', filePath);
+    },
+
+    handleCloseTabsToRight: function({ filePath }) {
+        EventBus.emit('editor:closeTabsToTheRight', filePath);
+    },
+
+    handleCloseTabsToLeft: function({ filePath }) {
+        EventBus.emit('editor:closeTabsToTheLeft', filePath);
+    },
+    // ========================= 关键修改 END ===========================
 };
 export default ActionManager;

@@ -1,11 +1,45 @@
-# 1. 使用官方的 Maven 镜像作为基础
-#    这个镜像已经包含了 Maven 和 JDK 17
+# 1. 使用官方的 Maven 镜像作为基础 (已包含 JDK 17 和 Git)
 FROM maven:3.9-eclipse-temurin-17
 
-# 2. 安装 Git
-#    这个镜像是基于 Debian 的，所以我们使用 apt-get 来安装。
-#    RUN 命令会在构建镜像时执行。
-RUN apt-get update && apt-get install -y git
+# 2. 安装额外的工具 (如果你的JDK压缩包是.zip格式，需要unzip)
+#    RUN apt-get update && apt-get install -y git unzip && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 3. 设置工作目录 (可选，但在 Dockerfile 中是好习惯)
+# 3. 将本地的 jdks 目录复制到镜像的 /opt/jdks 目录中
+#    /opt 是存放可选软件的常用位置
+COPY ./jdks /opt/jdks
+
+# 4. 核心步骤：解压所有JDK，并创建符号链接
+#    这个脚本会遍历 /opt/jdks/ 下的所有 jdk* 目录
+RUN for jdk_dir in /opt/jdks/jdk*/; do \
+        # 从目录名中提取版本号 (例如从 "jdk18/" 提取 "18")
+        VERSION=$(basename "$jdk_dir" | sed 's/jdk//'); \
+        \
+        # 检查是否存在名为 octet-stream 的压缩文件
+        ARCHIVE_FILE="${jdk_dir}octet-stream"; \
+        if [ -f "$ARCHIVE_FILE" ]; then \
+            echo "--> Processing JDK version ${VERSION}..."; \
+            \
+            # 在jdk_dir内部解压文件。--strip-components=1 会移除压缩包内的顶层目录，
+            # 使得 bin, lib 等直接解压到 jdk_dir 下，简化路径。
+            # 假设压缩文件是 .tar.gz 格式
+            tar -xzf "$ARCHIVE_FILE" -C "$jdk_dir" --strip-components=1; \
+            \
+            # 为 java 和 javac 创建符号链接到 /usr/local/bin (此目录在PATH中)
+            # 这样你就可以直接调用 java18, javac18 等命令
+            ln -s "${jdk_dir}bin/java" "/usr/local/bin/java${VERSION}"; \
+            ln -s "${jdk_dir}bin/javac" "/usr/local/bin/javac${VERSION}"; \
+            \
+            # 删除原始压缩包，以减小最终镜像的体积
+            rm "$ARCHIVE_FILE"; \
+            echo "--> JDK ${VERSION} setup complete."; \
+        else \
+            echo "--> Warning: Archive file not found in ${jdk_dir}"; \
+        fi; \
+    done
+
+# 5. 设置工作目录为 /app，这是项目代码和应用的根目录
 WORKDIR /app
+
+# 6. 将你的工作区挂载到容器的 /app/workspace
+#    这一步也可以在 docker-compose.yml 中通过 volumes 完成，那里更灵活
+VOLUME /app/workspace

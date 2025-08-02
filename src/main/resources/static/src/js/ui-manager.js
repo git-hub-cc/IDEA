@@ -1,83 +1,76 @@
-// ui-manager.js - 负责整体UI布局与面板管理
-import { ResizableLayout } from './utils/resizable-layout.js';
+// src/js/managers/UIManager.js - 负责整体UI布局与面板管理
 
-export class UIManager {
-    constructor(eventBus) {
-        this.eventBus = eventBus;
-        this.mainPanels = document.getElementById('main-panels');
-        this.leftPanel = document.getElementById('left-panel');
-        this.centerPanel = document.getElementById('center-panel');
-        this.bottomPanel = document.getElementById('bottom-panel');
+import EventBus from '../utils/event-emitter.js';
+import { ResizableLayout } from '../utils/resizable-layout.js';
+
+const UIManager = {
+    horizontalLayout: null,
+    panelTabButtons: null,
+    panelContents: null,
+
+    init: function() {
         this.panelTabButtons = document.querySelectorAll('.panel-tab');
         this.panelContents = document.querySelectorAll('.panel-content');
 
-        this.horizontalLayout = null; // Will store the ResizableLayout instance
-
-        // Listen for layout changes to update internal components
-        this.eventBus.on('layoutChanged', this.handlePanelLayoutChange.bind(this));
-    }
-
-    init() {
         this.setupPanelResizing();
         this.setupPanelTabs();
-        // Monaco and Xterm initialization are handled asynchronously in their respective modules.
-    }
+        this.bindEvents();
+    },
 
-    // 设置面板拖拽调整大小
-    setupPanelResizing() {
-        // Initialize the custom ResizableLayout for horizontal panels
+    bindEvents: function() {
+        EventBus.on('ui:layoutChanged', this.handlePanelLayoutChange.bind(this));
+        // 监听其他模块发出的激活面板的请求
+        EventBus.on('ui:activateBottomPanelTab', this.activateBottomPanelTab.bind(this));
+    },
+
+    setupPanelResizing: function() {
         this.horizontalLayout = new ResizableLayout(
-            '#main-panels', // Container for the panels
-            ['#left-panel', '#center-panel', '#bottom-panel'], // IDs of the panels to resize
-            this.eventBus, // Pass eventBus for layoutChanged events
+            '#main-panels',
+            ['#left-panel', '#center-panel', '#bottom-panel'],
             {
                 direction: 'horizontal',
-                minSizes: [200, 350, 250], // Minimum sizes for left, center, bottom panels (in pixels)
-                initialSizes: [20, 55, 25], // Initial sizes in percentage if no saved layout
-                storageKey: 'web-idea-layout-h' // Key for localStorage persistence
+                minSizes: [200, 350, 250],
+                initialSizes: [20, 55, 25],
+                storageKey: 'web-idea-layout-h'
             }
         );
-        this.horizontalLayout.init(); // Initialize the layout manager
-    }
+        this.horizontalLayout.init();
+    },
 
-    // 处理面板布局变化，通知相关组件更新自身布局
-    handlePanelLayoutChange() {
-        // Monaco Editor needs to be notified to update its layout when its parent container changes size
-        if (window.monacoEditorInstance) {
-            // A slight delay can help ensure the DOM has settled before Monaco calculates its new layout
-            setTimeout(() => window.monacoEditorInstance.layout(), 50);
-        }
-        // If there's an xterm.js instance, it also needs to fit its container
-        if (window.xtermInstance && window.xtermFitAddon) {
-            setTimeout(() => window.xtermFitAddon.fit(), 50);
-        }
-    }
-
-    // 设置底部面板的Tab切换
-    setupPanelTabs() {
-        this.panelTabButtons.forEach(button => {
+    setupPanelTabs: function() {
+        this.panelTabButtons.forEach((button) => {
             button.addEventListener('click', () => {
                 const panelId = button.dataset.panelId;
-
-                // 移除所有tab的active类，并隐藏所有内容面板
-                this.panelTabButtons.forEach(btn => btn.classList.remove('active'));
-                this.panelContents.forEach(content => content.classList.remove('active'));
-
-                // 激活当前点击的tab和对应的内容面板
-                button.classList.add('active');
-                document.getElementById(panelId).classList.add('active');
-
-                // 切换面板时可能改变可见区域，通知Monaco和Xterm
-                this.handlePanelLayoutChange();
+                // 通过发出全局事件来处理Tab切换，实现模块解耦。
+                // UIManager自身和TerminalManager等其他模块都会监听到这个事件。
+                EventBus.emit('ui:activateBottomPanelTab', panelId);
             });
         });
-    }
+    },
 
-    // 激活指定ID的底部面板tab
-    activateBottomPanelTab(panelId) {
+    activateBottomPanelTab: function(panelId) {
         const targetButton = document.querySelector(`.panel-tab[data-panel-id="${panelId}"]`);
+        // 确保目标按钮存在且当前不是激活状态，避免不必要的重渲染
         if (targetButton && !targetButton.classList.contains('active')) {
-            targetButton.click(); // 模拟点击按钮来激活
+            // 切换UI显示
+            this.panelTabButtons.forEach(btn => btn.classList.remove('active'));
+            this.panelContents.forEach(content => content.classList.remove('active'));
+
+            targetButton.classList.add('active');
+            const panelElement = document.getElementById(panelId);
+            if(panelElement) panelElement.classList.add('active');
+
+            // 触发布局变化事件，通知内部组件（如编辑器、终端）调整大小
+            EventBus.emit('ui:layoutChanged');
         }
+    },
+
+    handlePanelLayoutChange: function() {
+        // 使用事件驱动的方法通知其他模块，而不是直接调用它们。
+        // 这样就移除了对 window.xtermInstance 的直接依赖，修复了错误。
+        EventBus.emit('editor:resize');
+        EventBus.emit('terminal:resize');
     }
-}
+};
+
+export default UIManager;

@@ -86,9 +86,9 @@
     border-radius: 4px;
     border: 1px solid transparent;
 }
-/* .file-tree li:hover {
+.file-tree li:hover {
     background-color: var(--border-color);
-} */
+}
 .file-tree li.focused {
     background-color: var(--selection-color);
     color: var(--text-primary);
@@ -119,7 +119,6 @@
 
 /* ==================== 新增拖放样式 START ==================== */
 .file-tree-container.drag-over {
-    /* 使用虚线边框和半透明背景作为视觉提示 */
     border: 2px dashed var(--accent-color);
     background-color: var(--selection-color);
     opacity: 0.8;
@@ -192,12 +191,13 @@
 }
 .editor-tab:hover { background-color: var(--border-color); color: var(--text-primary); }
 .editor-tab.active {
-    background-color: var(--bg-panel);
+    background-color: var(--bg-primary);
     color: var(--text-primary);
-    border-bottom-color: var(--bg-panel);
+    border-bottom-color: var(--bg-primary);
     font-weight: bold;
 }
-.editor-tab .close-tab-btn { margin-left: 5px; cursor: pointer; }
+.editor-tab .close-tab-btn { margin-left: 5px; cursor: pointer; border-radius: 50%; padding: 2px; }
+.editor-tab .close-tab-btn:hover { background-color: var(--border-color); }
 .editor-tab .unsaved-indicator { color: var(--color-warning); display: none; }
 .editor-tab.modified .unsaved-indicator { display: inline; }
 
@@ -221,10 +221,16 @@
     font-size: 0.9rem;
 }
 .panel-tab:hover { background-color: var(--border-color); color: var(--text-primary); }
-.panel-tab.active { color: var(--accent-color); font-weight: bold; }
+.panel-tab.active { color: var(--accent-color); font-weight: bold; border-bottom: 2px solid var(--accent-color); }
 
 /* 控制台输出 */
 #console-output pre { font-family: var(--font-family-mono); white-space: pre-wrap; word-break: break-all; }
+
+/* 当控制台禁用自动换行时，使用 pre 默认行为并允许水平滚动 */
+#console-output.no-wrap pre {
+    white-space: pre;
+    word-break: normal;
+}
 
 /* 问题列表 */
 #problems-list ul { list-style: none; padding: 0; margin: 0; }
@@ -234,6 +240,77 @@
 #problems-list li.warning { color: var(--color-warning); }
 #problems-list li.info { color: var(--color-info); }
 #problems-list li i { width: 16px; text-align: center; }
+
+/* --- 新的终端样式 --- */
+#terminal-panel.panel-content.active {
+    display: flex;
+    flex-direction: column;
+    padding: 0; /* 覆盖.panel-content的默认内边距 */
+}
+#terminal-output-container {
+    flex-grow: 1; /* 占据所有可用空间 */
+    overflow-y: auto; /* 内容溢出时显示滚动条 */
+    font-family: var(--font-family-mono);
+    line-height: 1.4;
+    background-color: var(--terminal-bg);
+    color: var(--terminal-fg);
+    padding: 10px;
+}
+#terminal-output-container pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* 由ansi_up库生成的ANSI颜色CSS类 */
+.ansi-black-fg { color: var(--terminal-black); }
+.ansi-red-fg { color: var(--terminal-red); }
+.ansi-green-fg { color: var(--terminal-green); }
+.ansi-yellow-fg { color: var(--terminal-yellow); }
+.ansi-blue-fg { color: var(--terminal-blue); }
+.ansi-magenta-fg { color: var(--terminal-magenta); }
+.ansi-cyan-fg { color: var(--terminal-cyan); }
+.ansi-white-fg { color: var(--terminal-white); }
+.ansi-bright-black-fg { color: var(--terminal-black); font-weight: bold; }
+.ansi-bright-red-fg { color: var(--terminal-red); font-weight: bold; }
+.ansi-bright-green-fg { color: var(--terminal-green); font-weight: bold; }
+.ansi-bright-yellow-fg { color: var(--terminal-yellow); font-weight: bold; }
+.ansi-bright-blue-fg { color: var(--terminal-blue); font-weight: bold; }
+.ansi-bright-magenta-fg { color: var(--terminal-magenta); font-weight: bold; }
+.ansi-bright-cyan-fg { color: var(--terminal-cyan); font-weight: bold; }
+.ansi-bright-white-fg { color: var(--terminal-white); font-weight: bold; }
+.ansi-black-bg { background-color: var(--terminal-black); }
+.ansi-red-bg { background-color: var(--terminal-red); }
+.ansi-green-bg { background-color: var(--terminal-green); }
+.ansi-yellow-bg { background-color: var(--terminal-yellow); }
+.ansi-blue-bg { background-color: var(--terminal-blue); }
+.ansi-magenta-bg { background-color: var(--terminal-magenta); }
+.ansi-cyan-bg { background-color: var(--terminal-cyan); }
+.ansi-white-bg { background-color: var(--terminal-white); }
+
+.terminal-input-container {
+    flex-shrink: 0; /* 防止输入框被压缩 */
+    display: flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--bg-panel);
+}
+.terminal-prompt {
+    font-family: var(--font-family-mono);
+    color: var(--accent-color);
+    margin-right: 8px;
+    user-select: none; /* 提示符不可选中 */
+}
+#terminal-input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-family-mono);
+    font-size: 1em;
+}
 
 /* 调试器 */
 #debugger-panel.active { display: flex; flex-direction: column; }
@@ -267,7 +344,7 @@
     border-radius: 8px;
     box-shadow: 0 5px 15px var(--shadow-color);
     width: 90%;
-    max-width: 500px; /* 稍微加宽以容纳单选按钮 */
+    max-width: 500px;
     display: flex;
     flex-direction: column;
     transform: translateY(-20px);
@@ -313,11 +390,9 @@
     background-color: var(--accent-color);
     color: #fff;
 }
-.repo-item-label.selected strong {
-    color: #fff; /* 确保在选中时标题也是白色 */
-}
+.repo-item-label.selected strong,
 .repo-item-label.selected p {
-    color: #e0e0e0; /* 选中时描述文字为浅灰色 */
+    color: #fff;
 }
 .repo-item-details {
     flex-grow: 1;
@@ -333,18 +408,10 @@
     color: var(--text-secondary);
     margin: 4px 0 0 0;
 }
-/* 单选按钮本身的样式 */
-.repo-item-label input[type="radio"] {
-    flex-shrink: 0;
-    margin: 0;
-    accent-color: var(--accent-color); /* 让单选按钮颜色跟随主题 */
-    display: none;
-}
-
 /* ================== 新增 Git 仓库选择列表样式 END ==================== */
 
 .modal-footer { padding: 15px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
-.modal-action-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: opacity 0.2s; }
+.modal-action-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: background-color 0.2s, opacity 0.2s; }
 .modal-action-btn.primary-btn { background-color: var(--accent-color); color: white; }
 .modal-action-btn.primary-btn:hover:not(:disabled) { background-color: var(--accent-color-hover); }
 .modal-action-btn.secondary-btn { background-color: var(--border-color); color: var(--text-primary); }
@@ -353,13 +420,9 @@
 .modal-action-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+    background-color: var(--border-color);
 }
 /* ======================================================= */
-.modal-footer { padding: 15px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
-.modal-action-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: bold; }
-.modal-action-btn.primary-btn { background-color: var(--accent-color); color: white; }
-.modal-action-btn.primary-btn:hover { background-color: var(--accent-color-hover); }
-.modal-action-btn.secondary-btn { background-color: var(--border-color); color: var(--text-primary); }
 
 /* --- Monaco/Debugger 特有样式 --- */
 .debug-line-highlight { background-color: rgba(98, 163, 255, 0.2); }

@@ -2,13 +2,11 @@ package com.example.webideabackend.controller;
 
 import com.example.webideabackend.model.RunJavaRequest;
 import com.example.webideabackend.service.JavaCompilerRunnerService;
-import com.example.webideabackend.service.WebSocketLogService;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -17,60 +15,38 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/java")
 public class JavaController implements DisposableBean {
 
-    private static final String MAIN_CLASS = "com.example.Main";
-    private static final String BUILD_LOG_TOPIC = "/topic/build-log";
-    private static final String RUN_LOG_TOPIC = "/topic/run-log";
-
     private final JavaCompilerRunnerService javaRunnerService;
-    private final WebSocketLogService logService;
     private final ExecutorService taskExecutor = Executors.newCachedThreadPool();
 
     @Autowired
-    public JavaController(JavaCompilerRunnerService javaRunnerService, WebSocketLogService logService) {
+    public JavaController(JavaCompilerRunnerService javaRunnerService) {
         this.javaRunnerService = javaRunnerService;
-        this.logService = logService;
     }
 
+    // ========================= 关键修改 START =========================
+    /**
+     * 构建并运行一个项目。
+     * JDK版本将由后端根据项目的 pom.xml 自动确定。
+     *
+     * @param projectPath 要构建和运行的项目。
+     * @return 一个表示操作已启动的响应实体。
+     */
     @PostMapping("/build")
     public ResponseEntity<String> buildAndRunProject(@RequestParam String projectPath) {
-        logService.sendMessage(BUILD_LOG_TOPIC, "Build command received for: " + projectPath);
-
-        javaRunnerService.runMavenBuild(projectPath) // 关键修改
-                .thenAcceptAsync(exitCode -> handleBuildResult(exitCode, projectPath), taskExecutor)
-                .exceptionally(ex -> {
-                    logService.sendMessage(BUILD_LOG_TOPIC, "Build failed with exception: " + ex.getMessage());
-                    return null;
-                });
-
+        // 将整个异步任务链委托给服务层
+        taskExecutor.submit(() -> javaRunnerService.buildAndRunProject(projectPath));
         return ResponseEntity.ok("Build and run process initiated for project: " + projectPath);
     }
-
-    private void handleBuildResult(int exitCode, String projectPath) {
-        logService.sendMessage(BUILD_LOG_TOPIC, "Build finished with exit code: " + exitCode);
-        if (exitCode == 0) {
-            logService.sendMessage(RUN_LOG_TOPIC, "Build successful. Initiating run for main class: " + MAIN_CLASS);
-            javaRunnerService.runJavaApplication(projectPath, MAIN_CLASS) // 关键修改
-                    .thenAcceptAsync(runExitCode ->
-                            logService.sendMessage(RUN_LOG_TOPIC, "Application finished with exit code: " + runExitCode), taskExecutor)
-                    .exceptionally(ex -> {
-                        logService.sendMessage(RUN_LOG_TOPIC, "Application run failed with exception: " + ex.getMessage());
-                        return null;
-                    });
-        } else {
-            logService.sendMessage(RUN_LOG_TOPIC, "Build failed. Skipping run.");
-        }
-    }
+    // ========================= 关键修改 END ===========================
 
     @PostMapping("/run")
     public ResponseEntity<String> runJava(@RequestBody RunJavaRequest request) {
-        logService.sendMessage(RUN_LOG_TOPIC, "Run command received for: " + request.mainClass() + " in project: " + request.projectPath());
-
-        javaRunnerService.runJavaApplication(request.projectPath(), request.mainClass()) // 关键修改
-                .thenAcceptAsync(exitCode ->
-                        logService.sendMessage(RUN_LOG_TOPIC, "Application finished with exit code: " + exitCode), taskExecutor)
+        // 注意：这个独立的 /run 端点目前不支持POM的JDK检测，它主要用于特殊场景。
+        // UI上的主要“运行”按钮使用的是 /build 端点。
+        javaRunnerService.runJavaApplication(request.projectPath(), request.mainClass(), null)
                 .exceptionally(ex -> {
-                    logService.sendMessage(RUN_LOG_TOPIC, "Application run failed with exception: " + ex.getMessage());
-                    return null;
+                    System.err.println("Application run failed with exception: " + ex.getMessage());
+                    return -1;
                 });
 
         return ResponseEntity.ok("Java application run initiated.");

@@ -21,7 +21,11 @@ services:
     environment:
       - GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY=${GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY}
 
-    # 关键修改：修改启动命令，实现 "先编译，后运行"
-    # 使用 sh -c 来执行一连串的 shell 命令
-    # 直接启动java应用，因为maven已经内置在镜像里了
+    # 【推荐修改】优化启动命令，实现在容器内编译和运行
+    # 这样可以充分利用我们刚刚挂载的 settings.xml 来下载依赖。
+    # sh -c "..." 允许我们执行一连串的命令。
+    # mvn clean package: 使用容器内的 maven 和 settings.xml 进行编译打包。
+    # -DskipTests: 跳过测试，加快构建速度。
+    # &&: 只有在编译成功后，才执行后面的 java 命令。
+    # target/*.jar: 使用通配符，无需关心 jar 包的具体版本号。
     command: java -Duser.timezone=Asia/Shanghai -jar app.jar

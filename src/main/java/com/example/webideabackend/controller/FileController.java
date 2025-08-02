@@ -1,3 +1,5 @@
+// controller/FileController.java
+
 package com.example.webideabackend.controller;
 
 import com.example.webideabackend.model.CreateFileRequest;
@@ -9,12 +11,17 @@ import com.example.webideabackend.service.LanguageServerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 
 @RestController
@@ -22,6 +29,9 @@ import java.util.List;
 public class FileController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FileController.class);
+    private static final List<String> TEXT_FILE_EXTENSIONS = Arrays.asList(
+            "txt", "java", "js", "html", "css", "xml", "pom", "json", "md", "gitignore", "properties"
+    );
 
     private final FileService fileService;
     private final LanguageServerService languageServerService;
@@ -60,19 +70,57 @@ public class FileController {
         }
     }
 
+    // ========================= 关键修改 START =========================
+    /**
+     * 获取文件内容，既可用于在编辑器中显示，也可用于下载。
+     * 此端点返回原始字节流，并设置Content-Disposition头，让浏览器知道如何处理。
+     *
+     * @param projectPath 项目路径
+     * @param path        文件在项目中的相对路径
+     * @return 包含文件字节的ResponseEntity
+     */
     @GetMapping("/files/content")
-    public ResponseEntity<String> getFileContent(
+    public ResponseEntity<byte[]> getFileContent(
             @RequestParam String projectPath,
             @RequestParam String path) {
         try {
-            String content = fileService.readFileContent(projectPath, path);
-            languageServerService.fileOpened(projectPath, path, content);
-            return ResponseEntity.ok(content);
+            byte[] contentBytes = fileService.readFileContent(projectPath, path);
+
+            // 当文件被请求时，如果是已知的文本类型，则通知语言服务器
+            if (isTextFile(path)) {
+                String contentString = new String(contentBytes, StandardCharsets.UTF_8);
+                languageServerService.fileOpened(projectPath, path, contentString);
+            }
+
+            String filename = Path.of(path).getFileName().toString();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+            headers.setContentDispositionFormData("attachment", filename);
+
+            return new ResponseEntity<>(contentBytes, headers, HttpStatus.OK);
+
         } catch (IOException e) {
             LOGGER.error("Error reading file content for project '{}', path: {}", projectPath, path, e);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+            // 返回一个空的byte数组和404状态码
+            return new ResponseEntity<>(new byte[0], HttpStatus.NOT_FOUND);
         }
     }
+
+    /**
+     * 检查文件扩展名是否为已知的文本类型。
+     * @param filePath 文件路径
+     * @return 如果是文本文件则为true，否则为false
+     */
+    private boolean isTextFile(String filePath) {
+        int lastDot = filePath.lastIndexOf('.');
+        if (lastDot == -1) {
+            return false; // No extension
+        }
+        String extension = filePath.substring(lastDot + 1).toLowerCase();
+        return TEXT_FILE_EXTENSIONS.contains(extension);
+    }
+    // ========================= 关键修改 END ===========================
+
 
     // Records are updated to include projectPath
     @PostMapping("/files/content")

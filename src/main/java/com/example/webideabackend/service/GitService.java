@@ -1,14 +1,18 @@
+// 文件: src/main/java/com/example/webideabackend/service/GitService.java
+
 package com.example.webideabackend.service;
 
 import com.example.webideabackend.model.GiteeRepoInfo;
 import com.example.webideabackend.model.GitStatusResponse;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.transport.SshTransport;
+import org.eclipse.jgit.lib.StoredConfig;
+import org.eclipse.jgit.transport.*;
 import org.eclipse.jgit.transport.ssh.jsch.JschConfigSessionFactory;
 import org.eclipse.jgit.transport.ssh.jsch.OpenSshConfig;
 import org.eclipse.jgit.util.FS;
@@ -17,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
@@ -27,6 +32,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class GitService {
@@ -34,18 +40,16 @@ public class GitService {
     private static final Logger LOGGER = LoggerFactory.getLogger(GitService.class);
 
     private static final String GITEE_USER = "wyswydx"; // Gitee 用户名
-    private static final String GITEE_API_URL = "https://gitee.com/api/v5/users/" + GITEE_USER + "/repos";
+    private static final String GITEE_API_URL_TEMPLATE = "https://gitee.com/api/v5/users/" + GITEE_USER + "/repos?access_token=%s";
 
-    // ========================= 关键修改 START =========================
-    /**
-     * SSH私钥。
-     * 此值通过 Spring 从环境变量 'GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY' 中注入。
-     * 类似于 Python 的 os.environ.get("...").
-     */
-    @Value("${GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY}")
-    private String giteePrivateKey;
-    // ========================= 关键修改 END ===========================
+    @Value("${gitee.api.access-token}")
+    private String giteeAccessToken;
 
+    @Value("${gitee.ssh.private-key-path:}")
+    private String giteeSshPrivateKeyPath;
+
+    @Value("${gitee.ssh.passphrase:}")
+    private String giteeSshPassphrase;
 
     private final Path workspaceRoot;
     private final RestTemplate restTemplate;
@@ -56,36 +60,70 @@ public class GitService {
         this.restTemplate = restTemplate;
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GiteeApiRepo(String name, String description, GiteeApiOwner owner) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GiteeApiOwner(String login) {}
     public List<GiteeRepoInfo> getGiteeRepositories() {
+        final String apiUrl = String.format(GITEE_API_URL_TEMPLATE, giteeAccessToken);
         try {
-            GiteeRepoInfo[] repos = restTemplate.getForObject(GITEE_API_URL, GiteeRepoInfo[].class);
-            return repos != null ? Arrays.asList(repos) : Collections.emptyList();
+            GiteeApiRepo[] repos = restTemplate.getForObject(apiUrl, GiteeApiRepo[].class);
+            if (repos == null) return Collections.emptyList();
+            return Arrays.stream(repos)
+                    .map(repo -> {
+                        String cloneUrl = String.format("https://gitee.com/%s/%s.git", repo.owner().login(), repo.name());
+                        return new GiteeRepoInfo(repo.name(), repo.description(), cloneUrl);
+                    })
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             LOGGER.error("Failed to fetch repositories from Gitee for user {}", GITEE_USER, e);
             return Collections.emptyList();
         }
     }
 
-    public String cloneSpecificRepository(String repoSshUrl) throws GitAPIException, IOException {
-        String projectName = repoSshUrl.substring(repoSshUrl.lastIndexOf('/') + 1, repoSshUrl.lastIndexOf('.'));
-        Path projectDir = workspaceRoot.resolve(projectName);
+    // ========================= 关键修改 START =========================
+    public String cloneSpecificRepository(String repoHttpsUrl) throws GitAPIException, IOException {
+        // 使用更健壮的逻辑来提取项目名称
+        int lastSlashIndex = repoHttpsUrl.lastIndexOf('/');
+        if (lastSlashIndex == -1) {
+            throw new IllegalArgumentException("Invalid repository URL format: " + repoHttpsUrl);
+        }
+        String lastPart = repoHttpsUrl.substring(lastSlashIndex + 1);
+        String projectName = lastPart.endsWith(".git") ? lastPart.substring(0, lastPart.length() - 4) : lastPart;
 
+        if (projectName.isEmpty()) {
+            throw new IllegalArgumentException("Could not determine project name from URL: " + repoHttpsUrl);
+        }
+        // ========================= 关键修改 END ===========================
+
+        Path projectDir = workspaceRoot.resolve(projectName);
         if (Files.exists(projectDir)) {
             LOGGER.warn("Project directory {} already exists. Deleting it before clone.", projectDir);
             FileUtils.deleteDirectory(projectDir.toFile());
         }
-
-        LOGGER.info("Cloning repository {} into {}", repoSshUrl, projectDir);
-        try (Git result = Git.cloneRepository()
-                .setURI(repoSshUrl)
+        LOGGER.info("Cloning repository {} into {}", repoHttpsUrl, projectDir);
+        try (Git git = Git.cloneRepository()
+                .setURI(repoHttpsUrl)
                 .setDirectory(projectDir.toFile())
-                .setTransportConfigCallback(createSshTransportConfigCallback())
+                .setCredentialsProvider(new UsernamePasswordCredentialsProvider("private-token", giteeAccessToken))
                 .call()) {
-            LOGGER.info("Repository cloned into: {}", result.getRepository().getDirectory());
+            LOGGER.info("Repository cloned successfully via HTTPS into: {}", git.getRepository().getDirectory());
+            LOGGER.info("Switching remote 'origin' URL to SSH format for push operations...");
+            String pathPart = repoHttpsUrl.replace("https://gitee.com/", "");
+            String sshUrl = "git@gitee.com:" + pathPart;
+            StoredConfig config = git.getRepository().getConfig();
+            config.setString("remote", "origin", "url", sshUrl);
+            config.save();
+            LOGGER.info("Remote 'origin' URL successfully updated to: {}", sshUrl);
             return projectName;
+        } catch (Exception e) {
+            LOGGER.error("An error occurred during clone and setup process for {}", repoHttpsUrl, e);
+            if(Files.exists(projectDir)) {
+                FileUtils.deleteDirectory(projectDir.toFile());
+            }
+            throw new IOException("Failed during clone or SSH URL setup: " + e.getMessage(), e);
         }
     }
-
     private Git openRepository(String projectPath) throws IOException {
         Path repoDir = workspaceRoot.resolve(projectPath);
         if (!Files.exists(repoDir.resolve(".git"))) {
@@ -93,54 +131,29 @@ public class GitService {
         }
         return Git.open(repoDir.toFile());
     }
-
     public GitStatusResponse getStatus(String projectPath) throws GitAPIException, IOException {
         Path repoDir = workspaceRoot.resolve(projectPath);
-
         if (!Files.exists(repoDir) || !Files.isDirectory(repoDir) || !Files.exists(repoDir.resolve(".git"))) {
-            return GitStatusResponse.builder()
-                    .currentBranch("not-a-repo")
-                    .isClean(true)
-                    .added(Collections.emptySet())
-                    .modified(Collections.emptySet())
-                    .deleted(Collections.emptySet())
-                    .untracked(Collections.emptySet())
-                    .conflicting(Collections.emptySet())
-                    .build();
+            return GitStatusResponse.builder().currentBranch("not-a-repo").isClean(true).added(Collections.emptySet()).modified(Collections.emptySet()).deleted(Collections.emptySet()).untracked(Collections.emptySet()).conflicting(Collections.emptySet()).build();
         }
-
         try (Git git = Git.open(repoDir.toFile())) {
             Status status = git.status().call();
-            return GitStatusResponse.builder()
-                    .currentBranch(git.getRepository().getBranch())
-                    .isClean(status.isClean())
-                    .added(status.getAdded())
-                    .modified(status.getModified())
-                    .deleted(status.getRemoved())
-                    .untracked(status.getUntracked())
-                    .conflicting(status.getConflicting())
-                    .build();
+            return GitStatusResponse.builder().currentBranch(git.getRepository().getBranch()).isClean(status.isClean()).added(status.getAdded()).modified(status.getModified()).deleted(status.getRemoved()).untracked(status.getUntracked()).conflicting(status.getConflicting()).build();
         }
     }
-
     public void commit(String projectPath, String message, String authorName, String authorEmail) throws GitAPIException, IOException {
         try (Git git = openRepository(projectPath)) {
             LOGGER.info("Performing git commit on '{}' with message: '{}'", projectPath, message);
-            git.commit()
-                    .setMessage(message)
-                    .setAuthor(authorName, authorEmail)
-                    .setAll(true)
-                    .call();
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage(message).setAuthor(authorName, authorEmail).call();
         }
     }
-
     public String pull(String projectPath) throws GitAPIException, IOException {
         try (Git git = openRepository(projectPath)) {
-            LOGGER.info("Performing git pull for project '{}', configuring SSH transport...", projectPath);
+            LOGGER.info("Performing git pull for project '{}' via HTTPS...", projectPath);
             PullCommand pullCommand = git.pull();
-            pullCommand.setTransportConfigCallback(createSshTransportConfigCallback());
+            pullCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider("private-token", giteeAccessToken));
             PullResult result = pullCommand.call();
-
             if (result.isSuccessful()) {
                 return "Pull successful. Fetched from " + result.getFetchedFrom() + ".";
             } else {
@@ -150,55 +163,67 @@ public class GitService {
     }
 
     public String push(String projectPath) throws GitAPIException, IOException {
-        try (Git git = openRepository(projectPath)) {
-            LOGGER.info("Performing git push for project '{}', configuring SSH transport...", projectPath);
-            PushCommand pushCommand = git.push();
-            pushCommand.setTransportConfigCallback(createSshTransportConfigCallback());
-            pushCommand.call();
-            return "Push successful.";
+        if (!StringUtils.hasText(giteeSshPrivateKeyPath)) {
+            throw new IllegalStateException("SSH private key path is not configured. Please set 'gitee.ssh.private-key-path' in your application properties.");
         }
-    }
 
-    /**
-     * 创建一个可重用的 TransportConfigCallback，用于配置 JGit 使用 SSH 密钥进行认证。
-     * @return 配置好的 TransportConfigCallback 实例。
-     */
-    private TransportConfigCallback createSshTransportConfigCallback() {
-        JschConfigSessionFactory sshSessionFactory = new JschConfigSessionFactory() {
+        Path privateKeyFile = Paths.get(giteeSshPrivateKeyPath);
+        if (!Files.exists(privateKeyFile)) {
+            throw new IOException("SSH private key file not found at path: " + giteeSshPrivateKeyPath);
+        }
+
+        byte[] privateKeyBytes = Files.readAllBytes(privateKeyFile);
+
+        SshSessionFactory sshSessionFactory = new JschConfigSessionFactory() {
             @Override
             protected void configure(OpenSshConfig.Host hc, Session session) {
-                // 禁用严格的主机密钥检查，简化演示环境的连接
                 session.setConfig("StrictHostKeyChecking", "no");
             }
 
             @Override
-            protected JSch getJSch(final OpenSshConfig.Host hc, FS fs) throws JSchException {
-                JSch jsch = super.getJSch(hc, fs);
-                jsch.removeAllIdentity(); // 清除所有旧的身份
+            protected JSch createDefaultJSch(FS fs) throws JSchException {
+                JSch defaultJSch = super.createDefaultJSch(fs);
+                byte[] passphraseBytes = StringUtils.hasText(giteeSshPassphrase) ?
+                        giteeSshPassphrase.getBytes(StandardCharsets.UTF_8) : null;
 
-                // 检查从环境变量注入的私钥是否存在
-                if (giteePrivateKey == null || giteePrivateKey.trim().isEmpty()) {
-                    throw new JSchException("SSH private key is not configured. Please set the 'GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY' environment variable.");
-                }
-
-                // 确保私钥格式正确
-                String privateKeyContent = giteePrivateKey.replace("\r\n", "\n");
-                if (!privateKeyContent.endsWith("\n")) {
-                    privateKeyContent += "\n";
-                }
-                byte[] privateKeyBytes = privateKeyContent.getBytes(StandardCharsets.UTF_8);
-                // 从字节数组加载私钥
-                // 此方法需要私钥、公钥和密码。当公钥为null时，JSch会尝试从私钥中推导。
-                // 只要私钥格式正确（PEM），这个调用就是有效的。
-                jsch.addIdentity("gitee-demo-key", privateKeyBytes, null, null);
-                return jsch;
+                defaultJSch.addIdentity(
+                        "gitee-ssh-key-for-push",
+                        privateKeyBytes,
+                        null,
+                        passphraseBytes
+                );
+                return defaultJSch;
             }
         };
 
-        return transport -> {
-            if (transport instanceof SshTransport) {
-                ((SshTransport) transport).setSshSessionFactory(sshSessionFactory);
-            }
-        };
+        try (Git git = openRepository(projectPath)) {
+            LOGGER.info("Performing git push for project '{}' via SSH using key from '{}'...", projectPath, giteeSshPrivateKeyPath);
+            PushCommand pushCommand = git.push();
+
+            pushCommand.setTransportConfigCallback(transport -> {
+                if (transport instanceof SshTransport) {
+                    SshTransport sshTransport = (SshTransport) transport;
+                    sshTransport.setSshSessionFactory(sshSessionFactory);
+                }
+            });
+
+            Iterable<PushResult> results = pushCommand.call();
+            StringBuilder resultMessage = new StringBuilder("Push operation summary:\n");
+            results.forEach(result -> {
+                if (result.getMessages().length() > 0) {
+                    resultMessage.append(result.getMessages());
+                }
+                result.getRemoteUpdates().forEach(update -> {
+                    resultMessage.append(" - ")
+                            .append(update.getRemoteName())
+                            .append(": ")
+                            .append(update.getStatus())
+                            .append("\n");
+                });
+            });
+
+            LOGGER.info("Push operation finished.");
+            return resultMessage.toString();
+        }
     }
 }

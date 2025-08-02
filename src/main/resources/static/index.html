@@ -10,14 +10,14 @@
     <link rel="stylesheet" href="src/css/components.css">
     <!-- ThemeManager 将会动态修改这个 link 的 href -->
     <link id="theme-link" rel="stylesheet" href="src/css/theme-dark.css">
-
     <!-- 引入 Font Awesome (CDN) - 用于图标 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
-    <!-- 引入 xterm.js (用于终端模拟) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm-addon-fit/0.8.0/xterm-addon-fit.min.js"></script>
+    <!-- ========================= 关键修改 START ========================= -->
+    <!-- 移除了 xterm.js 和 xterm-addon-fit.js -->
+    <!-- 引入 ansi_up.js 用于将ANSI码转换为HTML -->
+    <script src="https://cdn.jsdelivr.net/npm/ansi_up@5.1.0/ansi_up.min.js"></script>
+    <!-- ========================= 关键修改 END =========================== -->
 
     <!-- Stomp.js 和 SockJS 客户端库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
@@ -39,19 +39,20 @@
 <body class="dark-theme">
 
 <div id="app-container" class="app-container">
-    <!-- 顶部工具栏 -->
+    <!-- ... (顶部工具栏保持不变) ... -->
     <div id="toolbar" class="toolbar">
         <div class="toolbar-group">
-            <!-- ================== 新增项目选择器 ================== -->
             <select id="project-selector" class="toolbar-selector" title="选择活动项目">
                 <option value="">-- 选择项目 --</option>
             </select>
-            <!-- =================================================== -->
             <button class="toolbar-btn" data-action="new-file" title="新建文件 (Ctrl+N)">
                 <i class="fas fa-file"></i>
             </button>
             <button class="toolbar-btn" data-action="open-folder" title="打开文件夹 (Ctrl+O)">
                 <i class="fas fa-folder-open"></i>
+            </button>
+            <button class="toolbar-btn" data-action="clone-from-url" title="从URL克隆项目">
+                <i class="fas fa-cloud-download-alt"></i>
             </button>
             <button class="toolbar-btn" data-action="save-file" title="保存文件 (Ctrl+S)">
                 <i class="fas fa-save"></i>
@@ -66,11 +67,11 @@
             </button>
         </div>
         <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="vcs-clone" title="克隆仓库">
-                <i class="fas fa-cloud-download-alt"></i>
+            <button class="toolbar-btn" data-action="vcs-clone" title="从 Gitee 选择仓库克隆">
+                <i class="fas fa-clone"></i>
             </button>
             <button class="toolbar-btn" data-action="vcs-commit" title="提交更改 (Ctrl+K)">
-                <i class="fas fa-code-branch"></i>
+                <i class="fas fa-code-commit"></i>
             </button>
             <button class="toolbar-btn" data-action="vcs-pull" title="拉取最新 (Ctrl+T)">
                 <i class="fas fa-download"></i>
@@ -91,23 +92,18 @@
 
     <!-- 主内容区: 左侧文件树 + 中间编辑器 + 右侧/底部面板 -->
     <div id="main-panels" class="main-panels">
-        <!-- 左侧文件树 -->
+        <!-- ... (左侧和中间面板保持不变) ... -->
         <div id="left-panel" class="panel resizable-panel">
             <div class="panel-header">
                 <h3>项目</h3>
             </div>
             <div id="file-tree" class="file-tree-container">
-                <!-- 文件树内容将由JS生成 -->
             </div>
         </div>
-
-        <!-- 中间编辑器区域 -->
         <div id="center-panel" class="panel resizable-panel">
             <div id="editor-tab-bar" class="editor-tab-bar">
-                <!-- 编辑器标签页将由JS管理 -->
             </div>
             <div id="editor-area" class="editor-area">
-                <!-- Monaco Editor将挂载到这里 -->
             </div>
         </div>
 
@@ -120,19 +116,27 @@
                 <button class="panel-tab" data-panel-id="debugger-panel">调试</button>
             </div>
             <div class="panel-content-area">
-                <!-- 控制台输出 -->
+                <!-- ... (控制台、问题、调试器面板保持不变) ... -->
                 <div id="console-output" class="panel-content active">
                     <pre></pre>
                 </div>
-                <!-- 问题列表 -->
                 <div id="problems-list" class="panel-content">
                     <ul><li>无问题</li></ul>
                 </div>
-                <!-- 终端 -->
+
+                <!-- ========================= 关键修改 START ========================= -->
+                <!-- 终端面板结构重构，不再使用xterm.js -->
                 <div id="terminal-panel" class="panel-content">
-                    <!-- xterm.js will be initialized here -->
+                    <div id="terminal-output-container">
+                        <pre id="terminal-output"></pre>
+                    </div>
+                    <div class="terminal-input-container">
+                        <span class="terminal-prompt">></span>
+                        <input type="text" id="terminal-input" autocomplete="off" spellcheck="false"/>
+                    </div>
                 </div>
-                <!-- 调试器 -->
+                <!-- ========================= 关键修改 END =========================== -->
+
                 <div id="debugger-panel" class="panel-content">
                     <div class="debugger-controls">
                         <button data-action="step-over" title="步过 (F8)"><i class="fas fa-step-forward"></i></button>
@@ -155,8 +159,7 @@
             </div>
         </div>
     </div>
-
-    <!-- 底部状态栏 -->
+    <!-- ... (状态栏和模态框保持不变) ... -->
     <div id="status-bar" class="status-bar">
         <div class="status-left">
             <span>就绪</span>
@@ -179,8 +182,6 @@
         </div>
     </div>
 </div>
-
-<!-- 弹窗/模态框容器 -->
 <div id="modal-overlay" class="modal-overlay">
     <div id="common-modal" class="modal">
         <div class="modal-header">
@@ -188,7 +189,6 @@
             <button class="modal-close-btn" data-action="close-modal">×</button>
         </div>
         <div class="modal-body" id="modal-body">
-            <!-- 弹窗内容将由JS注入 -->
         </div>
         <div class="modal-footer" id="modal-footer">
             <button class="modal-action-btn primary-btn" data-action="confirm-modal">确认</button>
@@ -196,12 +196,8 @@
         </div>
     </div>
 </div>
-
-<!-- 文件树上下文菜单 -->
 <div id="context-menu" class="context-menu">
-    <!-- 菜单项将由JS动态生成 -->
 </div>
-
 
 <!-- 唯一的应用入口点 -->
 <script type="module" src="src/js/main.js"></script>

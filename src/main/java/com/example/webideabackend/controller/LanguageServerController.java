@@ -1,9 +1,3 @@
-/**
- * LanguageServerController.java
- *
- * 该REST控制器为需要请求-响应交互的语言服务器功能提供API端点，
- * 例如代码补全。
- */
 package com.example.webideabackend.controller;
 
 import com.example.webideabackend.service.LanguageServerService;
@@ -54,7 +48,7 @@ public class LanguageServerController {
                     .thenApply(this::toCompletionItemsResponseEntity) // 使用辅助方法转换
                     .exceptionally(ex -> {
                         log.error("Failed to get code completion", ex);
-                        return ResponseEntity.internalServerError().body(null);
+                        return ResponseEntity.internalServerError().body(Collections.emptyList());
                     });
             // ========================= 关键修正 END ===========================
 
@@ -64,12 +58,6 @@ public class LanguageServerController {
         }
     }
 
-    /**
-     * 辅助方法，将LSP的 `Either` 类型安全地转换为 `ResponseEntity`。
-     *
-     * @param result LSP返回的Either对象。
-     * @return 包含CompletionItem列表的ResponseEntity。
-     */
     private ResponseEntity<List<CompletionItem>> toCompletionItemsResponseEntity(Either<List<CompletionItem>, CompletionList> result) {
         if (result == null) {
             return ResponseEntity.ok(Collections.emptyList());

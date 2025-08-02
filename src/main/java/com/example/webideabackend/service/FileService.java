@@ -1,3 +1,5 @@
+// service/FileService.java
+
 package com.example.webideabackend.service;
 
 import com.example.webideabackend.model.FileNode;
@@ -90,13 +92,25 @@ public class FileService {
         return node;
     }
 
-    public String readFileContent(String projectPath, String relativePathInProject) throws IOException {
+    // ========================= 关键修改 START =========================
+    /**
+     * 读取文件内容为字节数组。
+     * 这使得该方法既能处理文本文件，也能处理二进制文件。
+     *
+     * @param projectPath 项目路径
+     * @param relativePathInProject 文件在项目中的相对路径
+     * @return 文件的字节数组
+     * @throws IOException 如果读取文件失败
+     */
+    public byte[] readFileContent(String projectPath, String relativePathInProject) throws IOException {
         var absPath = getAbsoluteProjectPath(projectPath, relativePathInProject);
         if (Files.isDirectory(absPath)) {
             throw new IOException("Cannot read content of a directory: " + absPath);
         }
-        return Files.readString(absPath);
+        return Files.readAllBytes(absPath);
     }
+    // ========================= 关键修改 END ===========================
+
 
     public void writeFileContent(String projectPath, String relativePathInProject, String content) throws IOException {
         var absPath = getAbsoluteProjectPath(projectPath, relativePathInProject);

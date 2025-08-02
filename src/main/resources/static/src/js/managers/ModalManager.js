@@ -7,7 +7,6 @@ const ModalManager = {
     resolvePromise: null,
     rejectPromise: null,
     currentSettings: null,
-    currentCloneData: null,
 
     init: function() {
         this.bindDOMEvents();
@@ -27,7 +26,7 @@ const ModalManager = {
 
             if (target === overlay || target.closest('.modal-close-btn')) {
                 this._close(false);
-            } else if (actionBtn && actionBtn.dataset.action === 'confirm-modal') {
+            } else if (actionBtn && actionBtn.dataset.action === 'confirm-modal' && !actionBtn.disabled) {
                 if (actionBtn.dataset.type === 'settings') {
                     this._handleSettingsConfirm();
                 } else {
@@ -99,30 +98,28 @@ const ModalManager = {
         cancelBtn.textContent = options.cancelText || '取消';
         cancelBtn.style.display = options.showCancel === false ? 'none' : 'inline-block';
         confirmBtn.dataset.type = options.type || 'default';
-        // 恢复确认按钮的默认状态
         confirmBtn.disabled = false;
 
+        modal.dataset.isRepoSelection = options.isRepoSelection ? 'true' : 'false';
         if (options.isRepoSelection) {
-            modal.dataset.isRepoSelection = 'true';
             const repoList = bodyEl.querySelector('#repo-selection-list');
-
-            // 确认按钮默认禁用
             confirmBtn.disabled = true;
 
+            // ========================= 关键修改 START =========================
             if (repoList) {
-                // 监听 change 事件，当选择改变时启用按钮
-                repoList.addEventListener('change', (e) => {
-                    if (e.target.name === 'repo-selection') {
+                // 将事件监听器从 'change' 改为 'click'
+                repoList.addEventListener('click', (e) => {
+                    const selectedItem = e.target.closest('.repo-item-label');
+                    if (selectedItem) {
+                        // 启用确认按钮
                         confirmBtn.disabled = false;
-                        // 移除所有标签的选中样式
+                        // 更新选中样式
                         repoList.querySelectorAll('.repo-item-label').forEach(label => label.classList.remove('selected'));
-                        // 为被选中的单选按钮的父标签添加样式
-                        e.target.closest('.repo-item-label').classList.add('selected');
+                        selectedItem.classList.add('selected');
                     }
                 });
             }
-        } else {
-            modal.dataset.isRepoSelection = 'false';
+            // ========================= 关键修改 END ===========================
         }
 
         overlay.classList.add('visible');
@@ -130,9 +127,7 @@ const ModalManager = {
         if (input) {
             setTimeout(() => {
                 input.focus();
-                if (typeof input.select === 'function') {
-                    input.select();
-                }
+                if (typeof input.select === 'function') input.select();
             }, 50);
         }
 
@@ -142,42 +137,23 @@ const ModalManager = {
         });
     },
 
-    _close: function(confirmed, actionType = 'cancel') {
+    _close: function(confirmed) {
         const overlay = document.getElementById('modal-overlay');
         const modal = document.getElementById('common-modal');
         const bodyEl = document.getElementById('modal-body');
         if (!overlay || !this.resolvePromise) return;
 
-        if (confirmed && modal.dataset.isRepoSelection === 'true') {
-            const selectedRadio = bodyEl.querySelector('input[name="repo-selection"]:checked');
-            if (!selectedRadio) {
-                // 这个逻辑现在由按钮禁用处理，但作为双重保险保留
-                let feedback = modal.querySelector('.selection-feedback');
-                if (!feedback) {
-                    feedback = document.createElement('p');
-                    feedback.className = 'selection-feedback';
-                    feedback.style.color = 'var(--color-warning)';
-                    feedback.style.textAlign = 'center';
-                    feedback.style.marginTop = '10px';
-                    modal.querySelector('#repo-selection-list').insertAdjacentElement('afterend', feedback);
-                }
-                feedback.textContent = '请先从列表中选择一个仓库！';
-                return;
-            }
-            this.resolvePromise(selectedRadio.value); // 返回选中的 sshUrl
-        } else if (confirmed) {
-            let value;
-            if (this.currentCloneData) {
-                value = {
-                    repositoryUrl: document.getElementById('clone-repo-url').value,
-                    privateKey: document.getElementById('clone-private-key').value,
-                    passphrase: document.getElementById('clone-passphrase').value
-                };
+        if (confirmed) {
+            // ========================= 关键修改 START =========================
+            if (modal.dataset.isRepoSelection === 'true') {
+                const selectedItem = bodyEl.querySelector('.repo-item-label.selected');
+                // 从数据属性中获取 cloneUrl，如果未选择则返回 null
+                this.resolvePromise(selectedItem ? selectedItem.dataset.cloneUrl : null);
             } else {
-                const input = overlay.querySelector('#modal-body input[type="text"], #modal-body textarea');
-                value = input ? input.value : true;
+                const input = bodyEl.querySelector('input[type="text"], textarea');
+                this.resolvePromise(input ? input.value : true);
             }
-            this.resolvePromise(value);
+            // ========================= 关键修改 END ===========================
         } else {
             this.rejectPromise(new Error('用户取消了操作。'));
         }
@@ -186,8 +162,6 @@ const ModalManager = {
         this.resolvePromise = null;
         this.rejectPromise = null;
         this.currentSettings = null;
-        this.currentCloneData = null;
-        modal.dataset.isRepoSelection = 'false';
     },
 
     showRepoSelectionModal: function(repos) {
@@ -196,35 +170,32 @@ const ModalManager = {
         }
 
         let ownerName = '该用户';
-        const firstValidRepo = repos.find(repo => typeof repo.sshUrl === 'string' && repo.sshUrl.includes(':'));
+        const firstValidRepo = repos.find(repo => repo.cloneUrl && repo.cloneUrl.includes('/'));
         if (firstValidRepo) {
-            ownerName = firstValidRepo.sshUrl.split(':')[1].split('/')[0];
+            ownerName = firstValidRepo.cloneUrl.split('/')[3];
         }
 
-        // ========================= 关键修改：重构列表项为带单选按钮的label =========================
         const bodyHtml = `
             <p>请从 ${ownerName} 的公开仓库中选择一个进行克隆:</p>
             <div id="repo-selection-list" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); margin-top: 10px; border-radius: 4px;">
                 ${repos.map((repo, index) => {
-            const sshUrl = repo.sshUrl || '';
-            // 裁剪描述
-            const description = repo.description
-                ? (repo.description.length > 100 ? repo.description.substring(0, 97) + '...' : repo.description)
-                : '没有描述';
+            const cloneUrl = repo.cloneUrl || '';
+            const description = repo.description ? (repo.description.length > 100 ? repo.description.substring(0, 97) + '...' : repo.description) : '没有描述';
 
+            // ========================= 关键修改 START =========================
+            // 将 <label> 和 <input> 替换为单个可点击的 <div>
             return `
-                        <label class="repo-item-label" for="repo-option-${index}">
+                        <div class="repo-item-label" data-clone-url="${cloneUrl}">
                             <div class="repo-item-details">
                                 <strong>${repo.name || '无名仓库'}</strong>
                                 <p>${description}</p>
                             </div>
-                            <input type="radio" name="repo-selection" id="repo-option-${index}" value="${sshUrl}">
-                        </label>
+                        </div>
                     `;
+            // ========================= 关键修改 END ===========================
         }).join('')}
             </div>
         `;
-        // ========================= 修改结束 =========================
 
         return this._show('选择要克隆的仓库', bodyHtml, {
             confirmText: '克隆',
@@ -279,27 +250,6 @@ const ModalManager = {
             EventBus.emit('log:error', `保存设置失败: ${error.message}`);
             this.showAlert('保存失败', `无法保存设置: ${error.message}`);
         }
-    },
-
-    showCloneModal: function() {
-        this.currentCloneData = {};
-        const body = document.createElement('div');
-        body.innerHTML = `
-            <p>输入 SSH 格式的仓库地址和用于认证的私钥。</p>
-            <div>
-                <label for="clone-repo-url">仓库地址 (SSH URL)</label>
-                <input type="text" id="clone-repo-url" placeholder="git@github.com:user/repo.git">
-            </div>
-            <div>
-                <label for="clone-private-key">私钥 (Private Key)</label>
-                <textarea id="clone-private-key" rows="8" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."></textarea>
-            </div>
-            <div>
-                <label for="clone-passphrase">私钥密码 (可选)</label>
-                <input type="password" id="clone-passphrase" placeholder="如果私钥有密码，请在此输入">
-            </div>
-        `;
-        return this._show('克隆 Git 仓库', body, { confirmText: '克隆' });
     },
 };
 

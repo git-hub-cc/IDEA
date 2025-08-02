@@ -1,10 +1,3 @@
-/**
- * TerminalService.java
- *
- * 该服务使用 java.lang.ProcessBuilder 管理后端的交互式shell进程。
- * 它为每个WebSocket会话创建一个独立的shell实例，并处理输入/输出的重定向。
- * 注意：此实现不创建真正的PTY，因此功能受限。
- */
 package com.example.webideabackend.service;
 
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -40,11 +34,6 @@ public class TerminalService implements DisposableBean {
         this.workspaceRoot = Path.of(workspaceRootPath);
     }
 
-    /**
-     * 为给定的WebSocket会话ID启动一个新的shell进程。
-     * @param sessionId WebSocket会话ID。
-     * @param projectPath 要在其中启动终端的项目路径。如果为空，则在工作区根目录启动。
-     */
     public void startSession(String sessionId, String projectPath) {
         if (sessions.containsKey(sessionId)) {
             log.warn("Terminal session {} already exists.", sessionId);
@@ -53,15 +42,20 @@ public class TerminalService implements DisposableBean {
 
         try {
             ProcessBuilder processBuilder;
+            // ========================= 关键修改 START：解决乱码问题 =========================
             if (IS_WINDOWS) {
+                // 在Windows上，使用 cmd.exe
                 processBuilder = new ProcessBuilder("cmd.exe");
             } else {
-                // 使用 -i 标志尝试启动一个交互式shell
+                // 在Linux/macOS上，使用交互式bash会话
                 processBuilder = new ProcessBuilder("bash", "-i");
+                // 为非Windows系统设置UTF-8环境变量，这是解决乱码的最佳实践
+                Map<String, String> env = processBuilder.environment();
+                env.put("LANG", "en_US.UTF-8");
+                env.put("LC_ALL", "en_US.UTF-8");
             }
+            // ========================= 关键修改 END ===========================
 
-            // ========================= 关键修正 START =========================
-            // Set the working directory based on the provided projectPath
             Path workingDirectory;
             if (StringUtils.hasText(projectPath)) {
                 workingDirectory = workspaceRoot.resolve(projectPath).normalize();
@@ -73,31 +67,40 @@ public class TerminalService implements DisposableBean {
                 workingDirectory = workspaceRoot;
             }
             processBuilder.directory(workingDirectory.toFile());
-            // ========================= 关键修正 END ===========================
-
-            processBuilder.redirectErrorStream(true); // 合并 stdout 和 stderr
+            processBuilder.redirectErrorStream(true);
 
             Process process = processBuilder.start();
             log.info("Started new terminal process for session {} in directory {}", sessionId, workingDirectory);
 
-            // 异步读取进程的输出并发送到WebSocket
+            // ========================= 关键修改 START：解决乱码问题 =========================
+            // 明确使用UTF-8编码来读写进程流
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+            TerminalSession session = new TerminalSession(process, writer);
+            sessions.put(sessionId, session);
+
+            // 如果是Windows，在会话开始时自动发送 "chcp 65001" 命令将代码页切换到UTF-8
+            if (IS_WINDOWS) {
+                writer.write("chcp 65001\n");
+                writer.flush();
+                log.info("Sent 'chcp 65001' to Windows terminal for UTF-8 support.");
+            }
+            // ========================= 关键修改 END ===========================
+
             executorService.submit(() -> {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        // 将输出发送到特定于会话的主题
-                        webSocketLogService.sendMessage(OUTPUT_TOPIC_PREFIX + sessionId, line + "\r\n");
+                // 明确使用UTF-8编码读取进程输出
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    char[] buffer = new char[4096];
+                    int charsRead;
+                    while ((charsRead = reader.read(buffer)) != -1) {
+                        webSocketLogService.sendMessage(OUTPUT_TOPIC_PREFIX + sessionId, new String(buffer, 0, charsRead));
                     }
                 } catch (IOException e) {
                     log.error("Error reading from terminal process for session {}: {}", sessionId, e.getMessage());
                 } finally {
                     log.info("Terminal output stream for session {} has closed.", sessionId);
-                    endSession(sessionId); // 如果流关闭，则结束会话
+                    endSession(sessionId);
                 }
             });
-
-            TerminalSession session = new TerminalSession(process, new BufferedWriter(new OutputStreamWriter(process.getOutputStream())));
-            sessions.put(sessionId, session);
 
         } catch (IOException e) {
             log.error("Failed to start terminal session for {}: {}", sessionId, e.getMessage());
@@ -105,7 +108,6 @@ public class TerminalService implements DisposableBean {
         }
     }
 
-    // ... receiveInput, endSession, destroy, TerminalSession record remain the same ...
     public void receiveInput(String sessionId, String data) {
         TerminalSession session = sessions.get(sessionId);
         if (session == null) {
@@ -141,9 +143,7 @@ public class TerminalService implements DisposableBean {
     @Override
     public void destroy() {
         log.info("Shutting down TerminalService. Destroying all active terminal sessions.");
-        for (String sessionId : sessions.keySet()) {
-            endSession(sessionId);
-        }
+        sessions.keySet().forEach(this::endSession);
         executorService.shutdownNow();
     }
 

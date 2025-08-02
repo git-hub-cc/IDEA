@@ -15,8 +15,22 @@
     --color-info: #17a2b8;
     --progress-bg: #cccccc;
     --progress-fill: var(--accent-color);
+
+    /* 终端颜色变量 - 浅色主题 */
+    --terminal-bg: #ffffff;
+    --terminal-fg: #333333;
+    --terminal-cursor: #007bff;
+    --terminal-selection-bg: rgba(0, 123, 255, 0.2);
+    --terminal-black: #000000;
+    --terminal-red: #c82829;
+    --terminal-green: #198844;
+    --terminal-yellow: #c18401;
+    --terminal-blue: #4271ae;
+    --terminal-magenta: #8959a8;
+    --terminal-cyan: #3e999f;
+    --terminal-white: #cccccc;
 }
-.terminal {
-    background-color: #f0f0f0 !important;
-    color: #333333 !important;
-}
+
+/* ========================= 关键修改 START ========================= */
+/* 移除了针对 xterm.js 的 .terminal 类样式覆盖 */
+/* ========================= 关键修改 END =========================== */

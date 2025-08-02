@@ -18,9 +18,7 @@ import java.util.Map;
 @RequestMapping("/api/git")
 public class GitController {
 
-    // ========================= 关键修改 START =========================
     private static final Logger LOGGER = LoggerFactory.getLogger(GitController.class);
-    // ========================= 关键修改 END ===========================
     private final GitService gitService;
 
     @Autowired
@@ -44,24 +42,24 @@ public class GitController {
      * 克隆一个指定的远程仓库到工作区。
      * 此操作与当前活动项目无关，它会在工作区根目录下创建一个新项目。
      *
-     * @param payload 包含 "sshUrl" 的请求体。
+     * @param payload 包含 "cloneUrl" 的请求体。
      * @return 包含新项目名称的ResponseEntity。
      */
     @PostMapping("/clone-specific")
     public ResponseEntity<?> cloneSpecificRepository(@RequestBody Map<String, String> payload) {
-        String repoSshUrl = payload.get("sshUrl");
-        if (repoSshUrl == null || repoSshUrl.isBlank()) {
-            return ResponseEntity.badRequest().body("sshUrl cannot be empty.");
+        String repoCloneUrl = payload.get("cloneUrl");
+        if (repoCloneUrl == null || repoCloneUrl.isBlank()) {
+            return ResponseEntity.badRequest().body("cloneUrl cannot be empty.");
         }
 
         try {
-            String projectName = gitService.cloneSpecificRepository(repoSshUrl);
+            String projectName = gitService.cloneSpecificRepository(repoCloneUrl);
             return ResponseEntity.ok(Map.of("projectName", projectName));
         } catch (GitAPIException | IOException e) {
-            LOGGER.error("Failed to clone specific repository {}", repoSshUrl, e);
+            LOGGER.error("Failed to clone specific repository {}", repoCloneUrl, e);
             return ResponseEntity.internalServerError().body("Failed to clone repository: " + e.getMessage());
         } catch (Exception e) {
-            LOGGER.error("An unexpected error occurred during specific clone of {}", repoSshUrl, e);
+            LOGGER.error("An unexpected error occurred during specific clone of {}", repoCloneUrl, e);
             return ResponseEntity.internalServerError().body("An unexpected error occurred: " + e.getMessage());
         }
     }
@@ -81,9 +79,7 @@ public class GitController {
             GitStatusResponse status = gitService.getStatus(projectPath);
             return ResponseEntity.ok(status);
         } catch (GitAPIException | IOException e) {
-            // ========================= 关键修改 START =========================
             LOGGER.error("Failed to get Git status for project '{}'", projectPath, e);
-            // ========================= 关键修改 END ===========================
             return ResponseEntity.internalServerError().body("Failed to get Git status: " + e.getMessage());
         }
     }
@@ -111,9 +107,7 @@ public class GitController {
             gitService.commit(projectPath, message, authorName, authorEmail);
             return ResponseEntity.ok("Commit successful.");
         } catch (GitAPIException | IOException e) {
-            // ========================= 关键修改 START =========================
             LOGGER.error("Failed to commit for project '{}'", projectPath, e);
-            // ========================= 关键修改 END ===========================
             return ResponseEntity.internalServerError().body("Failed to commit: " + e.getMessage());
         } catch (IllegalStateException e) {
             LOGGER.warn("Bad request on commit for project '{}': {}", projectPath, e.getMessage());
@@ -137,9 +131,7 @@ public class GitController {
             String result = gitService.pull(projectPath);
             return ResponseEntity.ok(result);
         } catch (GitAPIException | IOException e) {
-            // ========================= 关键修改 START =========================
             LOGGER.error("Pull failed for project '{}'", projectPath, e);
-            // ========================= 关键修改 END ===========================
             return ResponseEntity.internalServerError().body("Pull failed: " + e.getMessage());
         } catch (IllegalStateException e) {
             LOGGER.warn("Bad request on pull for project '{}': {}", projectPath, e.getMessage());
@@ -163,9 +155,7 @@ public class GitController {
             String result = gitService.push(projectPath);
             return ResponseEntity.ok(result);
         } catch (GitAPIException | IOException e) {
-            // ========================= 关键修改 START =========================
             LOGGER.error("Push failed for project '{}'", projectPath, e);
-            // ========================= 关键修改 END ===========================
             return ResponseEntity.internalServerError().body("Push failed: " + e.getMessage());
         } catch (IllegalStateException e) {
             LOGGER.warn("Bad request on push for project '{}': {}", projectPath, e.getMessage());

@@ -1,4 +1,4 @@
-// src/js/managers/CodeEditorManager.js - 代码编辑器管理器
+// src/js/managers/CodeEditorManager.js
 
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
@@ -12,7 +12,13 @@ const CodeEditorManager = {
     debugDecorations: [],
     breakpointDecorations: [],
 
+    KNOWN_TEXT_EXTENSIONS: new Set([
+        'java', 'js', 'html', 'css', 'xml', 'pom', 'json', 'md',
+        'txt', 'gitignore', 'properties', 'yml', 'yaml', 'sql', 'sh', 'bat'
+    ]),
+
     init: function() {
+        // ... (init aunchanged)
         return new Promise((resolve) => {
             this.editorArea = document.getElementById('editor-area');
             this.tabBar = document.getElementById('editor-tab-bar');
@@ -25,6 +31,7 @@ const CodeEditorManager = {
         });
     },
 
+    // ... (_createMonacoInstance unchanged)
     _createMonacoInstance: function() {
         if (!window.monaco) {
             EventBus.emit('log:error', 'Monaco Editor未能加载，代码编辑器无法初始化。');
@@ -59,8 +66,14 @@ const CodeEditorManager = {
         EventBus.on('settings:changed', this.applySettings.bind(this));
         EventBus.on('diagnostics:updated', this.updateDiagnostics.bind(this));
         EventBus.on('project:activated', this.handleProjectChange.bind(this));
+        // ========================= 关键修改 START =========================
+        EventBus.on('editor:closeOtherTabs', this.closeOtherTabs.bind(this));
+        EventBus.on('editor:closeTabsToTheRight', this.closeTabsToTheRight.bind(this));
+        EventBus.on('editor:closeTabsToTheLeft', this.closeTabsToTheLeft.bind(this));
+        // ========================= 关键修改 END ===========================
     },
 
+    // ... (handleProjectChange, openFile, saveActiveFile aunchanged)
     handleProjectChange: function() {
         // 当项目改变时，关闭所有打开的文件
         const openFilePaths = Array.from(this.openFiles.keys());
@@ -68,6 +81,12 @@ const CodeEditorManager = {
     },
 
     openFile: async function(filePath) {
+        if (!this._isTextFile(filePath)) {
+            EventBus.emit('log:info', `文件 '${filePath}' 被识别为二进制文件，将自动下载。`);
+            EventBus.emit('context-action:download', { path: filePath });
+            return;
+        }
+
         if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
             this.openFiles.get(this.activeFilePath).viewState = this.monacoInstance.saveViewState();
         }
@@ -119,17 +138,85 @@ const CodeEditorManager = {
         }
     },
 
+    _createFileTab: function(filePath) {
+        const tab = document.createElement('div');
+        tab.className = 'editor-tab';
+        tab.dataset.filePath = filePath;
+        const fileName = filePath.split('/').pop();
+        tab.innerHTML = `<span>${fileName}</span><span class="unsaved-indicator" title="未保存">●</span><i class="fas fa-times close-tab-btn" title="关闭"></i>`;
+
+        tab.addEventListener('click', (e) => {
+            if (e.target.classList.contains('close-tab-btn')) {
+                e.stopPropagation();
+                this.closeFile(filePath);
+            } else {
+                this.setActiveFile(filePath);
+            }
+        });
+
+        // ========================= 关键修改 START =========================
+        tab.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            this.setActiveFile(filePath); // 确保右键点击的tab是活动的
+            EventBus.emit('ui:showContextMenu', {
+                x: e.clientX,
+                y: e.clientY,
+                item: { filePath }, // 传递上下文信息
+                type: 'editor-tab'  // 指定菜单类型
+            });
+        });
+        // ========================= 关键修改 END ===========================
+
+        this.tabBar.appendChild(tab);
+        return tab;
+    },
+
+    // ========================= 关键修改 START =========================
+    /**
+     * @description 关闭除指定文件外的所有其他标签页。
+     * @param {string} filePathToKeep - 要保留的文件的路径。
+     */
+    closeOtherTabs: function(filePathToKeep) {
+        const pathsToClose = Array.from(this.openFiles.keys()).filter(p => p !== filePathToKeep);
+        pathsToClose.forEach(p => this.closeFile(p));
+    },
+
+    /**
+     * @description 关闭指定文件右侧的所有标签页。
+     * @param {string} referenceFilePath - 参考文件的路径。
+     */
+    closeTabsToTheRight: function(referenceFilePath) {
+        const allPaths = Array.from(this.openFiles.keys());
+        const referenceIndex = allPaths.indexOf(referenceFilePath);
+        if (referenceIndex === -1) return;
+
+        const pathsToClose = allPaths.slice(referenceIndex + 1);
+        pathsToClose.forEach(p => this.closeFile(p));
+    },
+
+    /**
+     * @description 关闭指定文件左侧的所有标签页。
+     * @param {string} referenceFilePath - 参考文件的路径。
+     */
+    closeTabsToTheLeft: function(referenceFilePath) {
+        const allPaths = Array.from(this.openFiles.keys());
+        const referenceIndex = allPaths.indexOf(referenceFilePath);
+        if (referenceIndex === -1) return;
+
+        const pathsToClose = allPaths.slice(0, referenceIndex);
+        pathsToClose.forEach(p => this.closeFile(p));
+    },
+    // ========================= 关键修改 END ===========================
+
+    // ... (其他方法保持不变)
     closeFile: function(filePath) {
         const fileInfo = this.openFiles.get(filePath);
         if (!fileInfo) return;
 
-        // 如果文件未保存，可以加入确认逻辑
-        // if (fileInfo.isDirty) { ... }
-
         fileInfo.model.dispose();
         fileInfo.tabEl.remove();
         this.openFiles.delete(filePath);
-        window.monaco.editor.setModelMarkers(fileInfo.model, 'owner', []); // 清除标记
+        window.monaco.editor.setModelMarkers(fileInfo.model, 'owner', []);
 
         if (this.activeFilePath === filePath) {
             this.activeFilePath = null;
@@ -142,7 +229,6 @@ const CodeEditorManager = {
             }
         }
     },
-
     setActiveFile: function(filePath) {
         if (this.activeFilePath === filePath) return;
 
@@ -164,7 +250,6 @@ const CodeEditorManager = {
         EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), ...position });
         this._setFileDirty(filePath, fileInfo.isDirty);
     },
-
     handleContentChange: function() { if (this.activeFilePath) { this._setFileDirty(this.activeFilePath, true); } },
     handleCursorChange: function(e) { if (this.activeFilePath) { EventBus.emit('statusbar:updateCursorPos', e.position); } },
 
@@ -195,7 +280,7 @@ const CodeEditorManager = {
 
     updateBreakpointDecorations: function(filePath, lineNumber, enabled) {
         const model = this.monacoInstance.getModel();
-        if (model.uri.path.substring(1) !== filePath) return; // Only update decorations for the correct model
+        if (model.uri.path.substring(1) !== filePath) return;
 
         let newDecorations = [];
         const oldDecorations = this.breakpointDecorations.filter(d => {
@@ -213,25 +298,6 @@ const CodeEditorManager = {
             }
         }] : []);
     },
-
-    _createFileTab: function(filePath) {
-        const tab = document.createElement('div');
-        tab.className = 'editor-tab';
-        tab.dataset.filePath = filePath;
-        const fileName = filePath.split('/').pop();
-        tab.innerHTML = `<span>${fileName}</span><span class="unsaved-indicator" title="未保存">●</span><i class="fas fa-times close-tab-btn" title="关闭"></i>`;
-        tab.addEventListener('click', (e) => {
-            if (e.target.classList.contains('close-tab-btn')) {
-                e.stopPropagation();
-                this.closeFile(filePath);
-            } else {
-                this.setActiveFile(filePath);
-            }
-        });
-        this.tabBar.appendChild(tab);
-        return tab;
-    },
-
     _setFileDirty: function(filePath, isDirty) {
         const fileInfo = this.openFiles.get(filePath);
         if (fileInfo) {
@@ -242,10 +308,12 @@ const CodeEditorManager = {
             }
         }
     },
-
+    _isTextFile: function(filePath) {
+        const ext = filePath.split('.').pop().toLowerCase();
+        return this.KNOWN_TEXT_EXTENSIONS.has(ext);
+    },
     _getLanguageFromPath: function(filePath) {
         const ext = filePath.split('.').pop().toLowerCase();
-        // ... (switch case remains the same)
         switch (ext) {
             case 'java': return 'java';
             case 'js': return 'javascript';
@@ -257,9 +325,7 @@ const CodeEditorManager = {
             default: return 'plaintext';
         }
     },
-
     resizeEditor: function() { this.monacoInstance?.layout(); },
-
     gotoLine: function({ filePath, lineNumber }) {
         const openAndReveal = () => {
             this.monacoInstance.setPosition({ lineNumber, column: 1 });
@@ -273,10 +339,9 @@ const CodeEditorManager = {
             openAndReveal();
         }
     },
-
     highlightDebugLine: function({ filePath, lineNumber }) {
         this.gotoLine({ filePath, lineNumber });
-        this.clearDebugHighlight(); // Clear previous highlights
+        this.clearDebugHighlight();
         this.debugDecorations = this.monacoInstance.deltaDecorations([], [{
             range: new window.monaco.Range(lineNumber, 1, lineNumber, 1),
             options: {
@@ -286,18 +351,15 @@ const CodeEditorManager = {
             }
         }]);
     },
-
     clearDebugHighlight: function() {
         this.debugDecorations = this.monacoInstance.deltaDecorations(this.debugDecorations, []);
     },
-
     setTheme: function(theme) {
         if (window.monaco) {
             const monacoTheme = theme.includes('dark') ? 'vs-dark' : 'vs';
             window.monaco.editor.setTheme(monacoTheme);
         }
     },
-
     applySettings: function(settings) {
         this.monacoInstance.updateOptions({
             fontSize: settings.fontSize,
@@ -306,15 +368,13 @@ const CodeEditorManager = {
         });
         this.setTheme(settings.theme);
     },
-
-    updateDiagnostics: function(diagnostics) {
-        const fileUri = diagnostics.uri;
-        const model = window.monaco.editor.getModels().find(m => m.uri.toString() === fileUri);
+    updateDiagnostics: function({ filePath, diagnostics }) {
+        const model = window.monaco.editor.getModels().find(m => m.uri.path.substring(1) === filePath);
         if (!model) return;
 
-        const markers = diagnostics.diagnostics.map(d => ({
+        const markers = diagnostics.map(d => ({
             message: d.message,
-            severity: d.severity === monaco.MarkerSeverity.Error ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+            severity: d.severity === 1 ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
             startLineNumber: d.range.start.line + 1,
             startColumn: d.range.start.character + 1,
             endLineNumber: d.range.end.line + 1,
@@ -324,12 +384,11 @@ const CodeEditorManager = {
 
         window.monaco.editor.setModelMarkers(model, 'lsp', markers);
     },
-
     setupCodeCompletion: function() {
         if (!window.monaco) return;
         monaco.languages.registerCompletionItemProvider('java', {
             provideCompletionItems: async (model, position) => {
-                const filePath = model.uri.path.substring(1); // remove leading '/'
+                const filePath = model.uri.path.substring(1);
                 try {
                     const lspItems = await NetworkManager.getCompletions(filePath, position.lineNumber, position.column);
                     const suggestions = lspItems.map(item => ({
@@ -338,7 +397,7 @@ const CodeEditorManager = {
                         insertText: item.insertText || item.label,
                         detail: item.detail,
                         documentation: item.documentation,
-                        range: model.getWordUntilPosition(position) // A simple default range
+                        range: model.getWordUntilPosition(position)
                     }));
                     return { suggestions: suggestions };
                 } catch (error) {
@@ -348,37 +407,18 @@ const CodeEditorManager = {
             }
         });
     },
-
     _convertLspCompletionKind: function(kind) {
-        // This is a simplified mapping
         const Kinds = monaco.languages.CompletionItemKind;
         switch (kind) {
-            case 1: return Kinds.Text;
-            case 2: return Kinds.Method;
-            case 3: return Kinds.Function;
-            case 4: return Kinds.Constructor;
-            case 5: return Kinds.Field;
-            case 6: return Kinds.Variable;
-            case 7: return Kinds.Class;
-            case 8: return Kinds.Interface;
-            case 9: return Kinds.Module;
-            case 10: return Kinds.Property;
-            case 11: return Kinds.Unit;
-            case 12: return Kinds.Value;
-            case 13: return Kinds.Enum;
-            case 14: return Kinds.Keyword;
-            case 15: return Kinds.Snippet;
-            case 16: return Kinds.Color;
-            case 17: return Kinds.File;
-            case 18: return Kinds.Reference;
-            case 19: return Kinds.Folder;
-            case 20: return Kinds.EnumMember;
-            case 21: return Kinds.Constant;
-            case 22: return Kinds.Struct;
-            case 23: return Kinds.Event;
-            case 24: return Kinds.Operator;
-            case 25: return Kinds.TypeParameter;
-            default: return Kinds.Text;
+            case 1: return Kinds.Text; case 2: return Kinds.Method; case 3: return Kinds.Function;
+            case 4: return Kinds.Constructor; case 5: return Kinds.Field; case 6: return Kinds.Variable;
+            case 7: return Kinds.Class; case 8: return Kinds.Interface; case 9: return Kinds.Module;
+            case 10: return Kinds.Property; case 11: return Kinds.Unit; case 12: return Kinds.Value;
+            case 13: return Kinds.Enum; case 14: return Kinds.Keyword; case 15: return Kinds.Snippet;
+            case 16: return Kinds.Color; case 17: return Kinds.File; case 18: return Kinds.Reference;
+            case 19: return Kinds.Folder; case 20: return Kinds.EnumMember; case 21: return Kinds.Constant;
+            case 22: return Kinds.Struct; case 23: return Kinds.Event; case 24: return Kinds.Operator;
+            case 25: return Kinds.TypeParameter; default: return Kinds.Text;
         }
     }
 };
