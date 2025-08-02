@@ -15,6 +15,9 @@ import DebuggerManager from './managers/DebuggerManager.js';
 import ActionManager from './managers/ActionManager.js';
 import KeyboardManager from './managers/KeyboardManager.js';
 import ContextMenuManager from './managers/ContextMenuManager.js';
+// import AnalysisService from './analysis/AnalysisService.js'; // 已移除
+import CommandPaletteManager from './managers/CommandPaletteManager.js';
+
 
 const App = {
     init: async function() {
@@ -32,6 +35,9 @@ const App = {
         ProblemsManager.init();
         TerminalManager.init();
         DebuggerManager.init();
+        // AnalysisService.init(); // 已移除
+        // 初始化指令面板管理器
+        await CommandPaletteManager.init();
         ActionManager.init();
         KeyboardManager.init();
         EventBus.emit('app:ready');

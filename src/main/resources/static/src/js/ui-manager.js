@@ -4,7 +4,11 @@ import EventBus from '../utils/event-emitter.js';
 import { ResizableLayout } from '../utils/resizable-layout.js';
 
 const UIManager = {
-    horizontalLayout: null,
+    // ========================= 关键修改 START =========================
+    // 从单个布局管理器改为两个，以支持嵌套布局
+    mainLayout: null,
+    topLayout: null,
+    // ========================= 关键修改 END ===========================
     panelTabButtons: null,
     panelContents: null,
 
@@ -23,19 +27,36 @@ const UIManager = {
         EventBus.on('ui:activateBottomPanelTab', this.activateBottomPanelTab.bind(this));
     },
 
+    // ========================= 关键修改 START =========================
+    // 重写此方法以创建垂直和水平两个布局
     setupPanelResizing: function() {
-        this.horizontalLayout = new ResizableLayout(
+        // 主垂直布局：将屏幕分为上下两部分（顶部面板区和底部面板）
+        this.mainLayout = new ResizableLayout(
             '#main-panels',
-            ['#left-panel', '#center-panel', '#bottom-panel'],
+            ['#top-panels-wrapper', '#bottom-panel'],
             {
-                direction: 'horizontal',
-                minSizes: [200, 350, 250],
-                initialSizes: [20, 55, 25],
-                storageKey: 'web-idea-layout-h'
+                direction: 'vertical',
+                minSizes: [200, 300], // 顶部区域最小高度200px, 底部面板最小高度300px
+                initialSizes: [70, 30],
+                storageKey: 'web-idea-layout-vertical'
             }
         );
-        this.horizontalLayout.init();
+        this.mainLayout.init();
+
+        // 嵌套的水平布局：将顶部区域分为左右两部分（文件树和编辑器）
+        this.topLayout = new ResizableLayout(
+            '#top-panels-wrapper',
+            ['#left-panel', '#center-panel'],
+            {
+                direction: 'horizontal',
+                minSizes: [200, 350], // 保持原始的最小宽度设置
+                initialSizes: [25, 75],
+                storageKey: 'web-idea-layout-horizontal'
+            }
+        );
+        this.topLayout.init();
     },
+    // ========================= 关键修改 END ===========================
 
     setupPanelTabs: function() {
         this.panelTabButtons.forEach((button) => {

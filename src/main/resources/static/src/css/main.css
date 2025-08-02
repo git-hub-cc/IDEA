@@ -63,10 +63,20 @@ html, body {
     width: 100%;
 }
 
-/* 主内容区 - 使用 CSS Flex 实现三栏布局 */
+/* 主内容区 - 使用 CSS Flex 实现垂直布局 (上下结构) */
 #main-panels {
     display: flex;
+    flex-direction: column; /* 从水平改为垂直 */
     overflow: hidden;
+}
+
+/* 新增: 顶部面板包裹器，用于内部的水平布局 */
+#top-panels-wrapper {
+    display: flex;
+    flex-direction: row;
+    flex-grow: 1;
+    overflow: hidden;
+    min-height: 0; /* 关键属性，防止flex子项在收缩时溢出 */
 }
 
 /* 面板通用样式 */
@@ -151,15 +161,17 @@ html, body {
     background-color: var(--accent-color);
 }
 
+/* ========================= 关键修改 START ========================= */
 /* 拖拽时禁用页面选择 */
 body.is-resizing {
     user-select: none !important;
-    cursor: ew-resize !important;
+    /* 移除固定的光标样式，因为它现在由JS动态设置 */
 }
 
 body.is-resizing * {
     pointer-events: none !important;
 }
+/* ========================= 关键修改 END =========================== */
 
 /* 自定义滚动条 (Webkit) */
 ::-webkit-scrollbar {

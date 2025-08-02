@@ -7,7 +7,10 @@ import com.example.webideabackend.model.FileContentRequest;
 import com.example.webideabackend.model.FileNode;
 import com.example.webideabackend.model.RenameFileRequest;
 import com.example.webideabackend.service.FileService;
-import com.example.webideabackend.service.LanguageServerService;
+// ========================= 关键修改 START =========================
+// 移除了对 LanguageServerService 的导入
+// import com.example.webideabackend.service.LanguageServerService;
+// ========================= 关键修改 END ===========================
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,13 +37,20 @@ public class FileController {
     );
 
     private final FileService fileService;
-    private final LanguageServerService languageServerService;
+    // ========================= 关键修改 START =========================
+    // 移除了 LanguageServerService 字段
+    // private final LanguageServerService languageServerService;
+    // ========================= 关键修改 END ===========================
 
+
+    // ========================= 关键修改 START =========================
+    // 更新了构造函数，移除了对 LanguageServerService 的依赖注入
     @Autowired
-    public FileController(FileService fileService, LanguageServerService languageServerService) {
+    public FileController(FileService fileService) {
         this.fileService = fileService;
-        this.languageServerService = languageServerService;
     }
+    // ========================= 关键修改 END ===========================
+
 
     @GetMapping("/projects")
     public ResponseEntity<List<String>> getProjects() {
@@ -70,7 +80,6 @@ public class FileController {
         }
     }
 
-    // ========================= 关键修改 START =========================
     /**
      * 获取文件内容，既可用于在编辑器中显示，也可用于下载。
      * 此端点返回原始字节流，并设置Content-Disposition头，让浏览器知道如何处理。
@@ -86,11 +95,9 @@ public class FileController {
         try {
             byte[] contentBytes = fileService.readFileContent(projectPath, path);
 
-            // 当文件被请求时，如果是已知的文本类型，则通知语言服务器
-            if (isTextFile(path)) {
-                String contentString = new String(contentBytes, StandardCharsets.UTF_8);
-                languageServerService.fileOpened(projectPath, path, contentString);
-            }
+            // ========================= 关键修改 START =========================
+            // 移除了对 languageServerService.fileOpened 的调用
+            // ========================= 关键修改 END ===========================
 
             String filename = Path.of(path).getFileName().toString();
             HttpHeaders headers = new HttpHeaders();
@@ -119,15 +126,15 @@ public class FileController {
         String extension = filePath.substring(lastDot + 1).toLowerCase();
         return TEXT_FILE_EXTENSIONS.contains(extension);
     }
-    // ========================= 关键修改 END ===========================
-
 
     // Records are updated to include projectPath
     @PostMapping("/files/content")
     public ResponseEntity<String> saveFileContent(@RequestBody FileContentRequest request) {
         try {
             fileService.writeFileContent(request.projectPath(), request.path(), request.content());
-            languageServerService.fileSaved(request.projectPath(), request.path());
+            // ========================= 关键修改 START =========================
+            // 移除了对 languageServerService.fileSaved 的调用
+            // ========================= 关键修改 END ===========================
             return ResponseEntity.ok("File saved successfully.");
         } catch (IOException e) {
             LOGGER.error("Failed to save file: {} in project {}", request.path(), request.projectPath(), e);

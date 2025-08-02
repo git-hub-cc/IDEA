@@ -5,56 +5,65 @@ import Config from '../config.js';
 
 const ProblemsManager = {
     ulElement: null,
-    // Store problems keyed by file path
     allProblems: new Map(),
 
     init: function() {
         this.ulElement = document.querySelector('#problems-list ul');
         this.bindAppEvents();
-    },
-
-    bindAppEvents: function() {
-        EventBus.on('diagnostics:updated', this.handleNewDiagnostics.bind(this));
-        // Clear all problems when project changes
-        EventBus.on('project:activated', this.clearAllProblems.bind(this));
-        // When a file is closed, remove its problems from the view
-        EventBus.on('file:closeRequest', this.removeProblemsForFile.bind(this));
-    },
-
-    handleNewDiagnostics: function({ relativePath, diagnostics }) {
-        // Store the latest diagnostics for the file
-        this.allProblems.set(relativePath, diagnostics);
         this.renderProblems();
     },
 
+    bindAppEvents: function() {
+        // 监听来自 CodeEditorManager 的前端分析结果事件
+        EventBus.on('analysis:results', this.handleProblemsUpdate.bind(this));
+
+        // 监听文件关闭事件，以清理特定文件的问题
+        EventBus.on('problems:clearForFile', this.removeProblemsForFile.bind(this));
+
+        // 当项目切换时，清空所有问题
+        EventBus.on('project:activated', this.clearAllProblems.bind(this));
+    },
+
+    /**
+     * @description 处理来自前端分析服务的问题更新。
+     * @param {object} payload - 包含 { filePath, problems } 的对象。
+     */
+    handleProblemsUpdate: function({ filePath, errors }) {
+        if (errors && errors.length > 0) {
+            this.allProblems.set(filePath, errors);
+        } else {
+            this.allProblems.delete(filePath);
+        }
+        this.renderProblems();
+    },
+
+    /**
+     * @description 重新渲染整个“问题”面板。
+     */
     renderProblems: function() {
         this.clear();
-
         let totalProblems = 0;
 
         this.allProblems.forEach((problems, path) => {
-            if (problems && problems.length > 0) {
-                totalProblems += problems.length;
+            totalProblems += problems.length;
 
-                problems.forEach(problem => {
-                    const li = document.createElement('li');
-                    const type = this._convertSeverity(problem.severity);
-                    const line = problem.range.start.line + 1;
-                    const shortFileName = path.split('/').pop();
+            problems.forEach(problem => {
+                const li = document.createElement('li');
+                const type = problem.severity || 'error';
+                const line = problem.startLineNumber;
+                const shortFileName = path.split('/').pop();
 
-                    li.className = type;
-                    const iconClass = this._getProblemIcon(type);
-                    // Use the relativePath from the backend
-                    li.innerHTML = `<i class="${iconClass}"></i>${problem.message} <span style="color:var(--text-secondary); margin-left: auto;">${shortFileName}:${line}</span>`;
+                li.className = type;
+                const iconClass = this._getProblemIcon(type);
 
-                    li.addEventListener('click', () => {
-                        // The relative path is correct for opening the file
-                        EventBus.emit('editor:gotoLine', { filePath: path, lineNumber: line });
-                        EventBus.emit('ui:activateBottomPanelTab', 'problems-list');
-                    });
-                    this.ulElement.appendChild(li);
+                li.innerHTML = `<i class="${iconClass}"></i>${problem.message} <span style="color:var(--text-secondary); margin-left: auto;">${shortFileName}:${line}</span>`;
+
+                li.addEventListener('click', () => {
+                    EventBus.emit('editor:gotoLine', { filePath: path, lineNumber: line });
+                    EventBus.emit('ui:activateBottomPanelTab', 'problems-list');
                 });
-            }
+                this.ulElement.appendChild(li);
+            });
         });
 
         if (totalProblems === 0) {
@@ -62,6 +71,10 @@ const ProblemsManager = {
         }
     },
 
+    /**
+     * @description 当文件关闭时，移除该文件的所有问题。
+     * @param {string} filePath - 被关闭的文件的路径。
+     */
     removeProblemsForFile(filePath) {
         if (this.allProblems.has(filePath)) {
             this.allProblems.delete(filePath);
@@ -74,16 +87,6 @@ const ProblemsManager = {
         this.renderProblems();
     },
 
-    _convertSeverity(lspSeverity) {
-        switch (lspSeverity) {
-            case 1: return 'error';   // DiagnosticSeverity.Error
-            case 2: return 'warning'; // DiagnosticSeverity.Warning
-            case 3: return 'info';    // DiagnosticSeverity.Information
-            case 4: return 'info';    // DiagnosticSeverity.Hint
-            default: return 'info';
-        }
-    },
-
     _getProblemIcon: function(type) {
         switch (type) {
             case 'error': return 'fas fa-times-circle';
@@ -94,7 +97,9 @@ const ProblemsManager = {
     },
 
     clear: function() {
-        this.ulElement.innerHTML = '';
+        if (this.ulElement) {
+            this.ulElement.innerHTML = '';
+        }
     }
 };
 

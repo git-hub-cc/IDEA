@@ -2,6 +2,10 @@
 
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
+import SimpleJavaValidator from '../analysis/SimpleJavaValidator.js';
+import { debounce } from '../utils/debounce.js';
+import CompletionProviderService from '../services/CompletionProviderService.js';
+
 
 const CodeEditorManager = {
     monacoInstance: null,
@@ -11,47 +15,57 @@ const CodeEditorManager = {
     activeFilePath: null,
     debugDecorations: [],
     breakpointDecorations: [],
+    debouncedAnalysis: null,
+
+    // 移除了 cstCache
 
     KNOWN_TEXT_EXTENSIONS: new Set([
-        'java', 'js', 'html', 'css', 'xml', 'pom', 'json', 'md',
+        'java', 'js', 'html', 'css', 'vue', 'xml', 'pom', 'json', 'md',
         'txt', 'gitignore', 'properties', 'yml', 'yaml', 'sql', 'sh', 'bat'
     ]),
 
-    init: function() {
-        // ... (init aunchanged)
-        return new Promise((resolve) => {
-            this.editorArea = document.getElementById('editor-area');
-            this.tabBar = document.getElementById('editor-tab-bar');
+    init: async function() {
+        this.editorArea = document.getElementById('editor-area');
+        this.tabBar = document.getElementById('editor-tab-bar');
 
-            this._createMonacoInstance();
-            this.bindAppEvents();
+        this.debouncedAnalysis = debounce(this.triggerAnalysis.bind(this), 500);
 
-            EventBus.emit('log:info', '代码编辑器模块已初始化。');
-            resolve();
-        });
+        this._createMonacoInstance();
+        this.bindAppEvents();
+
+        // 初始化并注册代码片段自动补全服务
+        await CompletionProviderService.init();
+
+        EventBus.emit('log:info', '代码编辑器模块已初始化。');
     },
 
-    // ... (_createMonacoInstance unchanged)
     _createMonacoInstance: function() {
         if (!window.monaco) {
             EventBus.emit('log:error', 'Monaco Editor未能加载，代码编辑器无法初始化。');
             return;
         }
         this.monacoInstance = window.monaco.editor.create(this.editorArea, {
-            value: '// 欢迎使用 Web IDEA！请从顶部选择一个项目，然后从左侧文件树中选择一个文件。',
+            value: '// 欢迎使用 Web IDEA！请从顶部选择一个项目，然后从左侧文件树中选择一个文件。\n',
             language: 'plaintext',
             theme: 'vs-dark',
             automaticLayout: true,
             fontSize: 14,
             wordWrap: 'on',
-            glyphMargin: true, // 为断点和调试器图标启用边距
+            glyphMargin: true,
         });
 
         this.monacoInstance.onDidChangeModelContent(() => this.handleContentChange());
         this.monacoInstance.onDidChangeCursorPosition((e) => this.handleCursorChange(e));
-        this.monacoInstance.onMouseDown((e) => this.handleGutterMouseDown(e));
 
-        this.setupCodeCompletion();
+        // 为断点添加事件监听器 (移除了 Ctrl+Click 跳转)
+        this.monacoInstance.onMouseDown((e) => {
+            if (e.target.type === window.monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+                const lineNumber = e.target.position.lineNumber;
+                this.toggleBreakpoint(this.activeFilePath, lineNumber);
+            }
+        });
+
+        // 移除了 F12 跳转动作
     },
 
     bindAppEvents: function() {
@@ -64,18 +78,37 @@ const CodeEditorManager = {
         EventBus.on('debugger:clearHighlight', () => this.clearDebugHighlight());
         EventBus.on('theme:changed', (theme) => this.setTheme(theme));
         EventBus.on('settings:changed', this.applySettings.bind(this));
-        EventBus.on('diagnostics:updated', this.updateDiagnostics.bind(this));
         EventBus.on('project:activated', this.handleProjectChange.bind(this));
-        // ========================= 关键修改 START =========================
         EventBus.on('editor:closeOtherTabs', this.closeOtherTabs.bind(this));
         EventBus.on('editor:closeTabsToTheRight', this.closeTabsToTheRight.bind(this));
         EventBus.on('editor:closeTabsToTheLeft', this.closeTabsToTheLeft.bind(this));
-        // ========================= 关键修改 END ===========================
+
+        // 监听分析结果事件
+        EventBus.on('analysis:results', this.handleAnalysisResults.bind(this));
+        // 监听插入代码片段的请求
+        EventBus.on('editor:insertSnippet', this.insertSnippet.bind(this));
+
+        // 响应格式化和查找的动作
+        EventBus.on('editor:formatDocument', () => this.monacoInstance?.getAction('editor.action.formatDocument').run());
+        EventBus.on('editor:find', () => this.monacoInstance?.getAction('actions.find').run());
+
+        // 新增快捷键事件监听
+        EventBus.on('editor:duplicate-line', () => this.monacoInstance?.getAction('editor.action.copyLinesDownAction').run());
+        EventBus.on('editor:delete-line', () => this.monacoInstance?.getAction('editor.action.deleteLines').run());
+        EventBus.on('editor:toggle-line-comment', () => this.monacoInstance?.getAction('editor.action.commentLine').run());
+        EventBus.on('editor:toggle-block-comment', () => this.monacoInstance?.getAction('editor.action.blockComment').run());
+        EventBus.on('editor:move-line-up', () => this.monacoInstance?.getAction('editor.action.moveLinesUpAction').run());
+        EventBus.on('editor:move-line-down', () => this.monacoInstance?.getAction('editor.action.moveLinesDownAction').run());
+        EventBus.on('editor:expand-selection', () => this.monacoInstance?.getAction('editor.action.smartSelect.expand').run());
+        EventBus.on('editor:shrink-selection', () => this.monacoInstance?.getAction('editor.action.smartSelect.shrink').run());
+        // 移除了 editor:goto-definition
+        EventBus.on('editor:show-goto-line', () => this.monacoInstance?.getAction('editor.action.gotoLine').run());
+
+        // 响应指令面板获取当前语言的请求
+        EventBus.on('editor:getActiveLanguage', () => this._getLanguageFromPath(this.activeFilePath));
     },
 
-    // ... (handleProjectChange, openFile, saveActiveFile aunchanged)
     handleProjectChange: function() {
-        // 当项目改变时，关闭所有打开的文件
         const openFilePaths = Array.from(this.openFiles.keys());
         openFilePaths.forEach(path => this.closeFile(path));
     },
@@ -106,12 +139,15 @@ const CodeEditorManager = {
 
             this.setActiveFile(filePath);
             EventBus.emit('log:info', `文件 '${filePath}' 已打开。`);
+
+            this.triggerAnalysis();
         } catch (error) {
             EventBus.emit('log:error', `打开文件 ${filePath} 失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '错误', message: `打开文件失败: ${error.message}` });
         }
     },
 
+    // ... (saveActiveFile, _createFileTab, closeOtherTabs, etc. 保持不变) ...
     saveActiveFile: async function() {
         if (!this.activeFilePath || !this.openFiles.has(this.activeFilePath)) {
             EventBus.emit('log:warn', '没有活动文件可供保存。');
@@ -154,74 +190,63 @@ const CodeEditorManager = {
             }
         });
 
-        // ========================= 关键修改 START =========================
         tab.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            this.setActiveFile(filePath); // 确保右键点击的tab是活动的
+            this.setActiveFile(filePath);
             EventBus.emit('ui:showContextMenu', {
                 x: e.clientX,
                 y: e.clientY,
-                item: { filePath }, // 传递上下文信息
-                type: 'editor-tab'  // 指定菜单类型
+                item: { filePath },
+                type: 'editor-tab'
             });
         });
-        // ========================= 关键修改 END ===========================
 
         this.tabBar.appendChild(tab);
         return tab;
     },
 
-    // ========================= 关键修改 START =========================
-    /**
-     * @description 关闭除指定文件外的所有其他标签页。
-     * @param {string} filePathToKeep - 要保留的文件的路径。
-     */
     closeOtherTabs: function(filePathToKeep) {
         const pathsToClose = Array.from(this.openFiles.keys()).filter(p => p !== filePathToKeep);
         pathsToClose.forEach(p => this.closeFile(p));
     },
 
-    /**
-     * @description 关闭指定文件右侧的所有标签页。
-     * @param {string} referenceFilePath - 参考文件的路径。
-     */
     closeTabsToTheRight: function(referenceFilePath) {
-        const allPaths = Array.from(this.openFiles.keys());
-        const referenceIndex = allPaths.indexOf(referenceFilePath);
-        if (referenceIndex === -1) return;
+        const allTabs = Array.from(this.tabBar.children);
+        const refIndex = allTabs.findIndex(tab => tab.dataset.filePath === referenceFilePath);
+        if (refIndex === -1) return;
 
-        const pathsToClose = allPaths.slice(referenceIndex + 1);
-        pathsToClose.forEach(p => this.closeFile(p));
+        for (let i = refIndex + 1; i < allTabs.length; i++) {
+            this.closeFile(allTabs[i].dataset.filePath);
+        }
     },
 
-    /**
-     * @description 关闭指定文件左侧的所有标签页。
-     * @param {string} referenceFilePath - 参考文件的路径。
-     */
     closeTabsToTheLeft: function(referenceFilePath) {
-        const allPaths = Array.from(this.openFiles.keys());
-        const referenceIndex = allPaths.indexOf(referenceFilePath);
-        if (referenceIndex === -1) return;
+        const allTabs = Array.from(this.tabBar.children);
+        const refIndex = allTabs.findIndex(tab => tab.dataset.filePath === referenceFilePath);
+        if (refIndex === -1) return;
 
-        const pathsToClose = allPaths.slice(0, referenceIndex);
-        pathsToClose.forEach(p => this.closeFile(p));
+        for (let i = 0; i < refIndex; i++) {
+            this.closeFile(allTabs[i].dataset.filePath);
+        }
     },
-    // ========================= 关键修改 END ===========================
 
-    // ... (其他方法保持不变)
     closeFile: function(filePath) {
         const fileInfo = this.openFiles.get(filePath);
         if (!fileInfo) return;
 
+        // 清理资源
+        window.monaco.editor.setModelMarkers(fileInfo.model, 'java-validator', []);
         fileInfo.model.dispose();
         fileInfo.tabEl.remove();
         this.openFiles.delete(filePath);
-        window.monaco.editor.setModelMarkers(fileInfo.model, 'owner', []);
+
+        EventBus.emit('problems:clearForFile', filePath);
 
         if (this.activeFilePath === filePath) {
             this.activeFilePath = null;
-            if (this.openFiles.size > 0) {
-                const nextFilePath = Array.from(this.openFiles.keys()).pop();
+            const remainingTabs = Array.from(this.tabBar.children);
+            if (remainingTabs.length > 0) {
+                const nextFilePath = remainingTabs[remainingTabs.length - 1].dataset.filePath;
                 this.setActiveFile(nextFilePath);
             } else {
                 this.monacoInstance.setModel(null);
@@ -229,6 +254,7 @@ const CodeEditorManager = {
             }
         }
     },
+
     setActiveFile: function(filePath) {
         if (this.activeFilePath === filePath) return;
 
@@ -250,16 +276,21 @@ const CodeEditorManager = {
         EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), ...position });
         this._setFileDirty(filePath, fileInfo.isDirty);
     },
-    handleContentChange: function() { if (this.activeFilePath) { this._setFileDirty(this.activeFilePath, true); } },
-    handleCursorChange: function(e) { if (this.activeFilePath) { EventBus.emit('statusbar:updateCursorPos', e.position); } },
 
-    handleGutterMouseDown: function(e) {
-        if (e.target.type === window.monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
-            const lineNumber = e.target.position.lineNumber;
-            this.toggleBreakpoint(this.activeFilePath, lineNumber);
+    handleContentChange: function() {
+        if (this.activeFilePath) {
+            this._setFileDirty(this.activeFilePath, true);
+            this.debouncedAnalysis();
         }
     },
 
+    handleCursorChange: function(e) {
+        if (this.activeFilePath) {
+            EventBus.emit('statusbar:updateCursorPos', e.position);
+        }
+    },
+
+    // ... (toggleBreakpoint, updateBreakpointDecorations, etc. 保持不变) ...
     toggleBreakpoint: async function(filePath, lineNumber) {
         if (!filePath) return;
         const model = this.monacoInstance.getModel();
@@ -280,7 +311,7 @@ const CodeEditorManager = {
 
     updateBreakpointDecorations: function(filePath, lineNumber, enabled) {
         const model = this.monacoInstance.getModel();
-        if (model.uri.path.substring(1) !== filePath) return;
+        if (!model || model.uri.path.substring(1) !== filePath) return;
 
         let newDecorations = [];
         const oldDecorations = this.breakpointDecorations.filter(d => {
@@ -289,15 +320,18 @@ const CodeEditorManager = {
             return isSameLine;
         });
 
-        this.breakpointDecorations = this.monacoInstance.deltaDecorations(oldDecorations.map(d => d.id), enabled ? [{
+        const newDecorationConfig = enabled ? [{
             range: new window.monaco.Range(lineNumber, 1, lineNumber, 1),
             options: {
                 isWholeLine: false,
                 glyphMarginClassName: 'breakpoint-decorator',
                 stickiness: window.monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
             }
-        }] : []);
+        }] : [];
+
+        this.breakpointDecorations = this.monacoInstance.deltaDecorations(oldDecorations.map(d => d.id), newDecorationConfig);
     },
+
     _setFileDirty: function(filePath, isDirty) {
         const fileInfo = this.openFiles.get(filePath);
         if (fileInfo) {
@@ -308,24 +342,30 @@ const CodeEditorManager = {
             }
         }
     },
+
     _isTextFile: function(filePath) {
         const ext = filePath.split('.').pop().toLowerCase();
         return this.KNOWN_TEXT_EXTENSIONS.has(ext);
     },
+
     _getLanguageFromPath: function(filePath) {
+        if (!filePath) return 'plaintext';
         const ext = filePath.split('.').pop().toLowerCase();
         switch (ext) {
             case 'java': return 'java';
             case 'js': return 'javascript';
             case 'html': return 'html';
             case 'css': return 'css';
+            case 'vue': return 'vue';
             case 'xml': case 'pom': return 'xml';
             case 'json': return 'json';
             case 'md': return 'markdown';
             default: return 'plaintext';
         }
     },
+
     resizeEditor: function() { this.monacoInstance?.layout(); },
+
     gotoLine: function({ filePath, lineNumber }) {
         const openAndReveal = () => {
             this.monacoInstance.setPosition({ lineNumber, column: 1 });
@@ -339,6 +379,7 @@ const CodeEditorManager = {
             openAndReveal();
         }
     },
+
     highlightDebugLine: function({ filePath, lineNumber }) {
         this.gotoLine({ filePath, lineNumber });
         this.clearDebugHighlight();
@@ -351,15 +392,18 @@ const CodeEditorManager = {
             }
         }]);
     },
+
     clearDebugHighlight: function() {
         this.debugDecorations = this.monacoInstance.deltaDecorations(this.debugDecorations, []);
     },
+
     setTheme: function(theme) {
         if (window.monaco) {
-            const monacoTheme = theme.includes('dark') ? 'vs-dark' : 'vs';
+            const monacoTheme = theme.includes('dark') ? 'vs-dark' : 'light';
             window.monaco.editor.setTheme(monacoTheme);
         }
     },
+
     applySettings: function(settings) {
         this.monacoInstance.updateOptions({
             fontSize: settings.fontSize,
@@ -368,59 +412,57 @@ const CodeEditorManager = {
         });
         this.setTheme(settings.theme);
     },
-    updateDiagnostics: function({ filePath, diagnostics }) {
-        const model = window.monaco.editor.getModels().find(m => m.uri.path.substring(1) === filePath);
-        if (!model) return;
 
-        const markers = diagnostics.map(d => ({
-            message: d.message,
-            severity: d.severity === 1 ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
-            startLineNumber: d.range.start.line + 1,
-            startColumn: d.range.start.character + 1,
-            endLineNumber: d.range.end.line + 1,
-            endColumn: d.range.end.character + 1,
-            source: 'LSP',
+    triggerAnalysis: function() {
+        if (!this.activeFilePath || !this.openFiles.has(this.activeFilePath)) return;
+
+        const fileInfo = this.openFiles.get(this.activeFilePath);
+        const code = fileInfo.model.getValue();
+        const language = this._getLanguageFromPath(this.activeFilePath);
+
+        // 只对 Java 文件进行自定义校验
+        if (language === 'java') {
+            const errors = SimpleJavaValidator.validate(code);
+            // 直接将结果发送给自身和其他监听器
+            EventBus.emit('analysis:results', {
+                filePath: this.activeFilePath,
+                errors: errors
+            });
+        } else {
+            // 对其他语言，可以清空问题或依赖Monaco内置的linter
+            EventBus.emit('analysis:results', {
+                filePath: this.activeFilePath,
+                errors: []
+            });
+        }
+    },
+
+    handleAnalysisResults: function({ filePath, errors }) {
+        const fileInfo = this.openFiles.get(filePath);
+        if (!fileInfo) return;
+
+        const model = fileInfo.model;
+        const markers = errors.map(err => ({
+            message: err.message,
+            severity: window.monaco.MarkerSeverity.Error,
+            startLineNumber: err.startLineNumber,
+            startColumn: err.startColumn,
+            endLineNumber: err.endLineNumber,
+            endColumn: err.endColumn,
+            source: 'java-validator', // 标记来源为我们的新校验器
         }));
 
-        window.monaco.editor.setModelMarkers(model, 'lsp', markers);
+        window.monaco.editor.setModelMarkers(model, 'java-validator', markers);
+
+        EventBus.emit('problems:update', { filePath, problems: errors });
     },
-    setupCodeCompletion: function() {
-        if (!window.monaco) return;
-        monaco.languages.registerCompletionItemProvider('java', {
-            provideCompletionItems: async (model, position) => {
-                const filePath = model.uri.path.substring(1);
-                try {
-                    const lspItems = await NetworkManager.getCompletions(filePath, position.lineNumber, position.column);
-                    const suggestions = lspItems.map(item => ({
-                        label: item.label,
-                        kind: this._convertLspCompletionKind(item.kind),
-                        insertText: item.insertText || item.label,
-                        detail: item.detail,
-                        documentation: item.documentation,
-                        range: model.getWordUntilPosition(position)
-                    }));
-                    return { suggestions: suggestions };
-                } catch (error) {
-                    console.error('Code completion failed:', error);
-                    return { suggestions: [] };
-                }
-            }
-        });
+
+    insertSnippet: function(template) {
+        if (!this.monacoInstance) return;
+        this.monacoInstance.getContribution('snippetController2').insert(template);
     },
-    _convertLspCompletionKind: function(kind) {
-        const Kinds = monaco.languages.CompletionItemKind;
-        switch (kind) {
-            case 1: return Kinds.Text; case 2: return Kinds.Method; case 3: return Kinds.Function;
-            case 4: return Kinds.Constructor; case 5: return Kinds.Field; case 6: return Kinds.Variable;
-            case 7: return Kinds.Class; case 8: return Kinds.Interface; case 9: return Kinds.Module;
-            case 10: return Kinds.Property; case 11: return Kinds.Unit; case 12: return Kinds.Value;
-            case 13: return Kinds.Enum; case 14: return Kinds.Keyword; case 15: return Kinds.Snippet;
-            case 16: return Kinds.Color; case 17: return Kinds.File; case 18: return Kinds.Reference;
-            case 19: return Kinds.Folder; case 20: return Kinds.EnumMember; case 21: return Kinds.Constant;
-            case 22: return Kinds.Struct; case 23: return Kinds.Event; case 24: return Kinds.Operator;
-            case 25: return Kinds.TypeParameter; default: return Kinds.Text;
-        }
-    }
+
+    // 移除了 gotoDefinition 方法
 };
 
 export default CodeEditorManager;

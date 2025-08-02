@@ -13,15 +13,16 @@
     <!-- 引入 Font Awesome (CDN) - 用于图标 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
-    <!-- ========================= 关键修改 START ========================= -->
-    <!-- 移除了 xterm.js 和 xterm-addon-fit.js -->
     <!-- 引入 ansi_up.js 用于将ANSI码转换为HTML -->
     <script src="https://cdn.jsdelivr.net/npm/ansi_up@5.1.0/ansi_up.min.js"></script>
-    <!-- ========================= 关键修改 END =========================== -->
 
     <!-- Stomp.js 和 SockJS 客户端库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <!-- ========================= 关键修改 START ========================= -->
+    <!-- 移除了 java-parser 库 -->
+    <!-- ========================= 关键修改 END =========================== -->
 
     <!-- 引入 Monaco Editor Loader (CDN) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.46.0/min/vs/loader.min.js"></script>
@@ -37,6 +38,8 @@
     </script>
 </head>
 <body class="dark-theme">
+
+<!-- ... (HTML 的剩余部分保持不变) ... -->
 
 <div id="app-container" class="app-container">
     <!-- ... (顶部工具栏保持不变) ... -->
@@ -90,42 +93,40 @@
         </div>
     </div>
 
-    <!-- 主内容区: 左侧文件树 + 中间编辑器 + 右侧/底部面板 -->
+    <!-- 主内容区: 结构调整为上下布局 -->
     <div id="main-panels" class="main-panels">
-        <!-- ... (左侧和中间面板保持不变) ... -->
-        <div id="left-panel" class="panel resizable-panel">
-            <div class="panel-header">
-                <h3>项目</h3>
+        <!-- 新增: 顶部面板的包裹容器，用于水平布局 -->
+        <div id="top-panels-wrapper">
+            <div id="left-panel" class="panel resizable-panel">
+                <div class="panel-header">
+                    <h3>项目</h3>
+                </div>
+                <div id="file-tree" class="file-tree-container">
+                </div>
             </div>
-            <div id="file-tree" class="file-tree-container">
-            </div>
-        </div>
-        <div id="center-panel" class="panel resizable-panel">
-            <div id="editor-tab-bar" class="editor-tab-bar">
-            </div>
-            <div id="editor-area" class="editor-area">
+            <div id="center-panel" class="panel resizable-panel">
+                <div id="editor-tab-bar" class="editor-tab-bar">
+                </div>
+                <div id="editor-area" class="editor-area">
+                </div>
             </div>
         </div>
 
-        <!-- 右侧/底部面板 (可切换) -->
+        <!-- 底部面板现在是主布局的直接子元素 -->
         <div id="bottom-panel" class="panel resizable-panel">
             <div class="panel-tab-bar">
-                <button class="panel-tab active" data-panel-id="console-output">控制台</button>
+                <button class="panel-tab active" data-panel-id="console-output">日志</button>
                 <button class="panel-tab" data-panel-id="problems-list">问题</button>
                 <button class="panel-tab" data-panel-id="terminal-panel">终端</button>
                 <button class="panel-tab" data-panel-id="debugger-panel">调试</button>
             </div>
             <div class="panel-content-area">
-                <!-- ... (控制台、问题、调试器面板保持不变) ... -->
                 <div id="console-output" class="panel-content active">
                     <pre></pre>
                 </div>
                 <div id="problems-list" class="panel-content">
                     <ul><li>无问题</li></ul>
                 </div>
-
-                <!-- ========================= 关键修改 START ========================= -->
-                <!-- 终端面板结构重构，不再使用xterm.js -->
                 <div id="terminal-panel" class="panel-content">
                     <div id="terminal-output-container">
                         <pre id="terminal-output"></pre>
@@ -135,8 +136,6 @@
                         <input type="text" id="terminal-input" autocomplete="off" spellcheck="false"/>
                     </div>
                 </div>
-                <!-- ========================= 关键修改 END =========================== -->
-
                 <div id="debugger-panel" class="panel-content">
                     <div class="debugger-controls">
                         <button data-action="step-over" title="步过 (F8)"><i class="fas fa-step-forward"></i></button>

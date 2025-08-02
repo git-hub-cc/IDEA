@@ -74,6 +74,15 @@
 /* --- 文件树 --- */
 .file-tree-container { flex-grow: 1; overflow: auto; padding: 5px; }
 .file-tree { list-style: none; padding: 0; margin: 0; }
+/* ========================= 关键修改 START ========================= */
+/*
+ * 设计决策: 移除了 `overflow: hidden` 和 `text-overflow: ellipsis`。
+ * 之前的样式会截断长文件名并显示省略号，这阻止了父容器 `.file-tree-container`
+ * 检测到内容的实际溢出，因此水平滚动条无法出现。
+ * 移除这些属性后，`<li>` 元素会根据其内容（由 `white-space: nowrap` 强制不换行）
+ * 自然伸展到所需宽度。当这个宽度超过 `.file-tree-container` 的宽度时，
+ * 该容器的 `overflow: auto` 属性就会正确地触发水平滚动条。
+ */
 .file-tree li {
     padding: 5px 8px;
     cursor: pointer;
@@ -81,13 +90,13 @@
     display: flex;
     align-items: center;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* 移除了 overflow: hidden 和 text-overflow: ellipsis 以允许内容溢出，从而触发父容器的滚动条 */
     border-radius: 4px;
     border: 1px solid transparent;
 }
+/* ========================= 关键修改 END =========================== */
 .file-tree li:hover {
-    background-color: var(--border-color);
+    /*background-color: var(--border-color);*/
 }
 .file-tree li.focused {
     background-color: var(--selection-color);
@@ -116,15 +125,6 @@
 .file-tree li.folder.expanded > ul { display: block; }
 .file-tree li i { margin-right: 8px; width: 14px; text-align: center; }
 .file-tree li.folder > i { color: var(--accent-color); }
-
-/* ==================== 新增拖放样式 START ==================== */
-.file-tree-container.drag-over {
-    border: 2px dashed var(--accent-color);
-    background-color: var(--selection-color);
-    opacity: 0.8;
-}
-/* ==================== 新增拖放样式 END ====================== */
-
 
 /* --- 上下文菜单 --- */
 .context-menu {
@@ -464,4 +464,61 @@
     background-color: var(--progress-fill);
     border-radius: 5px;
     transition: width 0.2s ease-in-out;
+}
+/* --- Command Palette / List Prompt Styles --- */
+.command-palette {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.modal-search-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    font-size: 1.1rem;
+    outline: none;
+}
+.modal-search-input:focus {
+    border-color: var(--accent-color);
+}
+
+.modal-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.modal-list-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s;
+}
+.modal-list-item:last-child {
+    border-bottom: none;
+}
+.modal-list-item:hover, .modal-list-item.active {
+    background-color: var(--selection-color);
+}
+.modal-list-item.disabled {
+    color: var(--text-secondary);
+    cursor: not-allowed;
+}
+
+.modal-list-item .item-label {
+    font-weight: bold;
+    color: var(--text-primary);
+}
+.modal-list-item .item-description {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    margin-top: 4px;
 }

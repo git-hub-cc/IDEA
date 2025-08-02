@@ -4,6 +4,7 @@ import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 import NetworkManager from './NetworkManager.js';
 import FileTreeManager from './FileTreeManager.js';
+import CodeEditorManager from './CodeEditorManager.js';
 import ModalManager from './ModalManager.js';
 
 const ActionManager = {
@@ -15,7 +16,8 @@ const ActionManager = {
         EventBus.on('action:new-file', ({ path } = {}) => this.handleNewFile(path));
         EventBus.on('action:open-folder', this.handleOpenFolder.bind(this));
         EventBus.on('action:save-file', this.handleSaveFile.bind(this));
-        // ... (其他toolbar action监听器保持不变)
+        EventBus.on('action:format-code', () => EventBus.emit('editor:formatDocument'));
+        EventBus.on('action:find-in-file', () => EventBus.emit('editor:find'));
         EventBus.on('action:run-code', this.handleRunCode.bind(this));
         EventBus.on('action:debug-code', this.handleDebugCode.bind(this));
         EventBus.on('action:step-over', NetworkManager.stepOver);
@@ -31,23 +33,21 @@ const ActionManager = {
         EventBus.on('action:settings', this.handleSettings.bind(this));
         EventBus.on('action:about', this.handleAbout.bind(this));
 
-        // 文件树上下文菜单动作
+        // 文件树上下文菜单 & 快捷键动作
+        EventBus.on('action:rename-active-file', this.handleRenameActiveFile.bind(this));
         EventBus.on('context-action:new-file', ({ path }) => this.handleNewFile(path, 'folder'));
         EventBus.on('context-action:new-folder', ({ path }) => this.handleNewFolder(path));
         EventBus.on('context-action:rename', ({ path, type }) => this.handleRenamePath(path, type));
         EventBus.on('context-action:delete', this.handleDeletePath.bind(this));
         EventBus.on('context-action:download', this.handleDownloadFile.bind(this));
 
-        // ========================= 关键修改 START =========================
         // 编辑器标签页上下文菜单动作
         EventBus.on('context-action:close-tab', this.handleCloseTab.bind(this));
         EventBus.on('context-action:close-other-tabs', this.handleCloseOtherTabs.bind(this));
         EventBus.on('context-action:close-tabs-to-the-right', this.handleCloseTabsToRight.bind(this));
         EventBus.on('context-action:close-tabs-to-the-left', this.handleCloseTabsToLeft.bind(this));
-        // ========================= 关键修改 END ===========================
     },
 
-    // ... (其他handle方法保持不变)
     _getCreationContextPath: function() {
         const focusedItem = FileTreeManager.getFocusedItem();
         if (!focusedItem) return '';
@@ -411,7 +411,6 @@ const ActionManager = {
         a.remove();
     },
 
-    // ========================= 关键修改 START =========================
     handleCloseTab: function({ filePath }) {
         EventBus.emit('file:closeRequest', filePath);
     },
@@ -427,6 +426,19 @@ const ActionManager = {
     handleCloseTabsToLeft: function({ filePath }) {
         EventBus.emit('editor:closeTabsToTheLeft', filePath);
     },
-    // ========================= 关键修改 END ===========================
+
+    /**
+     * @description 处理通过快捷键 (Shift+F6) 触发的重命名活动文件操作
+     */
+    handleRenameActiveFile: function() {
+        const activePath = CodeEditorManager.activeFilePath;
+        if (activePath) {
+            // 复用现有的重命名路径逻辑
+            this.handleRenamePath(activePath, 'file');
+        } else {
+            EventBus.emit('log:warn', '没有激活的文件可以重命名。');
+            EventBus.emit('modal:showAlert', { title: '操作无效', message: '请先打开一个文件。' });
+        }
+    },
 };
 export default ActionManager;

@@ -4,7 +4,11 @@ import EventBus from '../utils/event-emitter.js';
 import { ResizableLayout } from '../utils/resizable-layout.js';
 
 const UIManager = {
-    horizontalLayout: null,
+    // ========================= 关键修改 START =========================
+    // 从单个布局管理器改为两个，以支持嵌套布局
+    mainLayout: null,
+    topLayout: null,
+    // ========================= 关键修改 END ===========================
     panelTabButtons: null,
     panelContents: null,
 
@@ -23,30 +27,44 @@ const UIManager = {
         EventBus.on('ui:activateBottomPanelTab', this.activateBottomPanelTab.bind(this));
     },
 
+    // ========================= 关键修改 START =========================
+    // 重写此方法以创建垂直和水平两个布局，修复错误
     setupPanelResizing: function() {
-        this.horizontalLayout = new ResizableLayout(
+        // 主垂直布局：将屏幕分为上下两部分（顶部面板区和底部面板）
+        this.mainLayout = new ResizableLayout(
             '#main-panels',
-            ['#left-panel', '#center-panel', '#bottom-panel'],
+            ['#top-panels-wrapper', '#bottom-panel'],
             {
-                direction: 'horizontal',
-                minSizes: [200, 350, 250],
-                initialSizes: [20, 55, 25],
-                storageKey: 'web-idea-layout-h'
+                direction: 'vertical',
+                minSizes: [100, 100], // 顶部区域最小高度100px, 底部面板最小高度100px
+                initialSizes: [70, 30],
+                storageKey: 'web-idea-layout-vertical'
             }
         );
-        this.horizontalLayout.init();
+        this.mainLayout.init();
+
+        // 嵌套的水平布局：将顶部区域分为左右两部分（文件树和编辑器）
+        this.topLayout = new ResizableLayout(
+            '#top-panels-wrapper',
+            ['#left-panel', '#center-panel'],
+            {
+                direction: 'horizontal',
+                minSizes: [200, 350], // 保持原始的最小宽度设置
+                initialSizes: [25, 75],
+                storageKey: 'web-idea-layout-horizontal'
+            }
+        );
+        this.topLayout.init();
     },
+    // ========================= 关键修改 END ===========================
 
     setupPanelTabs: function() {
         this.panelTabButtons.forEach((button) => {
             button.addEventListener('click', () => {
                 const panelId = button.dataset.panelId;
-
-                // ========================= 关键修正 START =========================
-                // 不要直接调用方法，而是发出一个全局事件。
-                // 这样 UIManager 自己会监听到，TerminalManager 也会监听到。
+                // 通过发出全局事件来处理Tab切换，实现模块解耦。
+                // UIManager自身和TerminalManager等其他模块都会监听到这个事件。
                 EventBus.emit('ui:activateBottomPanelTab', panelId);
-                // ========================= 关键修正 END ===========================
             });
         });
     },
@@ -69,7 +87,7 @@ const UIManager = {
     },
 
     handlePanelLayoutChange: function() {
-        // 使用事件驱动的方法通知其他模块，而不是直接调用它们
+        // 使用事件驱动的方法通知其他模块，而不是直接调用它们。
         EventBus.emit('editor:resize');
         EventBus.emit('terminal:resize');
     }

@@ -13,7 +13,6 @@ const NetworkManager = {
         this.onBuildLogReceived = this.onBuildLogReceived.bind(this);
         this.onRunLogReceived = this.onRunLogReceived.bind(this);
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
-        this.onDiagnosticsReceived = this.onDiagnosticsReceived.bind(this);
         EventBus.on('app:ready', () => this.connectWebSocket());
     },
 
@@ -46,7 +45,6 @@ const NetworkManager = {
         this.stompClient.subscribe('/topic/build-log', this.onBuildLogReceived);
         this.stompClient.subscribe('/topic/run-log', this.onRunLogReceived);
         this.stompClient.subscribe('/topic/debug-events', this.onDebugEventReceived);
-        this.stompClient.subscribe('/topic/diagnostics', this.onDiagnosticsReceived);
         this.stompClient.subscribe(`/topic/terminal-output/${this.sessionId}`, (message) => {
             EventBus.emit('terminal:data', message.body);
         });
@@ -58,10 +56,6 @@ const NetworkManager = {
     onDebugEventReceived: function(message) {
         try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); }
         catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); }
-    },
-    onDiagnosticsReceived: function(message) {
-        try { EventBus.emit('diagnostics:updated', JSON.parse(message.body)); }
-        catch (e) { EventBus.emit('log:error', '解析诊断信息失败: ' + e.message); }
     },
 
     _rawFetchApi: async function(endpoint, options = {}, responseType = 'json') {
@@ -114,14 +108,8 @@ const NetworkManager = {
 
     getProjects: () => NetworkManager._rawFetchApi('api/projects'),
     getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
-
-    // ========================= 关键修改 START =========================
-    // getFileContent 现在明确请求文本响应
     getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
-    // 新增一个方法来获取文件的Blob对象，用于下载
     downloadFileAsBlob: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'),
-    // ========================= 关键修改 END ===========================
-
     saveFileContent: (relativePath, content) => NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }),
     buildProject: () => NetworkManager.fetchApi(`api/java/build`, { method: 'POST' }),
     startDebug: (mainClass) => NetworkManager.fetchApi(`api/debug/start?mainClass=${encodeURIComponent(mainClass)}`, { method: 'POST' }),
@@ -132,7 +120,6 @@ const NetworkManager = {
     createFileOrDir: (parentPath, name, type) => NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }),
     deletePath: (path) => NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
     renamePath: (oldPath, newName) => NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }),
-    getCompletions: (filePath, line, character) => NetworkManager.fetchApi('api/language/completion', { method: 'POST', body: JSON.stringify({ filePath, line, character }) }),
     toggleBreakpoint: (breakpoint) => NetworkManager.fetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify(breakpoint) }),
     getGiteeRepos: () => NetworkManager._rawFetchApi('api/git/gitee-repos'),
     cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', {

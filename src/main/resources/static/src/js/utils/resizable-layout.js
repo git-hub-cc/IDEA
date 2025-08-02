@@ -38,8 +38,6 @@ export class ResizableLayout {
         EventBus.emit('ui:layoutChanged');
     }
 
-    // ... [_createSplitters, _addEventListeners, _onMouseDown, _onMouseUp, _saveLayout, _loadLayout, resetLayout 方法基本保持不变] ...
-
     _createSplitters() {
         for (let i = 0; i < this.panels.length - 1; i++) {
             const splitter = document.createElement('div');
@@ -61,6 +59,10 @@ export class ResizableLayout {
         e.preventDefault();
         this.activeSplitter = splitter;
         document.body.classList.add('is-resizing');
+        // ========================= 关键修改 START =========================
+        // 动态设置鼠标指针样式，以适应垂直和水平拖动
+        document.body.style.cursor = this.direction === 'horizontal' ? 'ew-resize' : 'ns-resize';
+        // ========================= 关键修改 END ===========================
         splitter.classList.add('is-dragging');
 
         const rectPrev = splitter.prevPanel.getBoundingClientRect();
@@ -112,6 +114,10 @@ export class ResizableLayout {
 
     _onMouseUp() {
         document.body.classList.remove('is-resizing');
+        // ========================= 关键修改 START =========================
+        // 恢复默认的鼠标指针
+        document.body.style.cursor = '';
+        // ========================= 关键修改 END ===========================
         if (this.activeSplitter) {
             this.activeSplitter.classList.remove('is-dragging');
         }

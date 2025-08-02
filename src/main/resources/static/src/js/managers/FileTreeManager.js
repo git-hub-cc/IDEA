@@ -151,14 +151,24 @@ const FileTreeManager = {
     showWelcomeView: function() {
         document.querySelector('#left-panel .panel-header h3').textContent = '项目';
         this.container.innerHTML = `
-            <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 0.9em;">
-                <h4 style="font-size: 1.1em; margin-bottom: 15px;">没有打开的项目</h4>
-                <p>请从顶部选择一个项目，或...</p>
-                <p>
-                    <button class="welcome-action-btn" data-action="vcs-clone" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">克隆仓库</button>
-                    <span style="margin: 0 10px;">或</span>
-                    <button class="welcome-action-btn" data-action="open-folder" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">从本地打开</button>
-                </p>
+            <div style="padding: 20px; color: var(--text-secondary); font-size: 0.9em;">
+                <ul style="list-style-type: none; padding-left: 10px;">
+                    <li style="margin-bottom: 8px;">
+                        <button class="welcome-action-btn" data-action="open-folder" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">
+                           1. 从本地目录打开项目
+                        </button>
+                    </li>
+                    <li style="margin-bottom: 8px;">
+                        <button class="welcome-action-btn" data-action="clone-from-url" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">
+                           2. 通过远程仓库 URL 克隆项目
+                        </button>
+                    </li>
+                    <li style="margin-bottom: 8px;">
+                        <button class="welcome-action-btn" data-action="vcs-clone" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">
+                           3. 选择当前用户的代码仓库进行导入
+                        </button>
+                    </li>
+                </ul>
             </div>
         `;
     },
