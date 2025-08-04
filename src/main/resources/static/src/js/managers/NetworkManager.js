@@ -112,7 +112,6 @@ const NetworkManager = {
     downloadFileAsBlob: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'),
     saveFileContent: (relativePath, content) => NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }),
     buildProject: () => NetworkManager.fetchApi(`api/java/build`, { method: 'POST' }),
-    startDebug: (mainClass) => NetworkManager.fetchApi(`api/debug/start?mainClass=${encodeURIComponent(mainClass)}`, { method: 'POST' }),
     getGitStatus: () => NetworkManager.fetchApi(`api/git/status`),
     gitCommit: (message) => NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) }),
     gitPull: () => NetworkManager.fetchApi(`api/git/pull`, { method: 'POST' }),
@@ -125,6 +124,10 @@ const NetworkManager = {
     cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', {
         method: 'POST',
         body: JSON.stringify({ cloneUrl })
+    }),
+    startDebug: (mainClass) => NetworkManager.fetchApi('api/debug/start', {
+        method: 'POST',
+        body: JSON.stringify({ mainClass: mainClass })
     }),
     stopDebug: () => NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }),
     stepOver: () => NetworkManager.fetchApi('api/debug/stepOver', { method: 'POST' }),
@@ -180,6 +183,7 @@ const NetworkManager = {
         }
         return files;
     },
+    getBreakpoints: () => NetworkManager.fetchApi('api/debug/breakpoints'),
 };
 
 export default NetworkManager;

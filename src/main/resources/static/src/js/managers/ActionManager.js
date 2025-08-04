@@ -181,18 +181,40 @@ const ActionManager = {
             EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
             return;
         }
-        const mainClass = 'com.example.Main'; // 应当从项目配置读取
-        EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
-        EventBus.emit('debugger:clear');
-        EventBus.emit('console:clear');
-        EventBus.emit('statusbar:updateStatus', '启动调试器...');
-        try {
-            await NetworkManager.startDebug(mainClass);
-            EventBus.emit('log:info', '调试会话启动请求已发送。');
-        } catch (error) {
-            EventBus.emit('log:error', `启动调试失败: ${error.message}`);
-            EventBus.emit('statusbar:updateStatus', '调试失败', 2000);
-        }
+
+        const storageKey = `lastDebugMainClass_${Config.currentProject}`;
+        const lastMainClass = localStorage.getItem(storageKey) || 'com.example.Main';
+
+        EventBus.emit('modal:showPrompt', {
+            title: '启动调试会话',
+            message: '请输入要调试的完整类名 (e.g., com.example.Application):',
+            defaultValue: lastMainClass,
+            onConfirm: async (mainClass) => {
+                if (!mainClass) {
+                    EventBus.emit('modal:showAlert', { title: '输入无效', message: '必须提供一个类名才能开始调试。'});
+                    return;
+                }
+
+                localStorage.setItem(storageKey, mainClass);
+
+                EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
+                EventBus.emit('debugger:clear');
+                EventBus.emit('console:clear');
+                EventBus.emit('statusbar:updateStatus', '启动调试器...');
+
+                try {
+                    await NetworkManager.startDebug(mainClass);
+                    EventBus.emit('log:info', '调试会话启动请求已发送。');
+                } catch (error) {
+                    EventBus.emit('log:error', `启动调试失败: ${error.message}`);
+                    EventBus.emit('modal:showAlert', { title: '调试失败', message: error.message });
+                    EventBus.emit('statusbar:updateStatus', '调试失败', 2000);
+                }
+            },
+            onCancel: () => {
+                EventBus.emit('log:info', '用户取消了调试操作。');
+            }
+        });
     },
 
     handleVCSClone: async function() {
@@ -339,12 +361,36 @@ const ActionManager = {
         EventBus.emit('statusbar:updateStatus', '正在推送...');
         try {
             const result = await NetworkManager.gitPush();
-            EventBus.emit('log:info', `推送操作: ${result}`);
-            EventBus.emit('modal:showAlert', { title: 'Git 推送', message: result });
+            EventBus.emit('log:info', `推送操作: ${result.message}`);
             EventBus.emit('statusbar:updateStatus', '推送成功!', 2000);
+
+            EventBus.emit('modal:showConfirm', {
+                title: 'Git 推送成功',
+                message: '代码已成功推送到远程仓库。是否在新标签页中打开 Gitee 仓库页面？',
+                confirmText: '打开仓库',
+                cancelText: '关闭',
+                onConfirm: () => {
+                    if (result.repoUrl) {
+                        window.open(result.repoUrl, '_blank');
+                    } else {
+                        EventBus.emit('log:warn', '推送成功，但未收到可浏览的仓库URL。');
+                    }
+                }
+            });
+
         } catch (error) {
             EventBus.emit('log:error', `推送失败: ${error.message}`);
-            EventBus.emit('modal:showAlert', { title: 'Git 推送失败', message: error.message });
+            let displayMessage = error.message;
+            try {
+                const jsonString = displayMessage.substring(displayMessage.indexOf('{'));
+                const errorPayload = JSON.parse(jsonString);
+                if (errorPayload && errorPayload.message) {
+                    displayMessage = errorPayload.message;
+                }
+            } catch (e) {
+                // Not a JSON error, use as is.
+            }
+            EventBus.emit('modal:showAlert', { title: 'Git 推送失败', message: displayMessage });
             EventBus.emit('statusbar:updateStatus', '推送失败', 2000);
         }
     },
@@ -362,7 +408,7 @@ const ActionManager = {
     handleAbout: function() {
         EventBus.emit('modal:showAlert', {
             title: '关于 Web IDEA',
-            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 2.8.0-pom-jdk'
+            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 3.0.0'
         });
     },
 
@@ -427,13 +473,9 @@ const ActionManager = {
         EventBus.emit('editor:closeTabsToTheLeft', filePath);
     },
 
-    /**
-     * @description 处理通过快捷键 (Shift+F6) 触发的重命名活动文件操作
-     */
     handleRenameActiveFile: function() {
         const activePath = CodeEditorManager.activeFilePath;
         if (activePath) {
-            // 复用现有的重命名路径逻辑
             this.handleRenamePath(activePath, 'file');
         } else {
             EventBus.emit('log:warn', '没有激活的文件可以重命名。');

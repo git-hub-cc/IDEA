@@ -4,18 +4,14 @@ package com.example.webideabackend.service;
 
 import com.example.webideabackend.model.GiteeRepoInfo;
 import com.example.webideabackend.model.GitStatusResponse;
+import com.example.webideabackend.util.SystemCommandExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.jcraft.jsch.JSch;
-import com.jcraft.jsch.JSchException;
-import com.jcraft.jsch.Session;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Config; // 新增导入
 import org.eclipse.jgit.lib.StoredConfig;
-import org.eclipse.jgit.transport.*;
-import org.eclipse.jgit.transport.ssh.jsch.JschConfigSessionFactory;
-import org.eclipse.jgit.transport.ssh.jsch.OpenSshConfig;
-import org.eclipse.jgit.util.FS;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,14 +20,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*; // 新增导入
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 @Service
@@ -45,25 +41,30 @@ public class GitService {
     @Value("${gitee.api.access-token}")
     private String giteeAccessToken;
 
+    // 以下两个SSH相关字段对于新的push方法不再需要，但保留它们以防其他地方使用
     @Value("${gitee.ssh.private-key-path:}")
     private String giteeSshPrivateKeyPath;
-
     @Value("${gitee.ssh.passphrase:}")
     private String giteeSshPassphrase;
 
     private final Path workspaceRoot;
     private final RestTemplate restTemplate;
+    private final SystemCommandExecutor commandExecutor; // 1. 注入 commandExecutor
 
     @Autowired
-    public GitService(@Value("${app.workspace-root}") String workspaceRootPath, RestTemplate restTemplate) {
+    public GitService(@Value("${app.workspace-root}") String workspaceRootPath,
+                      RestTemplate restTemplate,
+                      SystemCommandExecutor commandExecutor) { // 2. 在构造函数中接收
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
         this.restTemplate = restTemplate;
+        this.commandExecutor = commandExecutor; // 3. 赋值
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GiteeApiRepo(String name, String description, GiteeApiOwner owner) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GiteeApiOwner(String login) {}
+
     public List<GiteeRepoInfo> getGiteeRepositories() {
         final String apiUrl = String.format(GITEE_API_URL_TEMPLATE, giteeAccessToken);
         try {
@@ -81,9 +82,7 @@ public class GitService {
         }
     }
 
-    // ========================= 关键修改 START =========================
     public String cloneSpecificRepository(String repoHttpsUrl) throws GitAPIException, IOException {
-        // 使用更健壮的逻辑来提取项目名称
         int lastSlashIndex = repoHttpsUrl.lastIndexOf('/');
         if (lastSlashIndex == -1) {
             throw new IllegalArgumentException("Invalid repository URL format: " + repoHttpsUrl);
@@ -94,7 +93,6 @@ public class GitService {
         if (projectName.isEmpty()) {
             throw new IllegalArgumentException("Could not determine project name from URL: " + repoHttpsUrl);
         }
-        // ========================= 关键修改 END ===========================
 
         Path projectDir = workspaceRoot.resolve(projectName);
         if (Files.exists(projectDir)) {
@@ -124,6 +122,7 @@ public class GitService {
             throw new IOException("Failed during clone or SSH URL setup: " + e.getMessage(), e);
         }
     }
+
     private Git openRepository(String projectPath) throws IOException {
         Path repoDir = workspaceRoot.resolve(projectPath);
         if (!Files.exists(repoDir.resolve(".git"))) {
@@ -131,6 +130,7 @@ public class GitService {
         }
         return Git.open(repoDir.toFile());
     }
+
     public GitStatusResponse getStatus(String projectPath) throws GitAPIException, IOException {
         Path repoDir = workspaceRoot.resolve(projectPath);
         if (!Files.exists(repoDir) || !Files.isDirectory(repoDir) || !Files.exists(repoDir.resolve(".git"))) {
@@ -141,6 +141,7 @@ public class GitService {
             return GitStatusResponse.builder().currentBranch(git.getRepository().getBranch()).isClean(status.isClean()).added(status.getAdded()).modified(status.getModified()).deleted(status.getRemoved()).untracked(status.getUntracked()).conflicting(status.getConflicting()).build();
         }
     }
+
     public void commit(String projectPath, String message, String authorName, String authorEmail) throws GitAPIException, IOException {
         try (Git git = openRepository(projectPath)) {
             LOGGER.info("Performing git commit on '{}' with message: '{}'", projectPath, message);
@@ -148,6 +149,7 @@ public class GitService {
             git.commit().setMessage(message).setAuthor(authorName, authorEmail).call();
         }
     }
+
     public String pull(String projectPath) throws GitAPIException, IOException {
         try (Git git = openRepository(projectPath)) {
             LOGGER.info("Performing git pull for project '{}' via HTTPS...", projectPath);
@@ -162,68 +164,86 @@ public class GitService {
         }
     }
 
-    public String push(String projectPath) throws GitAPIException, IOException {
-        if (!StringUtils.hasText(giteeSshPrivateKeyPath)) {
-            throw new IllegalStateException("SSH private key path is not configured. Please set 'gitee.ssh.private-key-path' in your application properties.");
+    // ========================= 关键修改 START =========================
+    /**
+     * 【根本性解决方案】
+     * 使用 SystemCommandExecutor 来调用系统原生的 'git push' 命令。
+     * 这样做可以绕过 JGit/JSch 的 SSH 密钥格式问题，直接利用系统已经配置好的、
+     * 并且经过验证可以正常工作的 Git 和 SSH 环境。
+     *
+     * @param projectPath 要执行推送的项目路径
+     * @return 包含推送消息和仓库URL的Map
+     * @throws IOException 如果命令执行过程中发生 I/O 错误
+     * @throws GitAPIException 如果 Git 命令返回非零退出码，表示推送失败
+     */
+    public Map<String, Object> push(String projectPath) throws IOException, GitAPIException {
+        if (!StringUtils.hasText(projectPath)) {
+            throw new IllegalArgumentException("Project path cannot be empty.");
         }
 
-        Path privateKeyFile = Paths.get(giteeSshPrivateKeyPath);
-        if (!Files.exists(privateKeyFile)) {
-            throw new IOException("SSH private key file not found at path: " + giteeSshPrivateKeyPath);
+        File projectDir = workspaceRoot.resolve(projectPath).toFile();
+        if (!projectDir.exists() || !new File(projectDir, ".git").exists()) {
+            throw new IllegalStateException("Project is not a valid Git repository.");
         }
 
-        byte[] privateKeyBytes = Files.readAllBytes(privateKeyFile);
-
-        SshSessionFactory sshSessionFactory = new JschConfigSessionFactory() {
-            @Override
-            protected void configure(OpenSshConfig.Host hc, Session session) {
-                session.setConfig("StrictHostKeyChecking", "no");
+        // 1. 获取远程URL以便后续转换和返回
+        String remoteUrl;
+        try (Git git = Git.open(projectDir)) {
+            Config storedConfig = git.getRepository().getConfig();
+            remoteUrl = storedConfig.getString("remote", "origin", "url");
+            if (remoteUrl == null) {
+                throw new IOException("Could not find remote 'origin' URL in git config.");
             }
+        }
 
-            @Override
-            protected JSch createDefaultJSch(FS fs) throws JSchException {
-                JSch defaultJSch = super.createDefaultJSch(fs);
-                byte[] passphraseBytes = StringUtils.hasText(giteeSshPassphrase) ?
-                        giteeSshPassphrase.getBytes(StandardCharsets.UTF_8) : null;
+        LOGGER.info("Performing git push for project '{}' by executing native git command...", projectPath);
 
-                defaultJSch.addIdentity(
-                        "gitee-ssh-key-for-push",
-                        privateKeyBytes,
-                        null,
-                        passphraseBytes
-                );
-                return defaultJSch;
+        List<String> command = List.of("git", "push");
+        StringBuilder output = new StringBuilder();
+
+        CompletableFuture<Integer> future = commandExecutor.executeCommand(command, projectDir, line -> {
+            output.append(line).append("\n");
+        });
+
+        try {
+            int exitCode = future.get();
+            String commandOutput = output.toString();
+
+            if (exitCode == 0) {
+                LOGGER.info("Native git push completed successfully for project '{}'.", projectPath);
+
+                // 2. 转换URL为可浏览格式
+                String browseableUrl = convertSshToHttps(remoteUrl);
+
+                // 3. 构造包含消息和URL的响应
+                Map<String, Object> result = new HashMap<>();
+                result.put("message", "Push successful.\n" + commandOutput);
+                result.put("repoUrl", browseableUrl);
+                return result;
+            } else {
+                String errorMessage = "Push failed with exit code: " + exitCode + ".\nOutput:\n" + commandOutput;
+                LOGGER.error(errorMessage);
+                throw new GitAPIException(errorMessage) {};
             }
-        };
-
-        try (Git git = openRepository(projectPath)) {
-            LOGGER.info("Performing git push for project '{}' via SSH using key from '{}'...", projectPath, giteeSshPrivateKeyPath);
-            PushCommand pushCommand = git.push();
-
-            pushCommand.setTransportConfigCallback(transport -> {
-                if (transport instanceof SshTransport) {
-                    SshTransport sshTransport = (SshTransport) transport;
-                    sshTransport.setSshSessionFactory(sshSessionFactory);
-                }
-            });
-
-            Iterable<PushResult> results = pushCommand.call();
-            StringBuilder resultMessage = new StringBuilder("Push operation summary:\n");
-            results.forEach(result -> {
-                if (result.getMessages().length() > 0) {
-                    resultMessage.append(result.getMessages());
-                }
-                result.getRemoteUpdates().forEach(update -> {
-                    resultMessage.append(" - ")
-                            .append(update.getRemoteName())
-                            .append(": ")
-                            .append(update.getStatus())
-                            .append("\n");
-                });
-            });
-
-            LOGGER.info("Push operation finished.");
-            return resultMessage.toString();
+        } catch (InterruptedException | ExecutionException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.error("Error waiting for native git push command to finish for project '{}'", projectPath, e);
+            throw new IOException("Failed to execute git push command.", e);
         }
     }
+
+    /**
+     * 将Gitee的SSH克隆URL转换为可浏览的HTTPS URL。
+     * @param sshUrl SSH URL, e.g., git@gitee.com:user/repo.git
+     * @return HTTPS URL, e.g., https://gitee.com/user/repo
+     */
+    private String convertSshToHttps(String sshUrl) {
+        if (sshUrl != null && sshUrl.startsWith("git@gitee.com:")) {
+            return sshUrl.replace("git@gitee.com:", "https://gitee.com/")
+                    .replaceAll("\\.git$", ""); // 使用正则表达式确保只移除末尾的.git
+        }
+        // 如果已经是HTTPS或其它格式，直接返回
+        return sshUrl;
+    }
+    // ========================= 关键修改 END ===========================
 }

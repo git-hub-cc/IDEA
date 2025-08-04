@@ -24,10 +24,7 @@ const ContextMenuManager = {
                 this.show({ x: e.clientX, y: e.clientY, item: { path, type }, type: 'file-tree' });
             } else if (editorTabItem) {
                 e.preventDefault();
-                // ========================= 关键修正 START =========================
-                // 从 'filepath' (错误) 修正为 'filePath' (正确)
                 const filePath = editorTabItem.dataset.filePath;
-                // ========================= 关键修正 END ===========================
 
                 // 确保右键点击的tab被激活
                 EventBus.emit('file:openRequest', filePath);

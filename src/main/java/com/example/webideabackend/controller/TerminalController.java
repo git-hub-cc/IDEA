@@ -4,6 +4,7 @@ import com.example.webideabackend.service.TerminalService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -21,7 +22,10 @@ public class TerminalController {
         this.terminalService = terminalService;
     }
 
-    // ... handleWebSocketDisconnectListener remains the same ...
+    /**
+     * Listens for WebSocket disconnection events and cleans up the corresponding terminal session.
+     * @param event The disconnect event object.
+     */
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         String sessionId = event.getSessionId();
@@ -32,20 +36,24 @@ public class TerminalController {
     }
 
     /**
-     * 处理前端请求启动一个新的终端会话。
-     *
-     * @param projectPath    The project context to start the terminal in.
-     * @param headerAccessor 消息头访问器，用于获取会话ID。
+     * Handles a request from the frontend to start a new terminal session.
+     * The payload (projectPath) is optional.
+     * @param projectPath The project context to start the terminal in (can be null or empty).
+     * @param headerAccessor The message header accessor to get the session ID.
      */
     @MessageMapping("/terminal/start")
-    public void startTerminal(@Payload String projectPath, SimpMessageHeaderAccessor headerAccessor) {
+    public void startTerminal(@Payload(required = false) @Nullable String projectPath, SimpMessageHeaderAccessor headerAccessor) {
         String sessionId = headerAccessor.getSessionId();
         if (sessionId != null) {
             terminalService.startSession(sessionId, projectPath);
         }
     }
 
-    // ... handleInput remains the same ...
+    /**
+     * Handles input from the frontend terminal.
+     * @param input The user-typed string.
+     * @param headerAccessor The message header accessor to get the session ID.
+     */
     @MessageMapping("/terminal/input")
     public void handleInput(@Payload String input, SimpMessageHeaderAccessor headerAccessor) {
         String sessionId = headerAccessor.getSessionId();

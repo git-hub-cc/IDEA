@@ -139,27 +139,29 @@ public class GitController {
         }
     }
 
+    // ========================= 关键修改 START =========================
     /**
      * 在指定项目中执行Git推送。
      *
      * @param projectPath 项目的名称/路径。
-     * @return 操作结果的ResponseEntity。
+     * @return 操作结果的ResponseEntity，成功时包含消息和仓库URL。
      */
     @PostMapping("/push")
     public ResponseEntity<?> push(@RequestParam String projectPath) {
         if (projectPath == null || projectPath.isBlank()) {
-            return ResponseEntity.badRequest().body("projectPath cannot be empty.");
+            return ResponseEntity.badRequest().body(Map.of("message", "projectPath cannot be empty."));
         }
         try {
-            LOGGER.info("Received git push request for project: {}", projectPath); // 新增日志
-            String result = gitService.push(projectPath);
+            LOGGER.info("Received git push request for project: {}", projectPath);
+            Map<String, Object> result = gitService.push(projectPath);
             return ResponseEntity.ok(result);
         } catch (GitAPIException | IOException e) {
             LOGGER.error("Push failed for project '{}'", projectPath, e);
-            return ResponseEntity.internalServerError().body("Push failed: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("message", "Push failed: " + e.getMessage()));
         } catch (IllegalStateException e) {
             LOGGER.warn("Bad request on push for project '{}': {}", projectPath, e.getMessage());
-            return ResponseEntity.badRequest().body(e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
+    // ========================= 关键修改 END ===========================
 }

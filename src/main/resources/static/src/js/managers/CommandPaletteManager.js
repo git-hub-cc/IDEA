@@ -1,6 +1,10 @@
 // src/js/managers/CommandPaletteManager.js
 
 import EventBus from '../utils/event-emitter.js';
+// ========================= 关键修改 START =========================
+import CodeEditorManager from './CodeEditorManager.js';
+// ========================= 关键修改 END ===========================
+
 
 /**
  * Manages the command palette functionality, allowing users to search for
@@ -46,8 +50,12 @@ const CommandPaletteManager = {
             return;
         }
 
+        // ========================= 关键修改 START =========================
         // Get the language of the currently active file to filter commands.
-        const activeLanguage = EventBus.emit('editor:getActiveLanguage')[0]; // A bit of a hack to get return value
+        // 使用直接方法调用，更健壮
+        const activeLanguage = CodeEditorManager.getActiveLanguage();
+        // ========================= 关键修改 END ===========================
+
 
         // Filter commands based on the active language.
         // Actions are always available, snippets are language-specific.

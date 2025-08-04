@@ -1,3 +1,5 @@
+// src/main/resources/static/src/js/managers/StatusBarManager.js
+
 // src/js/managers/StatusBarManager.js - 状态栏信息更新管理器
 
 import EventBus from '../utils/event-emitter.js';
@@ -34,7 +36,7 @@ const StatusBarManager = {
         this.bindAppEvents();
         this.updateStatus('就绪');
         // ================== 关键修正：移除此处的调用 ==================
-        // this.updateGitStatus();
+        // this.updateGitStatus(); // <- BUG: 在没有项目上下文时调用，必定失败
         // ==========================================================
     },
 
@@ -44,6 +46,7 @@ const StatusBarManager = {
         EventBus.on('statusbar:updateCursorPos', this.updateCursorPos.bind(this));
         EventBus.on('statusbar:markUnsaved', this.markUnsaved.bind(this));
         EventBus.on('statusbar:clearFileInfo', this.clearFileInfo.bind(this));
+        // ✅ 修复: 在正确的事件触发时更新Git状态
         EventBus.on('git:statusChanged', this.updateGitStatus.bind(this));
         EventBus.on('network:websocketConnected', () => this.updateStatus('就绪'));
         EventBus.on('network:websocketDisconnected', (error) => this.updateStatus(`离线: ${error ? '连接已断开' : '未知错误'}`));
@@ -108,10 +111,8 @@ const StatusBarManager = {
         try {
             const status = await NetworkManager.getGitStatus();
 
-            // ========================= 关键修正 START =========================
             // 如果项目未被选择 (N/A) 或不是一个Git仓库 (not-a-repo)，则显示相应提示并返回
             if (status.currentBranch === 'N/A') {
-                // 'N/A' 是前端在没有活动项目时返回的，保持默认显示
                 this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> master`;
                 return;
             }
@@ -120,7 +121,6 @@ const StatusBarManager = {
                 EventBus.emit('log:info', `Git状态: 当前项目不是一个Git仓库。`);
                 return;
             }
-            // ========================= 关键修正 END ===========================
 
             const counts = status.counts;
             let statusText = '';

@@ -1,19 +1,15 @@
-/**
- * DebugController.java
- *
- * This RESTful controller handles starting, stopping, and stepping through
- * a debug session. It delegates all requests to the DebugService.
- */
 package com.example.webideabackend.controller;
 
-import com.example.webideabackend.model.Breakpoint;
+import com.example.webideabackend.model.debug.BreakpointRequest;
+import com.example.webideabackend.model.debug.DebugRequest;
 import com.example.webideabackend.service.DebugService;
-import com.sun.jdi.connect.IllegalConnectorArgumentsException;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/debug")
@@ -21,91 +17,85 @@ public class DebugController {
 
     private final DebugService debugService;
 
-    @Autowired
     public DebugController(DebugService debugService) {
         this.debugService = debugService;
     }
 
     /**
-     * Starts a new debug session for a specific project.
-     * @param projectPath The name of the project to debug.
-     * @param mainClass The fully qualified name of the main class to run.
-     * @return A response entity indicating the result.
+     * 启动一个调试会话。
+     * @param request 包含项目路径和主类名的请求体。
+     * @return 启动结果。
      */
     @PostMapping("/start")
-    public ResponseEntity<String> startDebug(
-            @RequestParam String projectPath, // 关键修改: 接收项目路径
-            @RequestParam String mainClass) {
+    public ResponseEntity<?> start(@RequestBody DebugRequest request) {
         try {
-            debugService.startDebugSession(projectPath, mainClass);
-            return ResponseEntity.ok("Debug session started.");
-        } catch (IOException | IllegalConnectorArgumentsException | IllegalStateException e) {
-            return ResponseEntity.internalServerError().body("Failed to start debug session: " + e.getMessage());
+            // 从请求体中获取 projectPath 和 mainClass
+            if (request.getProjectPath() == null || request.getProjectPath().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "项目路径 (projectPath) 不能为空"));
+            }
+            if (request.getMainClass() == null || request.getMainClass().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "主类 (mainClass) 不能为空"));
+            }
+
+            debugService.startDebug(request.getProjectPath(), request.getMainClass());
+            return ResponseEntity.ok(Map.of("message", "调试会话启动中..."));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("message", "启动调试失败: " + e.getMessage()));
         }
     }
 
     /**
-     * Stops the currently active debug session.
-     * @return A response entity.
+     * 停止当前的调试会话。
      */
     @PostMapping("/stop")
-    public ResponseEntity<String> stopDebug() {
-        debugService.cleanupSession();
-        return ResponseEntity.ok("Debug session stopped.");
+    public ResponseEntity<?> stop() {
+        debugService.stopDebug();
+        return ResponseEntity.ok(Map.of("message", "调试会话已停止。"));
     }
 
     /**
-     * Resumes the execution of the debuggee.
-     * @return A response entity.
-     */
-    @PostMapping("/resume")
-    public ResponseEntity<String> resume() {
-        debugService.resume();
-        return ResponseEntity.ok("Resume command sent.");
-    }
-
-    /**
-     * Performs a 'step over' operation.
-     * @return A response entity.
-     */
-    @PostMapping("/stepOver")
-    public ResponseEntity<String> stepOver() {
-        debugService.stepOver();
-        return ResponseEntity.ok("Step Over command sent.");
-    }
-
-    /**
-     * Performs a 'step into' operation.
-     * @return A response entity.
-     */
-    @PostMapping("/stepInto")
-    public ResponseEntity<String> stepInto() {
-        debugService.stepInto();
-        return ResponseEntity.ok("Step Into command sent.");
-    }
-
-    /**
-     * Performs a 'step out' operation.
-     * @return A response entity.
-     */
-    @PostMapping("/stepOut")
-    public ResponseEntity<String> stepOut() {
-        debugService.stepOut();
-        return ResponseEntity.ok("Step Out command sent.");
-    }
-
-    /**
-     * Toggles a breakpoint. The Breakpoint DTO now includes the project path.
-     * @param breakpoint The breakpoint information.
-     * @return A response entity.
+     * 切换断点。
+     * @param request 包含文件路径、行号和启用状态的请求体。
      */
     @PostMapping("/breakpoint/toggle")
-    public ResponseEntity<String> toggleBreakpoint(@RequestBody Breakpoint breakpoint) { // 关键修改: Breakpoint DTO 自身已包含 projectPath
-        try {
-            debugService.toggleBreakpoint(breakpoint);
-            return ResponseEntity.ok("Breakpoint toggled.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Failed to toggle breakpoint: " + e.getMessage());
-        }
+    public ResponseEntity<?> toggleBreakpoint(@RequestBody BreakpointRequest request) {
+        debugService.toggleBreakpoint(request.getFilePath(), request.getLineNumber(), request.isEnabled());
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 执行"步过"操作。
+     */
+    @PostMapping("/stepOver")
+    public ResponseEntity<?> stepOver() {
+        debugService.stepOver();
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 执行"步入"操作。
+     */
+    @PostMapping("/stepInto")
+    public ResponseEntity<?> stepInto() {
+        debugService.stepInto();
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 执行"步出"操作。
+     */
+    @PostMapping("/stepOut")
+    public ResponseEntity<?> stepOut() {
+        debugService.stepOut();
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 恢复程序执行。
+     */
+    @PostMapping("/resume")
+    public ResponseEntity<?> resume() {
+        debugService.resumeDebug();
+        return ResponseEntity.ok().build();
     }
 }
