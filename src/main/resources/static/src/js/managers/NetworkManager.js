@@ -13,6 +13,7 @@ const NetworkManager = {
         this.onBuildLogReceived = this.onBuildLogReceived.bind(this);
         this.onRunLogReceived = this.onRunLogReceived.bind(this);
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
+        this.onRunStatusReceived = this.onRunStatusReceived.bind(this);
         EventBus.on('app:ready', () => this.connectWebSocket());
     },
 
@@ -22,6 +23,11 @@ const NetworkManager = {
             const socket = new SockJS(this.baseUrl + 'ws');
             this.stompClient = Stomp.over(socket);
             this.stompClient.debug = null;
+
+            // 增加心跳配置，客户端每10秒发送一次，期望服务器每10秒响应一次
+            this.stompClient.heartbeat.outgoing = 10000;
+            this.stompClient.heartbeat.incoming = 10000;
+
             this.stompClient.connect({}, (frame) => {
                 console.log('WebSocket 已连接: ' + frame);
                 this.isConnected = true;
@@ -35,6 +41,13 @@ const NetworkManager = {
                 this.isConnected = false;
                 this.sessionId = null;
                 EventBus.emit('network:websocketDisconnected', error);
+
+                // 添加自动重连逻辑
+                setTimeout(() => {
+                    console.log("尝试重新连接 WebSocket...");
+                    this.connectWebSocket();
+                }, 5000); // 5秒后重连
+
                 reject(error);
             });
         });
@@ -45,17 +58,32 @@ const NetworkManager = {
         this.stompClient.subscribe('/topic/build-log', this.onBuildLogReceived);
         this.stompClient.subscribe('/topic/run-log', this.onRunLogReceived);
         this.stompClient.subscribe('/topic/debug-events', this.onDebugEventReceived);
+        this.stompClient.subscribe('/topic/run/status', this.onRunStatusReceived);
         this.stompClient.subscribe(`/topic/terminal-output/${this.sessionId}`, (message) => {
             EventBus.emit('terminal:data', message.body);
         });
-        EventBus.emit('log:info', '已成功订阅后端日志和调试事件。');
+        EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
-    onBuildLogReceived: function(message) { EventBus.emit('console:log', '[构建] ' + message.body); },
-    onRunLogReceived: function(message) { EventBus.emit('console:log', '[运行] ' + message.body); },
+    onBuildLogReceived: function(message) {
+        // 后端批处理后，message.body可能包含多行，所以直接发送
+        EventBus.emit('console:log', '[构建]\n' + message.body);
+    },
+    onRunLogReceived: function(message) {
+        // 后端批处理后，message.body可能包含多行
+        EventBus.emit('console:log', message.body);
+    },
     onDebugEventReceived: function(message) {
         try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); }
         catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); }
+    },
+
+    /**
+     * 接收到运行状态变更时，将其转发到全局事件总线。
+     * @param {object} message - STOMP消息。
+     */
+    onRunStatusReceived: function(message) {
+        EventBus.emit('run:statusChanged', message.body);
     },
 
     _rawFetchApi: async function(endpoint, options = {}, responseType = 'json') {
@@ -121,7 +149,7 @@ const NetworkManager = {
         return this._uploadWithXHR('api/files/upload-to-path', formData);
     },
 
-    // --- Existing API wrapper methods ---
+    // --- API wrapper methods ---
     getProjects: () => NetworkManager._rawFetchApi('api/projects'),
     getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
     getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
@@ -136,7 +164,7 @@ const NetworkManager = {
     deletePath: (path) => NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
     renamePath: (oldPath, newName) => NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }),
     toggleBreakpoint: (breakpoint) => NetworkManager.fetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify(breakpoint) }),
-    getGiteeRepos: () => NetworkManager._rawFetchApi('api/git/gitee-repos'),
+    getRemoteRepos: () => NetworkManager._rawFetchApi('api/git/remote-repos'),
     cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', { method: 'POST', body: JSON.stringify({ cloneUrl }) }),
     startDebug: (mainClass) => NetworkManager.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }),
     stopDebug: () => NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }),
@@ -147,34 +175,20 @@ const NetworkManager = {
     getSettings: () => NetworkManager._rawFetchApi('api/settings'),
     saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
     getProjectClassNames: (projectName) => NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`),
+    stopRun: () => NetworkManager._rawFetchApi('api/run/stop', { method: 'POST' }),
 
-    // ========================= 关键修改 START =========================
-    /**
-     * Starts a terminal session.
-     * @param {string} [path] - Optional. The path relative to the workspace root to start the terminal in.
-     *                          If not provided, it defaults to the current project's root.
-     */
     startTerminal: (path) => {
         if (NetworkManager.stompClient && NetworkManager.isConnected) {
-            // If a specific path is provided, use it. Otherwise, default to the current project or empty string.
             const targetPath = path || Config.currentProject || "";
             NetworkManager.stompClient.send('/app/terminal/start', {}, targetPath);
         }
     },
-    // ========================= 关键修改 END ===========================
     sendTerminalInput: (data) => {
         if (NetworkManager.stompClient && NetworkManager.isConnected) {
             NetworkManager.stompClient.send('/app/terminal/input', {}, data);
         }
     },
 
-    // ========================= 关键修改 START: 新增辅助函数和方法 =========================
-    /**
-     * 一个通用的 XHR 上传辅助函数，用于处理带进度条的上传。
-     * @param {string} endpoint - API 端点。
-     * @param {FormData} formData - 要发送的表单数据。
-     * @returns {Promise<string>} - 成功时解析为响应文本的 Promise。
-     */
     _uploadWithXHR: function(endpoint, formData) {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -196,12 +210,6 @@ const NetworkManager = {
         });
     },
 
-    /**
-     * 上传包含目录结构的文件/文件夹。
-     * @param {Array<{file: File, path: string}>} items - 包含文件对象和其相对路径的数组。
-     * @param {string} destinationPath - 文件在项目中的目标父目录。
-     * @returns {Promise<string>}
-     */
     uploadDirectoryStructure: function(items, destinationPath) {
         if (!Config.currentProject) {
             return Promise.reject(new Error("没有活动项目以上传文件。"));
@@ -214,10 +222,7 @@ const NetworkManager = {
         });
         return this._uploadWithXHR('api/files/upload-to-path', formData);
     },
-    // ========================= 关键修改 END ======================================
 
-
-    // --- Project upload methods ---
     uploadProject: async function(directoryHandle, projectName) {
         EventBus.emit('statusbar:updateStatus', '正在分析文件夹...');
         const filesToUpload = await this._getFilesRecursively(directoryHandle);

@@ -2,13 +2,12 @@
 
 package com.example.webideabackend.service;
 
-import com.example.webideabackend.model.GiteeRepoInfo;
+import com.example.webideabackend.model.RemoteRepoInfo; // 关键修改：重命名
 import com.example.webideabackend.model.GitStatusResponse;
-// ========================= 关键修改 START: 导入新类 =========================
 import com.example.webideabackend.model.Settings;
-// ========================= 关键修改 END ===========================
 import com.example.webideabackend.util.SystemCommandExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -19,6 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
@@ -38,22 +41,15 @@ public class GitService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GitService.class);
 
-    private static final String GITEE_USER = "wyswydx"; // Gitee 用户名
-    private static final String GITEE_API_URL_TEMPLATE = "https://gitee.com/api/v5/users/" + GITEE_USER + "/repos?access_token=%s";
+    // ========================= 关键修改 START: API URL 模板化 =========================
+    private static final String GITEE_API_URL_TEMPLATE = "https://gitee.com/api/v5/user/repos?access_token=%s";
+    private static final String GITHUB_API_URL = "https://api.github.com/user/repos";
+    // ========================= 关键修改 END ========================================
 
-    // ========================= 关键修改 START =========================
     @Value("${gitee.api.access-token}")
-    private String giteeAccessTokenFromProps; // 重命名以明确来源
+    private String giteeAccessTokenFromProps;
 
-    // 这两个值目前在 pull/push 中未使用，但为保持一致性而保留
-    @Value("${gitee.ssh.private-key-path:}")
-    private String giteeSshPrivateKeyPathFromProps;
-    @Value("${gitee.ssh.passphrase:}")
-    private String giteeSshPassphraseFromProps;
-
-    private final SettingsService settingsService; // 注入 SettingsService
-    // ========================= 关键修改 END ===========================
-
+    private final SettingsService settingsService;
     private final Path workspaceRoot;
     private final RestTemplate restTemplate;
     private final SystemCommandExecutor commandExecutor;
@@ -62,41 +58,75 @@ public class GitService {
     public GitService(@Value("${app.workspace-root}") String workspaceRootPath,
                       RestTemplate restTemplate,
                       SystemCommandExecutor commandExecutor,
-                      SettingsService settingsService) { // 注入
+                      SettingsService settingsService) {
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
         this.restTemplate = restTemplate;
         this.commandExecutor = commandExecutor;
-        this.settingsService = settingsService; // 赋值
+        this.settingsService = settingsService;
     }
 
+    // --- DTOs for different Git providers ---
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GiteeApiRepo(String name, String description, GiteeApiOwner owner) {}
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GiteeApiOwner(String login) {}
+    private record GiteeApiRepo(String name, String description, @JsonProperty("html_url") String htmlUrl) {}
 
-    public List<GiteeRepoInfo> getGiteeRepositories() {
-        // ========================= 关键修改 START =========================
-        String accessToken = settingsService.getSettings().getGiteeAccessToken();
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubApiRepo(String name, String description, @JsonProperty("clone_url") String cloneUrl) {}
+
+    // ========================= 关键修改 START: 实现多平台仓库获取 =========================
+    public List<RemoteRepoInfo> getRemoteRepositories() {
+        Settings settings = settingsService.getSettings();
+        String platform = settings.getGitPlatform() != null ? settings.getGitPlatform() : "gitee";
+        String accessToken = settings.getGiteeAccessToken(); // 字段名保持不变
+
         if (!StringUtils.hasText(accessToken)) {
             accessToken = this.giteeAccessTokenFromProps;
         }
-        // ========================= 关键修改 END ===========================
+        if (!StringUtils.hasText(accessToken)) {
+            LOGGER.warn("未配置访问令牌，无法获取远程仓库列表。");
+            return Collections.emptyList();
+        }
 
+        if ("github".equalsIgnoreCase(platform)) {
+            return getGitHubRepositories(accessToken);
+        } else {
+            return getGiteeRepositories(accessToken);
+        }
+    }
+
+    private List<RemoteRepoInfo> getGiteeRepositories(String accessToken) {
         final String apiUrl = String.format(GITEE_API_URL_TEMPLATE, accessToken);
         try {
             GiteeApiRepo[] repos = restTemplate.getForObject(apiUrl, GiteeApiRepo[].class);
             if (repos == null) return Collections.emptyList();
             return Arrays.stream(repos)
-                    .map(repo -> {
-                        String cloneUrl = String.format("https://gitee.com/%s/%s.git", repo.owner().login(), repo.name());
-                        return new GiteeRepoInfo(repo.name(), repo.description(), cloneUrl);
-                    })
+                    .map(repo -> new RemoteRepoInfo(repo.name(), repo.description(), repo.htmlUrl() + ".git"))
                     .collect(Collectors.toList());
         } catch (Exception e) {
-            LOGGER.error("Failed to fetch repositories from Gitee for user {}", GITEE_USER, e);
+            LOGGER.error("从 Gitee 获取仓库失败", e);
             return Collections.emptyList();
         }
     }
+
+    private List<RemoteRepoInfo> getGitHubRepositories(String accessToken) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+        headers.set("Accept", "application/vnd.github.v3+json");
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        try {
+            ResponseEntity<GitHubApiRepo[]> response = restTemplate.exchange(GITHUB_API_URL, HttpMethod.GET, entity, GitHubApiRepo[].class);
+            GitHubApiRepo[] repos = response.getBody();
+            if (repos == null) return Collections.emptyList();
+            return Arrays.stream(repos)
+                    .map(repo -> new RemoteRepoInfo(repo.name(), repo.description(), repo.cloneUrl()))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            LOGGER.error("从 GitHub 获取仓库失败", e);
+            return Collections.emptyList();
+        }
+    }
+    // ========================= 关键修改 END ========================================
+
 
     public String cloneSpecificRepository(String repoHttpsUrl) throws GitAPIException, IOException {
         int lastSlashIndex = repoHttpsUrl.lastIndexOf('/');
@@ -110,12 +140,10 @@ public class GitService {
             throw new IllegalArgumentException("Could not determine project name from URL: " + repoHttpsUrl);
         }
 
-        // ========================= 关键修改 START =========================
         String accessToken = settingsService.getSettings().getGiteeAccessToken();
         if (!StringUtils.hasText(accessToken)) {
             accessToken = this.giteeAccessTokenFromProps;
         }
-        // ========================= 关键修改 END ===========================
 
         Path projectDir = workspaceRoot.resolve(projectName);
         if (Files.exists(projectDir)) {
@@ -126,12 +154,17 @@ public class GitService {
         try (Git git = Git.cloneRepository()
                 .setURI(repoHttpsUrl)
                 .setDirectory(projectDir.toFile())
-                .setCredentialsProvider(new UsernamePasswordCredentialsProvider("private-token", accessToken))
+                .setCredentialsProvider(new UsernamePasswordCredentialsProvider(accessToken, "")) // GitHub/Gitee都支持用token作为用户名或密码
                 .call()) {
             LOGGER.info("Repository cloned successfully via HTTPS into: {}", git.getRepository().getDirectory());
-            LOGGER.info("Switching remote 'origin' URL to SSH format for push operations...");
-            String pathPart = repoHttpsUrl.replace("https://gitee.com/", "");
-            String sshUrl = "git@gitee.com:" + pathPart;
+
+            // 切换为SSH URL
+            String remoteUrl = repoHttpsUrl.replace("https://", "");
+            String domain = remoteUrl.substring(0, remoteUrl.indexOf('/'));
+            String pathPart = remoteUrl.substring(remoteUrl.indexOf('/'));
+
+            String sshUrl = String.format("git@%s:%s", domain, pathPart.startsWith("/") ? pathPart.substring(1) : pathPart);
+
             StoredConfig config = git.getRepository().getConfig();
             config.setString("remote", "origin", "url", sshUrl);
             config.save();
@@ -268,8 +301,9 @@ public class GitService {
     }
 
     private String convertSshToHttps(String sshUrl) {
-        if (sshUrl != null && sshUrl.startsWith("git@gitee.com:")) {
-            return sshUrl.replace("git@gitee.com:", "https://gitee.com/")
+        if (sshUrl != null && sshUrl.startsWith("git@")) {
+            return sshUrl.replaceFirst("git@", "https://")
+                    .replaceFirst(":", "/")
                     .replaceAll("\\.git$", "");
         }
         return sshUrl;

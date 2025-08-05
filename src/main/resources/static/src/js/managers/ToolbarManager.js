@@ -6,29 +6,82 @@ import NetworkManager from './NetworkManager.js';
 
 const ToolbarManager = {
     projectSelector: null,
+    projectDependentButtons: null,
+    runButton: null,     // 缓存运行按钮
+    debugButton: null,   // 缓存调试按钮
 
-    /**
-     * @description 初始化工具栏管理器，为所有相关按钮绑定事件。
-     */
     init: function() {
         const toolbar = document.getElementById('toolbar');
         const debuggerControls = document.querySelector('#debugger-panel .debugger-controls');
         this.projectSelector = document.getElementById('project-selector');
+
+        // 缓存需要项目上下文才能操作的按钮
+        this.projectDependentButtons = toolbar.querySelectorAll(
+            '[data-action="new-file"], [data-action="save-file"], [data-action="run-code"], ' +
+            '[data-action="debug-code"], [data-action="vcs-commit"], [data-action="vcs-pull"], ' +
+            '[data-action="vcs-push"]'
+        );
+
+        this.runButton = toolbar.querySelector('[data-action="run-code"]');
+        this.debugButton = toolbar.querySelector('[data-action="debug-code"]');
 
         this.bindButtons(toolbar.querySelectorAll('.toolbar-btn'));
         this.bindButtons(debuggerControls.querySelectorAll('button'));
 
         this.initProjectSelector();
         this.bindAppEvents();
+        this.updateButtonStates(); // 初始状态检查
     },
 
     bindAppEvents: function() {
         EventBus.on('project:list-updated', this.populateProjectSelector.bind(this));
+        // 监听项目激活事件来更新按钮状态
+        EventBus.on('project:activated', this.updateButtonStates.bind(this));
+        // 监听来自 RunManager 的运行状态更新事件
+        EventBus.on('run:stateUpdated', this.updateRunButtonState.bind(this));
     },
 
     /**
-     * 初始化项目选择器，获取项目列表并填充
+     * 根据当前是否有活动项目来更新按钮的启用/禁用状态
      */
+    updateButtonStates: function() {
+        const hasActiveProject = !!Config.currentProject;
+        this.projectDependentButtons.forEach(button => {
+            button.disabled = !hasActiveProject;
+            button.style.opacity = hasActiveProject ? '1' : '0.5';
+            button.style.cursor = hasActiveProject ? 'pointer' : 'not-allowed';
+        });
+        // 确保在没有项目时，运行状态也是重置的
+        if (!hasActiveProject) {
+            this.updateRunButtonState(false);
+        }
+    },
+
+    /**
+     * 根据程序是否正在运行来更新运行/停止按钮的UI和行为。
+     * @param {boolean} isRunning - 程序是否正在运行。
+     */
+    updateRunButtonState: function(isRunning) {
+        if (!this.runButton || !this.debugButton) return;
+
+        this.runButton.classList.toggle('is-running', isRunning);
+
+        if (isRunning) {
+            this.runButton.title = '停止运行 (Ctrl+F2)';
+
+            // 当程序运行时，禁用调试按钮
+            this.debugButton.disabled = true;
+            this.debugButton.classList.add('is-running'); // 应用禁用样式
+        } else {
+            this.runButton.title = '运行代码 (Shift+F10)';
+
+            // 只有当有活动项目时才重新启用调试按钮
+            const hasActiveProject = !!Config.currentProject;
+            this.debugButton.disabled = !hasActiveProject;
+            this.debugButton.classList.remove('is-running');
+        }
+    },
+
     initProjectSelector: async function() {
         this.projectSelector.addEventListener('change', (e) => {
             Config.setActiveProject(e.target.value || null);
@@ -37,7 +90,6 @@ const ToolbarManager = {
         try {
             const projects = await NetworkManager.getProjects();
             Config.setProjectList(projects);
-            // 尝试恢复上一次选择的项目
             const lastActive = Config.getLastActiveProject();
             if (lastActive && projects.includes(lastActive)) {
                 Config.setActiveProject(lastActive);
@@ -47,10 +99,6 @@ const ToolbarManager = {
         }
     },
 
-    /**
-     * 使用项目列表填充选择器
-     * @param {string[]} projects - 项目名称数组
-     */
     populateProjectSelector: function(projects) {
         this.projectSelector.innerHTML = '<option value="">-- 选择项目 --</option>';
         projects.forEach(project => {
@@ -59,21 +107,17 @@ const ToolbarManager = {
             option.textContent = project;
             this.projectSelector.appendChild(option);
         });
-
-        // 更新选择器的值为当前活动项目
         this.projectSelector.value = Config.currentProject || "";
     },
 
-    /**
-     * @description 为一组按钮绑定点击事件监听器。
-     * @param {NodeListOf<Element>} buttons - 按钮元素列表。
-     */
     bindButtons: function(buttons) {
-        buttons.forEach(function(button) {
-            button.addEventListener('click', function() {
+        buttons.forEach((button) => {
+            button.addEventListener('click', () => {
+                // 如果按钮被禁用，则不执行任何操作
+                if (button.disabled) return;
+
                 const action = button.dataset.action;
                 if (action) {
-                    // 将UI操作转换为具体的应用事件
                     EventBus.emit(`action:${action}`);
                 }
             });

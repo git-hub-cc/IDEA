@@ -11,7 +11,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * @param cloneUrl The HTTPS URL used for cloning the repository.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record GiteeRepoInfo(
+public record RemoteRepoInfo(
         String name,
         String description,
         String cloneUrl

@@ -19,9 +19,15 @@ public class Settings {
 
     // ========================= 关键修改 START =========================
     /**
-     * Gitee 个人访问令牌，用于API访问和HTTPS操作。
+     * Git 托管平台，例如 "gitee" 或 "github"。
+     * 默认为 "gitee" 以保持向后兼容。
      */
-    private String giteeAccessToken;
+    private String gitPlatform = "gitee";
+
+    /**
+     * 个人访问令牌，用于API访问和HTTPS操作。
+     */
+    private String giteeAccessToken; // 字段名保持不变以兼容旧数据，但UI上标签会改变
 
     /**
      * 用于SSH操作的私钥文件的绝对路径。

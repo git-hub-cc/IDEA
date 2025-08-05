@@ -331,6 +331,9 @@ const CodeEditorManager = {
             EventBus.emit('log:info', `文件 '${this.activeFilePath}' 已成功保存。`);
             EventBus.emit('statusbar:updateStatus', '文件已保存', 2000);
             EventBus.emit('git:statusChanged');
+            // ========================= 关键修改 START: 发出文件保存事件 =========================
+            EventBus.emit('file:saved', this.activeFilePath);
+            // ========================= 关键修改 END ==========================================
         } catch (error) {
             EventBus.emit('log:error', `保存文件 ${this.activeFilePath} 失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '保存失败', message: error.message });

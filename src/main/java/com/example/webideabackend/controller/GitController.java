@@ -1,7 +1,7 @@
 package com.example.webideabackend.controller;
 
-import com.example.webideabackend.model.GiteeRepoInfo;
 import com.example.webideabackend.model.GitStatusResponse;
+import com.example.webideabackend.model.RemoteRepoInfo;
 import com.example.webideabackend.service.GitService;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.slf4j.Logger;
@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -27,14 +28,13 @@ public class GitController {
     }
 
     /**
-     * 获取指定Gitee用户的公开仓库列表。
-     * 此操作与工作区中的项目无关。
+     * 根据用户在设置中配置的平台（Gitee/GitHub）获取其公开仓库列表。
      *
      * @return 仓库信息列表的ResponseEntity。
      */
-    @GetMapping("/gitee-repos")
-    public ResponseEntity<List<GiteeRepoInfo>> getGiteeRepos() {
-        List<GiteeRepoInfo> repos = gitService.getGiteeRepositories();
+    @GetMapping("/remote-repos")
+    public ResponseEntity<List<RemoteRepoInfo>> getRemoteRepos() {
+        List<RemoteRepoInfo> repos = gitService.getRemoteRepositories();
         return ResponseEntity.ok(repos);
     }
 
@@ -66,16 +66,27 @@ public class GitController {
 
     /**
      * 获取指定项目的Git状态。
+     * 使 projectPath 参数可选，以处理没有活动项目时的前端调用。
      *
-     * @param projectPath 项目的名称/路径。
+     * @param projectPath 项目的名称/路径 (可选).
      * @return Git状态信息的ResponseEntity。
      */
     @GetMapping("/status")
-    public ResponseEntity<?> getStatus(@RequestParam String projectPath) {
+    public ResponseEntity<?> getStatus(@RequestParam(required = false) String projectPath) {
+        // 如果没有提供 projectPath (例如，没有活动项目)，返回一个表示“不适用”的默认状态
+        if (projectPath == null || projectPath.isBlank()) {
+            GitStatusResponse noProjectStatus = GitStatusResponse.builder()
+                    .currentBranch("N/A") // N/A 表示不适用
+                    .isClean(true)
+                    .added(Collections.emptySet())
+                    .modified(Collections.emptySet())
+                    .deleted(Collections.emptySet())
+                    .untracked(Collections.emptySet())
+                    .conflicting(Collections.emptySet())
+                    .build();
+            return ResponseEntity.ok(noProjectStatus);
+        }
         try {
-            if (projectPath == null || projectPath.isBlank()) {
-                return ResponseEntity.badRequest().body("projectPath cannot be empty.");
-            }
             GitStatusResponse status = gitService.getStatus(projectPath);
             return ResponseEntity.ok(status);
         } catch (GitAPIException | IOException e) {
@@ -118,16 +129,16 @@ public class GitController {
     /**
      * 在指定项目中执行Git拉取。
      *
-     * @param projectPath 项目的名称/路径。
+     * @param projectPath 项目的名称/路径 (可选)。
      * @return 操作结果的ResponseEntity。
      */
     @PostMapping("/pull")
-    public ResponseEntity<?> pull(@RequestParam String projectPath) {
+    public ResponseEntity<?> pull(@RequestParam(required = false) String projectPath) {
         if (projectPath == null || projectPath.isBlank()) {
-            return ResponseEntity.badRequest().body("projectPath cannot be empty.");
+            return ResponseEntity.badRequest().body("No active project selected.");
         }
         try {
-            LOGGER.info("Received git pull request for project: {}", projectPath); // 新增日志
+            LOGGER.info("Received git pull request for project: {}", projectPath);
             String result = gitService.pull(projectPath);
             return ResponseEntity.ok(result);
         } catch (GitAPIException | IOException e) {
@@ -139,17 +150,16 @@ public class GitController {
         }
     }
 
-    // ========================= 关键修改 START =========================
     /**
      * 在指定项目中执行Git推送。
      *
-     * @param projectPath 项目的名称/路径。
+     * @param projectPath 项目的名称/路径 (可选)。
      * @return 操作结果的ResponseEntity，成功时包含消息和仓库URL。
      */
     @PostMapping("/push")
-    public ResponseEntity<?> push(@RequestParam String projectPath) {
+    public ResponseEntity<?> push(@RequestParam(required = false) String projectPath) {
         if (projectPath == null || projectPath.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "projectPath cannot be empty."));
+            return ResponseEntity.badRequest().body(Map.of("message", "No active project selected."));
         }
         try {
             LOGGER.info("Received git push request for project: {}", projectPath);
@@ -163,5 +173,4 @@ public class GitController {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
-    // ========================= 关键修改 END ===========================
 }

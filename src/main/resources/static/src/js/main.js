@@ -16,8 +16,8 @@ import ActionManager from './managers/ActionManager.js';
 import KeyboardManager from './managers/KeyboardManager.js';
 import ContextMenuManager from './managers/ContextMenuManager.js';
 import CommandPaletteManager from './managers/CommandPaletteManager.js';
-import ProjectAnalysisService from './services/ProjectAnalysisService.js'; // 新增导入
-
+import ProjectAnalysisService from './services/ProjectAnalysisService.js';
+import RunManager from './managers/RunManager.js'; // 导入新的 RunManager
 
 const App = {
     init: async function() {
@@ -30,7 +30,8 @@ const App = {
         ToolbarManager.init();
         StatusBarManager.init();
         FileTreeManager.init();
-        ProjectAnalysisService.init(); // 初始化新服务
+        ProjectAnalysisService.init();
+        RunManager.init(); // 初始化 RunManager
         await CodeEditorManager.init();
         ConsoleManager.init();
         ProblemsManager.init();

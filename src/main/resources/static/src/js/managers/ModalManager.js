@@ -187,7 +187,7 @@ const ModalManager = {
 
     showRepoSelectionModal: function(repos) {
         if (!repos || repos.length === 0) {
-            return this.showAlert('没有可用的仓库', '未能从Gitee获取任何公开仓库。');
+            return this.showAlert('没有可用的仓库', '未能从远程平台获取任何公开仓库。');
         }
 
         let ownerName = '该用户';
@@ -322,14 +322,13 @@ const ModalManager = {
         setTimeout(() => input.focus(), 50);
     },
 
-    // ========================= 关键修改 START: 重构设置模态框以支持标签页 =========================
+    // ========================= 关键修改 START: 重构设置模态框以支持多平台 =========================
     showSettings: function(settings) {
         this.currentSettings = settings;
 
         const body = document.createElement('div');
         body.className = 'settings-modal-body';
 
-        // 1. 创建标签页结构
         body.innerHTML = `
             <div class="modal-tabs">
                 <button class="modal-tab active" data-tab="app-settings-pane">应用设置</button>
@@ -358,13 +357,20 @@ const ModalManager = {
                 </div>
                 <div id="git-settings-pane" class="tab-pane">
                     <div class="settings-item">
-                        <label for="settings-gitee-token">Gitee 访问令牌 (Access Token)</label>
+                        <label for="settings-git-platform">代码托管平台</label>
+                        <select id="settings-git-platform">
+                            <option value="gitee">Gitee</option>
+                            <option value="github">GitHub</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <label for="settings-gitee-token">访问令牌 (Access Token)</label>
                         <input type="password" id="settings-gitee-token" placeholder="用于 API 访问和 HTTPS 克隆">
+                        <small id="git-token-help" style="color: var(--text-secondary); font-size: 0.8em; display: block; margin-top: 4px;"></small>
                     </div>
                     <div class="settings-item">
                         <label for="settings-ssh-key-path">SSH 私钥绝对路径</label>
                         <input type="text" id="settings-ssh-key-path" placeholder="例如 C:/Users/YourName/.ssh/id_ed25519">
-                        <small style="color: var(--text-secondary); font-size: 0.8em; display: block; margin-top: 4px;">注意：此设置主要供 JGit 使用，当前推/拉操作依赖系统级 SSH 配置。</small>
                     </div>
                     <div class="settings-item">
                         <label for="settings-ssh-passphrase">SSH 私钥密码</label>
@@ -374,31 +380,43 @@ const ModalManager = {
             </div>
         `;
 
-        // 2. 填充设置值
+        // --- 填充设置值 ---
         body.querySelector('#settings-theme').value = settings.theme;
         body.querySelector('#settings-font-size').value = settings.fontSize;
         body.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
+        body.querySelector('#settings-git-platform').value = settings.gitPlatform || 'gitee';
         body.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
         body.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
         body.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
 
-        // 3. 添加标签页切换逻辑
+        // --- 动态帮助链接逻辑 ---
+        const platformSelector = body.querySelector('#settings-git-platform');
+        const helpTextElement = body.querySelector('#git-token-help');
+        const tokenLinks = {
+            gitee: 'https://gitee.com/personal_access_tokens',
+            github: 'https://github.com/settings/personal-access-tokens'
+        };
+
+        const updateHelpLink = (platform) => {
+            const url = tokenLinks[platform];
+            helpTextElement.innerHTML = `不知道如何获取？点击 <a href="${url}" target="_blank" rel="noopener noreferrer">这里</a> 生成一个。`;
+        };
+
+        platformSelector.addEventListener('change', (e) => updateHelpLink(e.target.value));
+        updateHelpLink(platformSelector.value); // 初始化
+
+        // --- 标签页切换逻辑 ---
         const tabs = body.querySelectorAll('.modal-tab');
         const panes = body.querySelectorAll('.tab-pane');
-
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 tabs.forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
-
                 const targetPaneId = tab.dataset.tab;
-                panes.forEach(pane => {
-                    pane.classList.toggle('active', pane.id === targetPaneId);
-                });
+                panes.forEach(pane => pane.classList.toggle('active', pane.id === targetPaneId));
             });
         });
 
-        // 4. 显示模态框
         return this._show('应用设置', body, { confirmText: '保存', type: 'settings' });
     },
     // ========================= 关键修改 END ============================================
@@ -434,6 +452,8 @@ const ModalManager = {
             fontSize: parseInt(document.getElementById('settings-font-size').value, 10),
             wordWrap: document.getElementById('settings-word-wrap').value === 'true',
             editorFontFamily: this.currentSettings.editorFontFamily,
+            // --- 读取新字段 ---
+            gitPlatform: document.getElementById('settings-git-platform').value,
             giteeAccessToken: document.getElementById('settings-gitee-token').value,
             giteeSshPrivateKeyPath: document.getElementById('settings-ssh-key-path').value,
             giteeSshPassphrase: document.getElementById('settings-ssh-passphrase').value,

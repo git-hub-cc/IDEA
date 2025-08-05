@@ -1,7 +1,7 @@
 package com.example.webideabackend.service;
 
 import com.example.webideabackend.util.MavenProjectHelper;
-import com.example.webideabackend.util.SystemCommandExecutor;
+// import com.example.webideabackend.util.SystemCommandExecutor; // 不再需要
 import lombok.extern.slf4j.Slf4j;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,15 +23,17 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+// import java.util.concurrent.CompletableFuture; // runJavaApplication 的返回类型会改变
 
 @Service
 @Slf4j
 public class JavaCompilerRunnerService {
 
     private final Path workspaceRoot;
-    private final SystemCommandExecutor commandExecutor;
+    // private final SystemCommandExecutor commandExecutor; // 移除
     private final WebSocketNotificationService notificationService;
     private final MavenProjectHelper mavenHelper;
+    private final RunSessionService runSessionService; // 新增依赖
 
     @Value("#{${app.jdk.paths}}")
     private Map<String, String> jdkPaths;
@@ -40,24 +43,19 @@ public class JavaCompilerRunnerService {
     @Autowired
     public JavaCompilerRunnerService(
             @Value("${app.workspace-root}") String workspaceRootPath,
-            SystemCommandExecutor commandExecutor,
+            // SystemCommandExecutor commandExecutor, // 移除
             WebSocketNotificationService notificationService,
-            MavenProjectHelper mavenHelper) {
+            MavenProjectHelper mavenHelper,
+            RunSessionService runSessionService) { // 新增依赖
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
-        this.commandExecutor = commandExecutor;
+        // this.commandExecutor = commandExecutor; // 移除
         this.notificationService = notificationService;
         this.mavenHelper = mavenHelper;
+        this.runSessionService = runSessionService; // 新增依赖
     }
 
-    // ========================= 关键修改 START =========================
-    /**
-     * 同步验证一个项目是否为有效的Maven项目。
-     * 如果不是，则会向前端发送错误日志并抛出异常。
-     *
-     * @param projectPath 要验证的项目路径。
-     * @throws IllegalArgumentException 如果项目根目录中没有找到 `pom.xml`。
-     */
     public void validateIsMavenProject(String projectPath) {
+        // ... 此方法保持不变 ...
         Path projectDir = workspaceRoot.resolve(projectPath);
         Path pomFile = projectDir.resolve("pom.xml");
         if (!Files.exists(pomFile)) {
@@ -67,54 +65,58 @@ public class JavaCompilerRunnerService {
             throw new IllegalArgumentException(errorMessage);
         }
     }
-    // ========================= 关键修改 END ===========================
 
+    // ========================= 关键修改 START =========================
+    // 这个方法现在是异步的，但它不直接返回 CompletableFuture 了
     public void buildAndRunProject(String projectPath) {
         notificationService.sendBuildLog("Build command received for: " + projectPath);
 
-        final String jdkVersion = mavenHelper.getJavaVersionFromPom(
-                workspaceRoot.resolve(projectPath).toFile(),
-                (logLine) -> notificationService.sendBuildLog(logLine)
-        );
+        // 使用 CompletableFuture 来链式执行构建和运行
+        CompletableFuture.runAsync(() -> {
+            try {
+                final String jdkVersion = mavenHelper.getJavaVersionFromPom(
+                        workspaceRoot.resolve(projectPath).toFile(),
+                        (logLine) -> notificationService.sendBuildLog(logLine)
+                );
 
-        runMavenBuild(projectPath)
-                .thenAccept(exitCode -> {
-                    notificationService.sendBuildLog("Build finished with exit code: " + exitCode);
-                    if (exitCode == 0) {
-                        notificationService.sendRunLog("Build successful. Initiating run for main class: " + MAIN_CLASS);
-                        runJavaApplication(projectPath, MAIN_CLASS, jdkVersion)
-                                .thenAccept(runExitCode ->
-                                        notificationService.sendRunLog("Application finished with exit code: " + runExitCode))
-                                .exceptionally(ex -> {
-                                    notificationService.sendRunLog("Application run failed with exception: " + ex.getMessage());
-                                    return null;
-                                });
-                    } else {
-                        notificationService.sendRunLog("Build failed. Skipping run.");
-                    }
-                })
-                .exceptionally(ex -> {
-                    notificationService.sendBuildLog("Build failed with exception: " + ex.getMessage());
-                    return null;
-                });
+                // 同步执行 Maven 构建
+                int buildExitCode = runMavenBuild(projectPath);
+                notificationService.sendBuildLog("Build finished with exit code: " + buildExitCode);
+
+                if (buildExitCode == 0) {
+                    notificationService.sendRunLog("Build successful. Initiating run for main class: " + MAIN_CLASS);
+                    // 构建成功后，调用 runJavaApplication
+                    runJavaApplication(projectPath, MAIN_CLASS, jdkVersion);
+                } else {
+                    notificationService.sendRunLog("Build failed. Skipping run.");
+                }
+            } catch (Exception e) {
+                log.error("Build and run process failed for project '{}'", projectPath, e);
+                notificationService.sendBuildLog("[FATAL] Build failed with exception: " + e.getMessage());
+            }
+        });
     }
 
-    public CompletableFuture<Integer> runJavaApplication(String projectPath, String mainClass, String jdkVersion) {
+    // runJavaApplication 现在不再返回 Future，而是直接调用 RunSessionService
+    public void runJavaApplication(String projectPath, String mainClass, String jdkVersion) {
         var projectDir = workspaceRoot.resolve(projectPath).toFile();
         List<String> commandList = buildJavaCommandList(projectDir, mainClass, "", jdkVersion);
 
         if (commandList == null) {
             notificationService.sendRunLog("Error: No compiled artifacts found. Please build the project first.");
-            return CompletableFuture.completedFuture(-1);
+            return;
         }
 
         notificationService.sendRunLog("Executing: " + String.join(" ", commandList));
-        return commandExecutor.executeCommand(commandList, projectDir,
-                line -> notificationService.sendRunLog(line)
-        );
+
+        // 委托给 RunSessionService 执行
+        runSessionService.start(commandList, projectDir);
     }
+    // ========================= 关键修改 END ===========================
+
 
     private List<String> buildJavaCommandList(File projectDir, String mainClass, String jvmOptions, String jdkVersionKey) {
+        // ... 此方法保持不变 ...
         var targetDir = new File(projectDir, "target");
         String jarFileName = getJarNameFromPom(projectDir);
         var jarFile = new File(targetDir, jarFileName);
@@ -172,12 +174,14 @@ public class JavaCompilerRunnerService {
         return command;
     }
 
-    public CompletableFuture<Integer> runMavenBuild(String projectPath) {
+    // ========================= 关键修改 START =========================
+    // runMavenBuild 现在返回 int (退出码)，而不是 Future
+    public int runMavenBuild(String projectPath) throws IOException, InterruptedException {
         var projectDir = workspaceRoot.resolve(projectPath).toFile();
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             String errorMessage = "Error: Project directory not found: " + projectDir.getAbsolutePath();
             notificationService.sendBuildLog(errorMessage);
-            return CompletableFuture.completedFuture(-1);
+            return -1;
         }
 
         boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
@@ -185,12 +189,21 @@ public class JavaCompilerRunnerService {
         List<String> mavenCommand = Arrays.asList(mvnCommandName, "clean", "install", "-U", "-Dfile.encoding=UTF-8");
 
         notificationService.sendBuildLog("Executing: " + String.join(" ", mavenCommand) + " in " + projectDir.getAbsolutePath());
-        return commandExecutor.executeCommand(mavenCommand, projectDir,
-                line -> notificationService.sendBuildLog(line)
-        );
+
+        // 直接执行并等待结果
+        ProcessBuilder pb = new ProcessBuilder(mavenCommand).directory(projectDir).redirectErrorStream(true);
+        Process process = pb.start();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            reader.lines().forEach(line -> notificationService.sendBuildLog(line));
+        }
+
+        return process.waitFor();
     }
+    // ========================= 关键修改 END ===========================
 
     private String getJarNameFromPom(File projectDir) {
+        // ... 此方法保持不变 ...
         File pomFile = new File(projectDir, "pom.xml");
         String fallbackJarName = projectDir.getName() + "-1.0-SNAPSHOT.jar";
 

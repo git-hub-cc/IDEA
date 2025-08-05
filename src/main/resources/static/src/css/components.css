@@ -596,3 +596,59 @@
     color: var(--text-secondary);
     margin-top: 4px;
 }
+
+/* --- 问题面板增强样式 --- */
+#problems-list .problem-file-header {
+    background-color: var(--bg-header);
+    font-size: 0.9em;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: default;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#problems-list .problem-file-header:hover {
+    background-color: var(--bg-header); /* 覆盖默认的hover效果 */
+}
+
+#problems-list .problem-file-header .problem-count {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+#problems-list .problem-item {
+    padding-left: 20px; /* 为子项增加缩进 */
+}
+
+#problems-list .problem-item .problem-location {
+    color: var(--text-secondary);
+    margin-left: auto;
+    font-family: var(--font-family-mono);
+    font-size: 0.9em;
+}
+/* --- 工具栏运行/停止按钮状态 --- */
+.toolbar-btn[data-action="run-code"] .stop-icon {
+    display: none; /* 默认隐藏停止图标 */
+    color: var(--color-error); /* 停止图标使用红色以示警告 */
+}
+
+.toolbar-btn[data-action="run-code"] .run-icon {
+    display: inline-block; /* 默认显示运行图标 */
+}
+
+/* 当按钮处于“正在运行”状态时 */
+.toolbar-btn[data-action="run-code"].is-running .run-icon {
+    display: none; /* 隐藏运行图标 */
+}
+
+.toolbar-btn[data-action="run-code"].is-running .stop-icon {
+    display: inline-block; /* 显示停止图标 */
+}
+
+/* 调试按钮在程序运行时应被禁用 */
+.toolbar-btn[data-action="debug-code"].is-running {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

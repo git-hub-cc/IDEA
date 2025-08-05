@@ -1,9 +1,8 @@
-// src/main/resources/static/src/js/managers/StatusBarManager.js
-
 // src/js/managers/StatusBarManager.js - 状态栏信息更新管理器
 
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
+import Config from '../config.js'; // 关键修改: 导入 Config
 
 const StatusBarManager = {
     statusLeft: null,
@@ -35,9 +34,6 @@ const StatusBarManager = {
 
         this.bindAppEvents();
         this.updateStatus('就绪');
-        // ================== 关键修正：移除此处的调用 ==================
-        // this.updateGitStatus(); // <- BUG: 在没有项目上下文时调用，必定失败
-        // ==========================================================
     },
 
     bindAppEvents: function() {
@@ -46,7 +42,6 @@ const StatusBarManager = {
         EventBus.on('statusbar:updateCursorPos', this.updateCursorPos.bind(this));
         EventBus.on('statusbar:markUnsaved', this.markUnsaved.bind(this));
         EventBus.on('statusbar:clearFileInfo', this.clearFileInfo.bind(this));
-        // ✅ 修复: 在正确的事件触发时更新Git状态
         EventBus.on('git:statusChanged', this.updateGitStatus.bind(this));
         EventBus.on('network:websocketConnected', () => this.updateStatus('就绪'));
         EventBus.on('network:websocketDisconnected', (error) => this.updateStatus(`离线: ${error ? '连接已断开' : '未知错误'}`));
@@ -107,18 +102,21 @@ const StatusBarManager = {
         this.unsavedIndicator.style.display = isUnsaved ? 'inline' : 'none';
     },
 
+    // ========================= 关键修改 START =========================
     updateGitStatus: async function() {
+        // 1. 添加保护性检查：如果没有活动项目，则不发送API请求
+        if (!Config.currentProject) {
+            this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> No Project`;
+            return;
+        }
+
         try {
+            // 2. 调用API，现在即使projectPath为空，后端也能优雅处理
             const status = await NetworkManager.getGitStatus();
 
-            // 如果项目未被选择 (N/A) 或不是一个Git仓库 (not-a-repo)，则显示相应提示并返回
-            if (status.currentBranch === 'N/A') {
-                this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> master`;
-                return;
-            }
             if (status.currentBranch === 'not-a-repo') {
-                this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> Git: 未初始化`;
-                EventBus.emit('log:info', `Git状态: 当前项目不是一个Git仓库。`);
+                this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> Git: Not a Repo`;
+                EventBus.emit('log:info', `Git status: The current project is not a Git repository.`);
                 return;
             }
 
@@ -131,11 +129,11 @@ const StatusBarManager = {
             if (counts.conflicting > 0) statusText += ` C:${counts.conflicting}`;
             this.gitBranch.innerHTML = `<i class="fas fa-code-branch"></i> ${status.currentBranch}${statusText}`;
         } catch (error) {
-            // 这个 catch 块现在只处理真正的网络/服务器错误
-            this.gitBranch.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Git: 不可用`;
-            EventBus.emit('log:warn', `无法获取Git状态: ${error.message}`);
+            this.gitBranch.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Git: Unavailable`;
+            EventBus.emit('log:warn', `Could not fetch Git status: ${error.message}`);
         }
     }
+    // ========================= 关键修改 END ===========================
 };
 
 export default StatusBarManager;

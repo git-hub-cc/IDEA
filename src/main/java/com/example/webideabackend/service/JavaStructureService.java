@@ -1,5 +1,8 @@
 package com.example.webideabackend.service;
 
+import com.example.webideabackend.model.AnalysisResult;
+import com.example.webideabackend.model.CompilationResult;
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -11,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -30,48 +34,76 @@ public class JavaStructureService {
     }
 
     /**
-     * 在指定项目中查找所有Java类和接口的完全限定名称。
+     * 在指定项目中查找所有Java类和接口的完全限定名称，并捕获语法错误。
      *
      * @param projectPath 项目的路径。
-     * @return 一个包含所有找到的类/接口名的列表。
+     * @return 一个包含类名和错误列表的 AnalysisResult 对象。
      */
-    public List<String> findClassNamesInProject(String projectPath) {
+    public AnalysisResult findClassNamesAndErrorsInProject(String projectPath) {
         Path projectDir = workspaceRoot.resolve(projectPath);
         Path srcDir = projectDir.resolve("src/main/java");
 
         if (!Files.exists(srcDir)) {
             log.warn("Project '{}' does not have a standard 'src/main/java' directory.", projectPath);
-            return Collections.emptyList();
+            return new AnalysisResult(Collections.emptyList(), Collections.emptyList());
         }
 
+        List<String> allClassNames = new ArrayList<>();
+        List<CompilationResult> allErrors = new ArrayList<>();
+
         try (Stream<Path> stream = Files.walk(srcDir)) {
-            return stream
+            stream
                     .filter(path -> path.toString().endsWith(".java"))
-                    .flatMap(this::parseFileForClassNames)
-                    .distinct()
-                    .collect(Collectors.toList());
+                    .forEach(javaFile -> {
+                        AnalysisResult fileResult = parseFile(javaFile);
+                        allClassNames.addAll(fileResult.classNames());
+                        allErrors.addAll(fileResult.errors());
+                    });
         } catch (IOException e) {
             log.error("Error walking file tree for project '{}'", projectPath, e);
-            return Collections.emptyList();
+            allErrors.add(new CompilationResult("ERROR", "无法读取项目文件: " + e.getMessage(), projectPath, 1, 1));
         }
+
+        return new AnalysisResult(allClassNames.stream().distinct().collect(Collectors.toList()), allErrors);
     }
 
     /**
-     * 解析单个Java文件，提取其中定义的公共类或接口的名称。
+     * 解析单个Java文件，提取类名和语法错误。
      *
      * @param javaFile 要解析的文件路径。
-     * @return 包含该文件中所有完全限定类名的Stream。
+     * @return 包含该文件类名和错误的 AnalysisResult。
      */
-    private Stream<String> parseFileForClassNames(Path javaFile) {
+    private AnalysisResult parseFile(Path javaFile) {
         try {
             CompilationUnit cu = StaticJavaParser.parse(javaFile);
-            return cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+            List<String> classNames = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
                     .filter(c -> c.isPublic() && c.getFullyQualifiedName().isPresent())
-                    .map(c -> c.getFullyQualifiedName().get());
-        } catch (Exception e) {
-            // 忽略无法解析的文件，这可能是由于语法错误等原因
+                    .map(c -> c.getFullyQualifiedName().get())
+                    .collect(Collectors.toList());
+            return new AnalysisResult(classNames, Collections.emptyList());
+        } catch (ParseProblemException e) {
             log.debug("Could not parse file: {}. Reason: {}", javaFile, e.getMessage());
-            return Stream.empty();
+            Path relativePath = workspaceRoot.relativize(javaFile);
+            String projectRelativePath = relativePath.toString().replace("\\", "/");
+
+            List<CompilationResult> errors = e.getProblems().stream()
+                    .map(problem -> {
+                        // ========================= 关键修复 START =========================
+                        // 修正了获取行号和列号的访问路径，直接从 TokenRange 访问
+                        int line = problem.getLocation()
+                                .map(tokenRange -> tokenRange.getBegin().getRange().map(r -> r.begin.line).orElse(1))
+                                .orElse(1);
+                        int column = problem.getLocation()
+                                .map(tokenRange -> tokenRange.getBegin().getRange().map(r -> r.begin.column).orElse(1))
+                                .orElse(1);
+                        // ========================= 关键修复 END ===========================
+                        return new CompilationResult("ERROR", problem.getMessage(), projectRelativePath, line, column);
+                    })
+                    .collect(Collectors.toList());
+            return new AnalysisResult(Collections.emptyList(), errors);
+        } catch (Exception e) {
+            log.warn("An unexpected error occurred while parsing {}: {}", javaFile, e.getMessage());
+            return new AnalysisResult(Collections.emptyList(), Collections.emptyList());
         }
     }
 }
