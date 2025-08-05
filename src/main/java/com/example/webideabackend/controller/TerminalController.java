@@ -35,19 +35,21 @@ public class TerminalController {
         }
     }
 
+    // ========================= 关键修改 START =========================
     /**
      * Handles a request from the frontend to start a new terminal session.
-     * The payload (projectPath) is optional.
-     * @param projectPath The project context to start the terminal in (can be null or empty).
+     * @param relativePath The project context to start the terminal in (e.g., "project-name/src/main"). Can be null or empty.
      * @param headerAccessor The message header accessor to get the session ID.
      */
     @MessageMapping("/terminal/start")
-    public void startTerminal(@Payload(required = false) @Nullable String projectPath, SimpMessageHeaderAccessor headerAccessor) {
+    public void startTerminal(@Payload(required = false) @Nullable String relativePath, SimpMessageHeaderAccessor headerAccessor) {
         String sessionId = headerAccessor.getSessionId();
         if (sessionId != null) {
-            terminalService.startSession(sessionId, projectPath);
+            log.info("Received terminal start request for session {} in path: '{}'", sessionId, relativePath);
+            terminalService.startSession(sessionId, relativePath);
         }
     }
+    // ========================= 关键修改 END ===========================
 
     /**
      * Handles input from the frontend terminal.

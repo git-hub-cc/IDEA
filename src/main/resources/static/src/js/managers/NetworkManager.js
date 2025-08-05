@@ -73,7 +73,7 @@ const NetworkManager = {
                 case 'json':
                     const contentType = response.headers.get('content-type');
                     if (contentType && contentType.includes('application/json')) return response.json();
-                    return response.text(); // Fallback for non-json success responses
+                    return response.text();
                 case 'text':
                     return response.text();
                 case 'blob':
@@ -106,6 +106,40 @@ const NetworkManager = {
         return this._rawFetchApi(finalEndpoint, finalOptions, responseType);
     },
 
+    uploadFilesToPath: function(files, destinationPath) {
+        if (!Config.currentProject) {
+            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
+        }
+
+        const formData = new FormData();
+        formData.append('projectPath', Config.currentProject);
+        formData.append('destinationPath', destinationPath);
+        files.forEach(file => {
+            formData.append('files', file, file.name);
+        });
+
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const url = this.baseUrl + 'api/files/upload-to-path';
+            xhr.open('POST', url, true);
+
+            xhr.upload.onprogress = (event) => EventBus.emit('progress:update', { value: event.loaded, total: event.total, message: `正在粘贴... ${Math.round((event.loaded / event.total) * 100)}%` });
+            xhr.onloadstart = () => EventBus.emit('progress:start', { message: '开始粘贴...', total: 1 });
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else {
+                    reject(new Error(`粘贴失败: ${xhr.status} ${xhr.responseText}`));
+                }
+            };
+            xhr.onerror = () => reject(new Error('网络错误，无法粘贴文件。'));
+            xhr.onloadend = () => EventBus.emit('progress:finish');
+
+            xhr.send(formData);
+        });
+    },
+
+    // --- Existing API wrapper methods ---
     getProjects: () => NetworkManager._rawFetchApi('api/projects'),
     getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
     getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
@@ -121,14 +155,8 @@ const NetworkManager = {
     renamePath: (oldPath, newName) => NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }),
     toggleBreakpoint: (breakpoint) => NetworkManager.fetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify(breakpoint) }),
     getGiteeRepos: () => NetworkManager._rawFetchApi('api/git/gitee-repos'),
-    cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', {
-        method: 'POST',
-        body: JSON.stringify({ cloneUrl })
-    }),
-    startDebug: (mainClass) => NetworkManager.fetchApi('api/debug/start', {
-        method: 'POST',
-        body: JSON.stringify({ mainClass: mainClass })
-    }),
+    cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', { method: 'POST', body: JSON.stringify({ cloneUrl }) }),
+    startDebug: (mainClass) => NetworkManager.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }),
     stopDebug: () => NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }),
     stepOver: () => NetworkManager.fetchApi('api/debug/stepOver', { method: 'POST' }),
     stepInto: () => NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }),
@@ -136,12 +164,28 @@ const NetworkManager = {
     resumeDebug: () => NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }),
     getSettings: () => NetworkManager._rawFetchApi('api/settings'),
     saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
-    startTerminal: () => {
+
+    // ========================= 关键修改 START =========================
+    /**
+     * Starts a terminal session.
+     * @param {string} [path] - Optional. The path relative to the workspace root to start the terminal in.
+     *                          If not provided, it defaults to the current project's root.
+     */
+    startTerminal: (path) => {
         if (NetworkManager.stompClient && NetworkManager.isConnected) {
-            NetworkManager.stompClient.send('/app/terminal/start', {}, Config.currentProject || "");
+            // If a specific path is provided, use it. Otherwise, default to the current project or empty string.
+            const targetPath = path || Config.currentProject || "";
+            NetworkManager.stompClient.send('/app/terminal/start', {}, targetPath);
         }
     },
-    sendTerminalInput: (data) => { if (NetworkManager.stompClient && NetworkManager.isConnected) NetworkManager.stompClient.send('/app/terminal/input', {}, data); },
+    // ========================= 关键修改 END ===========================
+    sendTerminalInput: (data) => {
+        if (NetworkManager.stompClient && NetworkManager.isConnected) {
+            NetworkManager.stompClient.send('/app/terminal/input', {}, data);
+        }
+    },
+
+    // --- Project upload methods ---
     uploadProject: async function(directoryHandle, projectName) {
         EventBus.emit('statusbar:updateStatus', '正在分析文件夹...');
         const filesToUpload = await this._getFilesRecursively(directoryHandle);

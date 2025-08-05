@@ -9,7 +9,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.Config; // 新增导入
+import org.eclipse.jgit.lib.Config;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.slf4j.Logger;
@@ -25,7 +25,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*; // 新增导入
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -41,7 +41,6 @@ public class GitService {
     @Value("${gitee.api.access-token}")
     private String giteeAccessToken;
 
-    // 以下两个SSH相关字段对于新的push方法不再需要，但保留它们以防其他地方使用
     @Value("${gitee.ssh.private-key-path:}")
     private String giteeSshPrivateKeyPath;
     @Value("${gitee.ssh.passphrase:}")
@@ -49,15 +48,15 @@ public class GitService {
 
     private final Path workspaceRoot;
     private final RestTemplate restTemplate;
-    private final SystemCommandExecutor commandExecutor; // 1. 注入 commandExecutor
+    private final SystemCommandExecutor commandExecutor;
 
     @Autowired
     public GitService(@Value("${app.workspace-root}") String workspaceRootPath,
                       RestTemplate restTemplate,
-                      SystemCommandExecutor commandExecutor) { // 2. 在构造函数中接收
+                      SystemCommandExecutor commandExecutor) {
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
         this.restTemplate = restTemplate;
-        this.commandExecutor = commandExecutor; // 3. 赋值
+        this.commandExecutor = commandExecutor;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -150,32 +149,61 @@ public class GitService {
         }
     }
 
-    public String pull(String projectPath) throws GitAPIException, IOException {
-        try (Git git = openRepository(projectPath)) {
-            LOGGER.info("Performing git pull for project '{}' via HTTPS...", projectPath);
-            PullCommand pullCommand = git.pull();
-            pullCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider("private-token", giteeAccessToken));
-            PullResult result = pullCommand.call();
-            if (result.isSuccessful()) {
-                return "Pull successful. Fetched from " + result.getFetchedFrom() + ".";
-            } else {
-                return "Pull failed: " + result.getMergeResult().getMergeStatus();
-            }
-        }
-    }
-
     // ========================= 关键修改 START =========================
     /**
      * 【根本性解决方案】
-     * 使用 SystemCommandExecutor 来调用系统原生的 'git push' 命令。
-     * 这样做可以绕过 JGit/JSch 的 SSH 密钥格式问题，直接利用系统已经配置好的、
-     * 并且经过验证可以正常工作的 Git 和 SSH 环境。
+     * 使用 SystemCommandExecutor 来调用系统原生的 'git pull' 命令。
+     * 这与 'push' 方法的实现保持一致，可以绕过 JGit 的 SSH 密钥格式和会话工厂问题，
+     * 直接利用系统已经配置好的、并且经过验证可以正常工作的 Git 和 SSH 环境。
      *
-     * @param projectPath 要执行推送的项目路径
-     * @return 包含推送消息和仓库URL的Map
+     * @param projectPath 要执行拉取的项目路径
+     * @return 包含拉取结果消息的字符串
      * @throws IOException 如果命令执行过程中发生 I/O 错误
-     * @throws GitAPIException 如果 Git 命令返回非零退出码，表示推送失败
+     * @throws GitAPIException 如果 Git 命令返回非零退出码，表示拉取失败
      */
+    public String pull(String projectPath) throws IOException, GitAPIException {
+        if (!StringUtils.hasText(projectPath)) {
+            throw new IllegalArgumentException("Project path cannot be empty.");
+        }
+        File projectDir = workspaceRoot.resolve(projectPath).toFile();
+        if (!projectDir.exists() || !new File(projectDir, ".git").exists()) {
+            throw new IllegalStateException("Project is not a valid Git repository.");
+        }
+
+        LOGGER.info("Performing git pull for project '{}' by executing native git command...", projectPath);
+
+        List<String> command = List.of("git", "pull");
+        StringBuilder output = new StringBuilder();
+
+        CompletableFuture<Integer> future = commandExecutor.executeCommand(command, projectDir, line -> {
+            output.append(line).append("\n");
+        });
+
+        try {
+            int exitCode = future.get(); // 等待命令执行完成
+            String commandOutput = output.toString().trim();
+
+            if (exitCode == 0) {
+                LOGGER.info("Native git pull completed successfully for project '{}'.", projectPath);
+                if (commandOutput.isEmpty() || commandOutput.contains("Already up to date.") || commandOutput.contains("已经是最新")) {
+                    return "Pull successful. Already up-to-date.";
+                }
+                return "Pull successful.\n" + commandOutput;
+            } else {
+                String errorMessage = "Pull failed with exit code: " + exitCode + ".\nOutput:\n" + commandOutput;
+                LOGGER.error(errorMessage);
+                // 抛出一个具体的异常，这样 Controller 层可以捕获并返回一个合适的 HTTP 错误
+                throw new GitAPIException(errorMessage) {};
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.error("Error waiting for native git pull command to finish for project '{}'", projectPath, e);
+            throw new IOException("Failed to execute git pull command.", e);
+        }
+    }
+    // ========================= 关键修改 END ===========================
+
+
     public Map<String, Object> push(String projectPath) throws IOException, GitAPIException {
         if (!StringUtils.hasText(projectPath)) {
             throw new IllegalArgumentException("Project path cannot be empty.");
@@ -232,18 +260,11 @@ public class GitService {
         }
     }
 
-    /**
-     * 将Gitee的SSH克隆URL转换为可浏览的HTTPS URL。
-     * @param sshUrl SSH URL, e.g., git@gitee.com:user/repo.git
-     * @return HTTPS URL, e.g., https://gitee.com/user/repo
-     */
     private String convertSshToHttps(String sshUrl) {
         if (sshUrl != null && sshUrl.startsWith("git@gitee.com:")) {
             return sshUrl.replace("git@gitee.com:", "https://gitee.com/")
-                    .replaceAll("\\.git$", ""); // 使用正则表达式确保只移除末尾的.git
+                    .replaceAll("\\.git$", "");
         }
-        // 如果已经是HTTPS或其它格式，直接返回
         return sshUrl;
     }
-    // ========================= 关键修改 END ===========================
 }

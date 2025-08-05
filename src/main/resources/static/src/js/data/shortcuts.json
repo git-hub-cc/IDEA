@@ -1,0 +1,142 @@
+[
+  {
+    "keys": "Ctrl+S",
+    "event": "action:save-file",
+    "description": "保存当前文件"
+  },
+  {
+    "keys": "Ctrl+N",
+    "event": "action:new-file",
+    "description": "新建文件"
+  },
+  {
+    "keys": "Alt+Insert",
+    "event": "action:new-file",
+    "description": "新建文件 (IDEA 风格)"
+  },
+  {
+    "keys": "Ctrl+O",
+    "event": "action:open-folder",
+    "description": "打开本地文件夹"
+  },
+  {
+    "keys": "Shift+F6",
+    "event": "action:rename-active-file",
+    "description": "重命名当前文件 (IDEA 风格)"
+  },
+  {
+    "keys": "Shift+F10",
+    "event": "action:run-code",
+    "description": "运行项目"
+  },
+  {
+    "keys": "Shift+F9",
+    "event": "action:debug-code",
+    "description": "调试项目"
+  },
+  {
+    "keys": "F8",
+    "event": "action:step-over",
+    "description": "调试: 步过"
+  },
+  {
+    "keys": "F7",
+    "event": "action:step-into",
+    "description": "调试: 步入"
+  },
+  {
+    "keys": "Shift+F8",
+    "event": "action:step-out",
+    "description": "调试: 步出"
+  },
+  {
+    "keys": "F9",
+    "event": "action:resume-debug",
+    "description": "调试: 恢复程序"
+  },
+  {
+    "keys": "Ctrl+F2",
+    "event": "action:stop-debug",
+    "description": "调试: 停止"
+  },
+  {
+    "keys": "Ctrl+K",
+    "event": "action:vcs-commit",
+    "description": "Git: 提交"
+  },
+  {
+    "keys": "Ctrl+T",
+    "event": "action:vcs-pull",
+    "description": "Git: 拉取"
+  },
+  {
+    "keys": "Ctrl+Shift+K",
+    "event": "action:vcs-push",
+    "description": "Git: 推送"
+  },
+  {
+    "keys": "Ctrl+Shift+P",
+    "event": "command-palette:show",
+    "description": "显示指令面板"
+  },
+  {
+    "keys": "F1",
+    "event": "command-palette:show",
+    "description": "显示指令面板"
+  },
+  {
+    "keys": "Ctrl+Alt+L",
+    "event": "action:format-code",
+    "description": "格式化代码 (IDEA 风格)"
+  },
+  {
+    "keys": "Ctrl+F",
+    "event": "action:find-in-file",
+    "description": "在文件中查找"
+  },
+  {
+    "keys": "Ctrl+D",
+    "event": "editor:duplicate-line",
+    "description": "复制并插入当前行 (IDEA 风格)"
+  },
+  {
+    "keys": "Ctrl+Y",
+    "event": "editor:delete-line",
+    "description": "删除当前行 (IDEA 风格)"
+  },
+  {
+    "keys": "Ctrl+/",
+    "event": "editor:toggle-line-comment",
+    "description": "切换行注释"
+  },
+  {
+    "keys": "Ctrl+Shift+/",
+    "event": "editor:toggle-block-comment",
+    "description": "切换块注释"
+  },
+  {
+    "keys": "Ctrl+Shift+ArrowUp",
+    "event": "editor:move-line-up",
+    "description": "上移行"
+  },
+  {
+    "keys": "Ctrl+Shift+ArrowDown",
+    "event": "editor:move-line-down",
+    "description": "下移行"
+  },
+  {
+    "keys": "Ctrl+W",
+    "event": "editor:expand-selection",
+    "description": "扩大选择范围"
+  },
+  {
+    "keys": "Ctrl+Shift+W",
+    "event": "editor:shrink-selection",
+    "description": "缩小选择范围"
+  },
+  {
+    "keys": "Ctrl+G",
+    "event": "editor:show-goto-line",
+    "description": "跳转到行"
+  }
+]

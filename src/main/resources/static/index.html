@@ -103,8 +103,14 @@
             <div id="center-panel" class="panel resizable-panel">
                 <div id="editor-tab-bar" class="editor-tab-bar">
                 </div>
+                <!-- ========================= 关键修改 START ========================= -->
                 <div id="editor-area" class="editor-area">
+                    <!-- Monaco 编辑器将挂载到这里 -->
+                    <div id="monaco-container" style="width: 100%; height: 100%;"></div>
+                    <!-- 媒体预览将在这里显示 -->
+                    <div id="media-preview-container" style="width: 100%; height: 100%; display: none;"></div>
                 </div>
+                <!-- ========================= 关键修改 END =========================== -->
             </div>
         </div>
 

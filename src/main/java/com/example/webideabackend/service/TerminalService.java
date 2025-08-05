@@ -33,11 +33,14 @@ public class TerminalService implements DisposableBean {
         this.workspaceRoot = Path.of(workspaceRootPath);
     }
 
-    public void startSession(String sessionId, String projectPath) {
+    // ========================= 关键修改 START =========================
+    public void startSession(String sessionId, String relativePath) {
+        // 如果此会话已有终端在运行，先结束它
         if (sessions.containsKey(sessionId)) {
-            log.warn("Terminal session {} already exists.", sessionId);
-            return;
+            log.info("Terminal session {} already exists. Ending it before starting a new one.", sessionId);
+            endSession(sessionId);
         }
+        // ========================= 关键修改 END ===========================
 
         try {
             ProcessBuilder processBuilder;
@@ -51,15 +54,19 @@ public class TerminalService implements DisposableBean {
             }
 
             Path workingDirectory;
-            if (StringUtils.hasText(projectPath)) {
-                workingDirectory = workspaceRoot.resolve(projectPath).normalize();
+            // ========================= 关键修改 START =========================
+            // 使用传入的相对路径，如果为空，则默认为工作区根目录
+            if (StringUtils.hasText(relativePath)) {
+                workingDirectory = workspaceRoot.resolve(relativePath).normalize();
                 if (!Files.exists(workingDirectory) || !Files.isDirectory(workingDirectory)) {
-                    log.warn("Project path for terminal not found: {}. Defaulting to workspace root.", workingDirectory);
+                    log.warn("Terminal path not found: {}. Defaulting to workspace root.", workingDirectory);
+                    notificationService.sendTerminalOutput(sessionId, "[ERROR] Directory not found: " + relativePath + "\n");
                     workingDirectory = workspaceRoot;
                 }
             } else {
                 workingDirectory = workspaceRoot;
             }
+            // ========================= 关键修改 END ===========================
             processBuilder.directory(workingDirectory.toFile());
             processBuilder.redirectErrorStream(true);
 

@@ -1,5 +1,3 @@
-// controller/FileController.java
-
 package com.example.webideabackend.controller;
 
 import com.example.webideabackend.model.CreateFileRequest;
@@ -19,7 +17,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 
 @RestController
@@ -27,7 +24,6 @@ import java.util.List;
 public class FileController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FileController.class);
-    // 移除了不再需要的 TEXT_FILE_EXTENSIONS 列表
 
     private final FileService fileService;
 
@@ -146,4 +142,33 @@ public class FileController {
                     .body("Failed to replace project: " + e.getMessage());
         }
     }
+
+    // ========================= 关键修改 START: 新增粘贴上传端点 =========================
+    /**
+     * 将文件上传到项目中的指定子目录。
+     * 用于支持从前端通过粘贴操作上传文件。
+     *
+     * @param projectPath     目标项目。
+     * @param destinationPath 文件将被粘贴到的目录，相对于项目根目录。如果为空，则为项目根目录。
+     * @param files           要上传的文件数组。
+     * @return 操作结果的ResponseEntity。
+     */
+    @PostMapping("/files/upload-to-path")
+    public ResponseEntity<?> uploadFilesToPath(
+            @RequestParam("projectPath") String projectPath,
+            @RequestParam(value = "destinationPath", defaultValue = "") String destinationPath,
+            @RequestParam("files") MultipartFile[] files) {
+        try {
+            fileService.uploadFilesToPath(projectPath, destinationPath, files);
+            return ResponseEntity.ok(files.length + " 个文件已成功上传。");
+        } catch (IOException e) {
+            LOGGER.error("Failed to upload files to project '{}' at path '{}'", projectPath, destinationPath, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("上传文件失败: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            LOGGER.error("Invalid arguments for file upload: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        }
+    }
+    // ========================= 关键修改 END ========================================
 }

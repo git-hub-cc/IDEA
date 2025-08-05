@@ -3,57 +3,54 @@ import EventBus from '../utils/event-emitter.js';
 
 const KeyboardManager = {
     shortcuts: {},
-    init: function() {
-        this.registerDefaultShortcuts();
+
+    /**
+     * 初始化快捷键管理器。
+     * 这是一个异步函数，因为它需要从网络加载快捷键定义。
+     */
+    init: async function() {
+        await this.loadShortcuts();
         this.addGlobalListener();
+        EventBus.emit('log:info', '快捷键管理器已初始化。');
     },
-    registerDefaultShortcuts: function() {
-        // 文件 & 项目操作
-        this.register('Ctrl+S', 'action:save-file');
-        this.register('Ctrl+N', 'action:new-file');
-        this.register('Alt+Insert', 'action:new-file'); // IDEA
-        this.register('Ctrl+O', 'action:open-folder');
-        this.register('Shift+F6', 'action:rename-active-file'); // IDEA
 
-        // 运行 & 调试
-        this.register('Shift+F10', 'action:run-code');
-        this.register('Shift+F9', 'action:debug-code');
-        this.register('F8', 'action:step-over');
-        this.register('F7', 'action:step-into');
-        this.register('Shift+F8', 'action:step-out');
-        this.register('F9', 'action:resume-debug');
-        this.register('Ctrl+F2', 'action:stop-debug');
-
-        // 版本控制 (VCS)
-        this.register('Ctrl+K', 'action:vcs-commit');
-        this.register('Ctrl+T', 'action:vcs-pull');
-        this.register('Ctrl+Shift+K', 'action:vcs-push');
-
-        // 指令面板
-        this.register('Ctrl+Shift+P', 'command-palette:show');
-        this.register('F1', 'command-palette:show');
-
-        // 编辑器功能 (IDEA 风格)
-        this.register('Ctrl+Alt+L', 'action:format-code');
-        this.register('Ctrl+F', 'action:find-in-file');
-        this.register('Ctrl+D', 'editor:duplicate-line');
-        this.register('Ctrl+Y', 'editor:delete-line');
-        this.register('Ctrl+/', 'editor:toggle-line-comment');
-        this.register('Ctrl+Shift+/', 'editor:toggle-block-comment');
-        this.register('Ctrl+Shift+ArrowUp', 'editor:move-line-up');
-        this.register('Ctrl+Shift+ArrowDown', 'editor:move-line-down');
-        this.register('Ctrl+W', 'editor:expand-selection');
-        this.register('Ctrl+Shift+W', 'editor:shrink-selection');
-        // this.register('Ctrl+B', 'editor:goto-definition'); // 已移除
-        this.register('Ctrl+G', 'editor:show-goto-line');
+    /**
+     * 从 shortcuts.json 文件加载快捷键定义并注册它们。
+     */
+    loadShortcuts: async function() {
+        try {
+            const response = await fetch('src/js/data/shortcuts.json');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const shortcuts = await response.json();
+            shortcuts.forEach(shortcut => {
+                this.register(shortcut.keys, shortcut.event);
+            });
+        } catch (error) {
+            console.error('加载快捷键定义失败:', error);
+            EventBus.emit('log:error', '加载快捷键定义失败。');
+        }
     },
+
+    /**
+     * 将一个快捷键组合映射到一个事件名称。
+     * @param {string} keyString - 快捷键组合，例如 'Ctrl+S'。
+     * @param {string} eventName - 要触发的事件名称。
+     */
     register: function(keyString, eventName) {
         this.shortcuts[keyString.toLowerCase()] = eventName;
     },
+
+    /**
+     * 添加全局键盘事件监听器，用于捕获和处理快捷键。
+     */
     addGlobalListener: function() {
         document.addEventListener('keydown', (e) => {
             const modalOverlay = document.getElementById('modal-overlay');
+            // 如果模态框可见，则禁用大多数全局快捷键，除了 Escape
             if (modalOverlay && modalOverlay.classList.contains('visible')) {
+                // 指令面板有自己的键盘处理逻辑，所以我们直接返回，不拦截
                 if (modalOverlay.querySelector('.command-palette')) {
                     return;
                 }
@@ -69,6 +66,12 @@ const KeyboardManager = {
             }
         }, true);
     },
+
+    /**
+     * 将键盘事件对象转换为规范化的字符串表示形式。
+     * @param {KeyboardEvent} e - 键盘事件。
+     * @returns {string|null} - 规范化的快捷键字符串或 null。
+     */
     getKeyString: function(e) {
         if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return null;
         let modifier = '';
@@ -79,4 +82,5 @@ const KeyboardManager = {
         return modifier + e.key.toLowerCase();
     }
 };
+
 export default KeyboardManager;

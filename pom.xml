@@ -55,7 +55,7 @@
             <version>${gson.version}</version>
         </dependency>
 
-        <!-- 1. JGit: Java实现的Git库 -->
+        <!-- JGit: Java实现的Git库 -->
         <dependency>
             <groupId>org.eclipse.jgit</groupId>
             <artifactId>org.eclipse.jgit</artifactId>
@@ -63,7 +63,7 @@
         </dependency>
 
         <!-- ========================= 关键修改 START ========================= -->
-        <!-- 3. Maven Model: 用于解析 pom.xml 文件 -->
+        <!-- Maven Model: 用于解析 pom.xml 文件 -->
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-model</artifactId>

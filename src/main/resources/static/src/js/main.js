@@ -36,7 +36,9 @@ const App = {
         DebuggerManager.init();
         await CommandPaletteManager.init();
         ActionManager.init();
-        KeyboardManager.init();
+        // ========================= 关键修改 START =========================
+        await KeyboardManager.init(); // KeyboardManager.init() 现在是异步的，需要 await
+        // ========================= 关键修改 END ===========================
         EventBus.emit('app:ready');
         console.log("应用已准备就绪。");
     }

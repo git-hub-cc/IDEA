@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -26,16 +27,25 @@ public class JavaController implements DisposableBean {
     // ========================= 关键修改 START =========================
     /**
      * 构建并运行一个项目。
-     * JDK版本将由后端根据项目的 pom.xml 自动确定。
+     * 在启动异步构建过程之前，会首先同步验证该项目是否为有效的Maven项目。
      *
      * @param projectPath 要构建和运行的项目。
-     * @return 一个表示操作已启动的响应实体。
+     * @return 如果验证通过，返回一个表示操作已启动的响应；如果验证失败，返回一个Bad Request响应。
      */
     @PostMapping("/build")
-    public ResponseEntity<String> buildAndRunProject(@RequestParam String projectPath) {
-        // 将整个异步任务链委托给服务层
-        taskExecutor.submit(() -> javaRunnerService.buildAndRunProject(projectPath));
-        return ResponseEntity.ok("Build and run process initiated for project: " + projectPath);
+    public ResponseEntity<?> buildAndRunProject(@RequestParam String projectPath) {
+        try {
+            // 1. 同步验证项目结构
+            javaRunnerService.validateIsMavenProject(projectPath);
+
+            // 2. 验证通过，异步执行构建和运行
+            taskExecutor.submit(() -> javaRunnerService.buildAndRunProject(projectPath));
+            return ResponseEntity.ok(Map.of("message", "Build and run process initiated for project: " + projectPath));
+
+        } catch (IllegalArgumentException e) {
+            // 3. 验证失败，返回一个带有清晰错误信息的 400 Bad Request
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
     }
     // ========================= 关键修改 END ===========================
 

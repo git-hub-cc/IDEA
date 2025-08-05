@@ -40,6 +40,9 @@ const ActionManager = {
         EventBus.on('context-action:rename', ({ path, type }) => this.handleRenamePath(path, type));
         EventBus.on('context-action:delete', this.handleDeletePath.bind(this));
         EventBus.on('context-action:download', this.handleDownloadFile.bind(this));
+        // ========================= 关键修改 START =========================
+        EventBus.on('context-action:open-in-terminal', this.handleOpenInTerminal.bind(this));
+        // ========================= 关键修改 END ===========================
 
         // 编辑器标签页上下文菜单动作
         EventBus.on('context-action:close-tab', this.handleCloseTab.bind(this));
@@ -47,6 +50,8 @@ const ActionManager = {
         EventBus.on('context-action:close-tabs-to-the-right', this.handleCloseTabsToRight.bind(this));
         EventBus.on('context-action:close-tabs-to-the-left', this.handleCloseTabsToLeft.bind(this));
     },
+
+    // ... (其他方法保持不变) ...
 
     _getCreationContextPath: function() {
         const focusedItem = FileTreeManager.getFocusedItem();
@@ -172,6 +177,19 @@ const ActionManager = {
             EventBus.emit('log:info', '构建与运行请求已发送。');
         } catch (error) {
             EventBus.emit('log:error', `构建请求失败: ${error.message}`);
+            let userMessage = '构建失败。请查看控制台日志。';
+            try {
+                // 尝试从错误消息中解析后端的JSON响应
+                const jsonString = error.message.substring(error.message.indexOf('{'));
+                const errorPayload = JSON.parse(jsonString);
+                if (errorPayload && errorPayload.message) {
+                    userMessage = errorPayload.message;
+                }
+            } catch (e) {
+                // 如果解析失败，则使用通用错误消息
+                console.warn('无法从构建请求的响应中解析错误。');
+            }
+            EventBus.emit('modal:showAlert', { title: '无法运行', message: userMessage });
             EventBus.emit('statusbar:updateStatus', '构建失败', 2000);
         }
     },
@@ -482,5 +500,34 @@ const ActionManager = {
             EventBus.emit('modal:showAlert', { title: '操作无效', message: '请先打开一个文件。' });
         }
     },
+
+    // ========================= 关键修改 START: 新增方法 =========================
+    /**
+     * Handles the 'Open in Terminal' context menu action.
+     * @param {object} context - The context object from the event, e.g., { path, type }.
+     */
+    handleOpenInTerminal: function({ path, type }) {
+        if (!Config.currentProject) {
+            EventBus.emit('log:warn', '无法打开终端，因为没有活动的项。');
+            return;
+        }
+
+        let folderPathInProject = path;
+        // If a file is right-clicked, get its parent directory
+        if (type === 'file') {
+            const lastSlash = path.lastIndexOf('/');
+            folderPathInProject = lastSlash > -1 ? path.substring(0, lastSlash) : '';
+        }
+
+        // Construct the full path relative to the workspace root
+        const fullPath = folderPathInProject
+            ? `${Config.currentProject}/${folderPathInProject}`
+            : Config.currentProject;
+
+        // Activate the terminal panel and start a new session in the target path
+        EventBus.emit('ui:activateBottomPanelTab', 'terminal-panel');
+        NetworkManager.startTerminal(fullPath);
+    },
+    // ========================= 关键修改 END ===========================
 };
 export default ActionManager;

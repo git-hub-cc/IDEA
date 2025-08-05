@@ -113,6 +113,7 @@ const ContextMenuManager = {
         }
     },
 
+    // ========================= 关键修改 START =========================
     /**
      * @description 获取文件树的菜单项。
      * @param {string} itemType - 'file' 或 'folder'。
@@ -124,21 +125,27 @@ const ContextMenuManager = {
             { label: '删除', action: 'delete', icon: 'fas fa-trash-alt' },
         ];
 
+        const terminalAction = { label: '在终端中打开', action: 'open-in-terminal', icon: 'fas fa-terminal' };
+
         if (itemType === 'folder') {
             return [
                 { label: '新建文件', action: 'new-file', icon: 'fas fa-file' },
                 { label: '新建文件夹', action: 'new-folder', icon: 'fas fa-folder-plus' },
                 { separator: true },
-                ...commonActions
+                terminalAction,
+                { separator: true },
+                ...commonActions,
             ];
         } else { // file
             return [
+                terminalAction,
                 { label: '下载', action: 'download', icon: 'fas fa-download' },
                 { separator: true },
                 ...commonActions
             ];
         }
     },
+    // ========================= 关键修改 END ===========================
 
     /**
      * @description 获取编辑器标签页的菜单项。

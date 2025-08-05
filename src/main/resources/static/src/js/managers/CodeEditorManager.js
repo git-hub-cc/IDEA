@@ -7,19 +7,46 @@ import CompletionProviderService from '../services/CompletionProviderService.js'
 const CodeEditorManager = {
     monacoInstance: null,
     editorArea: null,
+    monacoContainer: null,
+    mediaPreviewContainer: null,
     tabBar: null,
-    openFiles: new Map(), // Map<filePath, { model, tabEl, isDirty, viewState }>
+    openFiles: new Map(), // Map<filePath, { type, model?, tabEl, isDirty, viewState?, previewElement?, objectUrl? }>
     activeFilePath: null,
     debugDecorations: [],
     breakpointDecorations: [], // Stores { id, range, options, filePath }
 
+    // ========================= 关键修改 START: 扩展已知文本文件类型 =========================
+    // 优化后的列表，包含更多文本格式并排除了不合适的二进制格式
     KNOWN_TEXT_EXTENSIONS: new Set([
-        'java', 'js', 'html', 'css', 'vue', 'xml', 'pom', 'json', 'md',
-        'txt', 'gitignore', 'properties', 'yml', 'yaml', 'sql', 'sh', 'bat'
+        // Core Web & Scripting
+        'html', 'css', 'js', 'jsx', 'ts', 'tsx', 'vue',
+        // Backend & Systems
+        'java', 'kt', 'gradle', 'py', 'rb', 'php', 'go', 'rs', 'r', 'c', 'cpp', 'h', 'cs',
+        // Config & Data
+        'xml', 'pom', 'json', 'jsonl', 'yml', 'yaml', 'toml', 'ini', 'conf', 'properties', 'env',
+        // Shell & Build
+        'sh', 'bat', 'cmd', 'sql', 'dockerfile', 'docker', 'makefile', 'ignore', 'gitignore',
+        // Markup & Docs
+        'md', 'adoc', 'asciidoc', 'tex', 'rtf', 'svg', 'mml',
+        // Plain Text & Logs
+        'txt', 'log', 'csv', 'tsv',
+        // Data Formats (Text-based)
+        'proto', 'gltf',
+        // Document formats that can be viewed as text
+        'ods', 'odt', 'epub', 'fb2', 'mhtml', 'pages'
     ]),
+    // ========================= 关键修改 END ==========================================
+
+    KNOWN_MEDIA_EXTENSIONS: new Set([
+        'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'avif',
+        'mp4', 'webm', 'ogg', 'mov', 'mp3', 'wav', 'flac'
+    ]),
+
 
     init: async function() {
         this.editorArea = document.getElementById('editor-area');
+        this.monacoContainer = document.getElementById('monaco-container');
+        this.mediaPreviewContainer = document.getElementById('media-preview-container');
         this.tabBar = document.getElementById('editor-tab-bar');
         this._createMonacoInstance();
         this.bindAppEvents();
@@ -32,7 +59,7 @@ const CodeEditorManager = {
             EventBus.emit('log:error', 'Monaco Editor未能加载，代码编辑器无法初始化。');
             return;
         }
-        this.monacoInstance = window.monaco.editor.create(this.editorArea, {
+        this.monacoInstance = window.monaco.editor.create(this.monacoContainer, {
             value: '// 欢迎使用 Web IDEA！请从顶部选择一个项目，然后从左侧文件树中选择一个文件。\n',
             language: 'plaintext',
             theme: 'vs-dark',
@@ -41,8 +68,10 @@ const CodeEditorManager = {
             wordWrap: 'on',
             glyphMargin: true,
         });
+
         this.monacoInstance.onDidChangeModelContent(() => this.handleContentChange());
         this.monacoInstance.onDidChangeCursorPosition((e) => this.handleCursorChange(e));
+
         this.monacoInstance.onMouseDown((e) => {
             if (e.target.type === window.monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
                 const lineNumber = e.target.position.lineNumber;
@@ -68,7 +97,6 @@ const CodeEditorManager = {
         EventBus.on('editor:insertSnippet', this.insertSnippet.bind(this));
         EventBus.on('editor:formatDocument', () => this.monacoInstance?.getAction('editor.action.formatDocument').run());
         EventBus.on('editor:find', () => this.monacoInstance?.getAction('actions.find').run());
-        // ... (other editor actions remain the same)
         EventBus.on('editor:duplicate-line', () => this.monacoInstance?.getAction('editor.action.copyLinesDownAction').run());
         EventBus.on('editor:delete-line', () => this.monacoInstance?.getAction('editor.action.deleteLines').run());
         EventBus.on('editor:toggle-line-comment', () => this.monacoInstance?.getAction('editor.action.commentLine').run());
@@ -80,6 +108,22 @@ const CodeEditorManager = {
         EventBus.on('editor:show-goto-line', () => this.monacoInstance?.getAction('editor.action.gotoLine').run());
     },
 
+    handleContentChange: function() {
+        if (!this.activeFilePath) return;
+        const fileInfo = this.openFiles.get(this.activeFilePath);
+        if (fileInfo && fileInfo.type === 'editor' && !fileInfo.isDirty) {
+            this._setFileDirty(this.activeFilePath, true);
+        }
+    },
+
+    handleCursorChange: function(e) {
+        if (!e.position) return;
+        EventBus.emit('statusbar:updateCursorPos', {
+            lineNumber: e.position.lineNumber,
+            column: e.position.column
+        });
+    },
+
     handleProjectChange: function() {
         const openFilePaths = Array.from(this.openFiles.keys());
         openFilePaths.forEach(path => this.closeFile(path));
@@ -87,14 +131,11 @@ const CodeEditorManager = {
     },
 
     openFile: async function(filePath) {
-        if (!this._isTextFile(filePath)) {
-            EventBus.emit('log:info', `文件 '${filePath}' 被识别为二进制文件，将自动下载。`);
-            EventBus.emit('context-action:download', { path: filePath });
-            return;
-        }
-
         if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
-            this.openFiles.get(this.activeFilePath).viewState = this.monacoInstance.saveViewState();
+            const activeFileInfo = this.openFiles.get(this.activeFilePath);
+            if (activeFileInfo.type === 'editor') {
+                activeFileInfo.viewState = this.monacoInstance.saveViewState();
+            }
         }
 
         if (this.openFiles.has(filePath)) {
@@ -102,19 +143,47 @@ const CodeEditorManager = {
             return;
         }
 
+        if (this._isMediaFile(filePath)) {
+            await this._openMediaFile(filePath);
+        } else if (this._isTextFile(filePath)) {
+            await this._openTextFile(filePath);
+        } else {
+            EventBus.emit('log:info', `文件 '${filePath}' 被识别为二进制文件，将自动下载。`);
+            EventBus.emit('context-action:download', { path: filePath });
+        }
+    },
+
+    _openTextFile: async function(filePath) {
         try {
             const content = await NetworkManager.getFileContent(filePath);
             const language = this._getLanguageFromPath(filePath);
             const model = window.monaco.editor.createModel(content, language, window.monaco.Uri.parse(`file:///${filePath}`));
-
             const tabEl = this._createFileTab(filePath);
-            this.openFiles.set(filePath, { model, tabEl, isDirty: false, viewState: null });
+
+            this.openFiles.set(filePath, { type: 'editor', model, tabEl, isDirty: false, viewState: null });
 
             this.setActiveFile(filePath);
             EventBus.emit('log:info', `文件 '${filePath}' 已打开。`);
         } catch (error) {
-            EventBus.emit('log:error', `打开文件 ${filePath} 失败: ${error.message}`);
+            EventBus.emit('log:error', `打开文本文件 ${filePath} 失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '错误', message: `打开文件失败: ${error.message}` });
+        }
+    },
+
+    _openMediaFile: async function(filePath) {
+        try {
+            const blob = await NetworkManager.downloadFileAsBlob(filePath);
+            const objectUrl = URL.createObjectURL(blob);
+            const previewElement = this._createMediaPreviewElement(filePath, objectUrl);
+            const tabEl = this._createFileTab(filePath);
+
+            this.openFiles.set(filePath, { type: 'media', tabEl, previewElement, objectUrl });
+
+            this.setActiveFile(filePath);
+            EventBus.emit('log:info', `媒体文件 '${filePath}' 已打开预览。`);
+        } catch (error) {
+            EventBus.emit('log:error', `预览媒体文件 ${filePath} 失败: ${error.message}`);
+            EventBus.emit('modal:showAlert', { title: '错误', message: `预览文件失败: ${error.message}` });
         }
     },
 
@@ -122,10 +191,15 @@ const CodeEditorManager = {
         const fileInfo = this.openFiles.get(filePath);
         if (!fileInfo) return;
 
-        this.breakpointDecorations = this.breakpointDecorations.filter(d => d.filePath !== filePath);
+        if (fileInfo.type === 'editor') {
+            window.monaco.editor.setModelMarkers(fileInfo.model, 'java-validator', []);
+            fileInfo.model.dispose();
+            this.breakpointDecorations = this.breakpointDecorations.filter(d => d.filePath !== filePath);
+        } else if (fileInfo.type === 'media') {
+            URL.revokeObjectURL(fileInfo.objectUrl);
+            fileInfo.previewElement.remove();
+        }
 
-        window.monaco.editor.setModelMarkers(fileInfo.model, 'java-validator', []);
-        fileInfo.model.dispose();
         fileInfo.tabEl.remove();
         this.openFiles.delete(filePath);
 
@@ -136,10 +210,53 @@ const CodeEditorManager = {
                 const nextFilePath = remainingTabs[remainingTabs.length - 1].dataset.filePath;
                 this.setActiveFile(nextFilePath);
             } else {
-                this.monacoInstance.setModel(null);
-                EventBus.emit('statusbar:clearFileInfo');
+                this._showWelcomeView();
             }
         }
+    },
+
+    setActiveFile: function(filePath) {
+        if (this.activeFilePath === filePath && this.activeFilePath !== null) return;
+
+        if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
+            const oldFileInfo = this.openFiles.get(this.activeFilePath);
+            oldFileInfo.tabEl.classList.remove('active');
+            if (oldFileInfo.type === 'editor' && oldFileInfo.model) {
+                oldFileInfo.viewState = this.monacoInstance.saveViewState();
+            } else if (oldFileInfo.type === 'media') {
+                oldFileInfo.previewElement.style.display = 'none';
+            }
+        }
+
+        const fileInfo = this.openFiles.get(filePath);
+        if (!fileInfo) {
+            this._showWelcomeView();
+            return;
+        }
+        fileInfo.tabEl.classList.add('active');
+
+        if (fileInfo.type === 'editor') {
+            this.mediaPreviewContainer.style.display = 'none';
+            this.monacoContainer.style.display = 'block';
+            this.monacoInstance.setModel(fileInfo.model);
+            if (fileInfo.viewState) {
+                this.monacoInstance.restoreViewState(fileInfo.viewState);
+            }
+            this.monacoInstance.focus();
+            const position = this.monacoInstance.getPosition() || { lineNumber: 1, column: 1 };
+            EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), ...position });
+            this._setFileDirty(filePath, fileInfo.isDirty);
+        } else if (fileInfo.type === 'media') {
+            this.monacoContainer.style.display = 'none';
+            this.mediaPreviewContainer.style.display = 'flex';
+            this.mediaPreviewContainer.innerHTML = ''; // Clear previous media
+            this.mediaPreviewContainer.appendChild(fileInfo.previewElement);
+            fileInfo.previewElement.style.display = 'block';
+            EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), lineNumber: 1, column: 1 });
+            this._setFileDirty(filePath, false);
+        }
+
+        this.activeFilePath = filePath;
     },
 
     updateBreakpointDecorations: function(filePath, lineNumber, enabled) {
@@ -189,6 +306,10 @@ const CodeEditorManager = {
         }
 
         const fileInfo = this.openFiles.get(this.activeFilePath);
+        if (fileInfo.type === 'media') {
+            EventBus.emit('statusbar:updateStatus', '媒体文件无需保存', 1500);
+            return;
+        }
         if (!fileInfo.isDirty) {
             EventBus.emit('statusbar:updateStatus', '文件无需保存', 1500);
             return;
@@ -262,58 +383,36 @@ const CodeEditorManager = {
         }
     },
 
-    setActiveFile: function(filePath) {
-        if (this.activeFilePath === filePath) return;
-
-        if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
-            this.openFiles.get(this.activeFilePath).tabEl.classList.remove('active');
-        }
-
-        const fileInfo = this.openFiles.get(filePath);
-        fileInfo.tabEl.classList.add('active');
-
-        this.monacoInstance.setModel(fileInfo.model);
-        if (fileInfo.viewState) {
-            this.monacoInstance.restoreViewState(fileInfo.viewState);
-        }
-        this.monacoInstance.focus();
-        this.activeFilePath = filePath;
-
-        const position = this.monacoInstance.getPosition() || { lineNumber: 1, column: 1 };
-        EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), ...position });
-        this._setFileDirty(filePath, fileInfo.isDirty);
+    _showWelcomeView: function() {
+        this.monacoContainer.style.display = 'block';
+        this.mediaPreviewContainer.style.display = 'none';
+        this.monacoInstance.setModel(null);
+        EventBus.emit('statusbar:clearFileInfo');
     },
 
-    handleContentChange: function() {
-        if (this.activeFilePath) {
-            this._setFileDirty(this.activeFilePath, true);
+    _createMediaPreviewElement: function(filePath, objectUrl) {
+        const ext = filePath.split('.').pop().toLowerCase();
+        let element;
+
+        if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'avif'].includes(ext)) {
+            element = document.createElement('img');
+        } else {
+            element = document.createElement('video');
+            element.controls = true;
+            element.autoplay = false;
         }
+
+        element.src = objectUrl;
+        element.className = 'media-preview';
+        element.style.display = 'none';
+        return element;
     },
 
-    handleCursorChange: function(e) {
-        if (this.activeFilePath) {
-            EventBus.emit('statusbar:updateCursorPos', e.position);
-        }
+    _isMediaFile: function(filePath) {
+        const ext = filePath.split('.').pop().toLowerCase();
+        return this.KNOWN_MEDIA_EXTENSIONS.has(ext);
     },
 
-    toggleBreakpoint: async function(filePath, lineNumber) {
-        if (!filePath) return;
-        let existingBreakpoint = null;
-        for (const d of this.breakpointDecorations) {
-            if (d && d.filePath === filePath && d.range.startLineNumber === lineNumber) {
-                existingBreakpoint = d;
-                break;
-            }
-        }
-        const shouldEnable = !existingBreakpoint;
-        try {
-            await NetworkManager.toggleBreakpoint({ filePath, lineNumber, enabled: shouldEnable });
-            this.updateBreakpointDecorations(filePath, lineNumber, shouldEnable);
-            EventBus.emit('log:info', `${shouldEnable ? '设置' : '移除'}断点于 ${filePath}:${lineNumber}`);
-        } catch (error) {
-            EventBus.emit('log:error', `切换断点失败: ${error.message}`);
-        }
-    },
 
     _setFileDirty: function(filePath, isDirty) {
         const fileInfo = this.openFiles.get(filePath);
@@ -328,24 +427,75 @@ const CodeEditorManager = {
 
     _isTextFile: function(filePath) {
         const ext = filePath.split('.').pop().toLowerCase();
+        if (!ext || filePath.endsWith('.')) return true;
         return this.KNOWN_TEXT_EXTENSIONS.has(ext);
     },
 
+    // ========================= 关键修改 START: 扩展语言映射 =========================
     _getLanguageFromPath: function(filePath) {
         if (!filePath) return 'plaintext';
         const ext = filePath.split('.').pop().toLowerCase();
+
+        if (this._isMediaFile(filePath)) {
+            if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'avif'].includes(ext)) return 'Image';
+            if (['mp4', 'webm', 'ogg', 'mov', 'mp3', 'wav', 'flac'].includes(ext)) return 'Video/Audio';
+            return 'Media';
+        }
+
         switch (ext) {
-            case 'java': return 'java';
-            case 'js': return 'javascript';
+            // Web
+            case 'js': case 'jsx': return 'javascript';
+            case 'ts': case 'tsx': return 'typescript';
             case 'html': return 'html';
             case 'css': return 'css';
+            case 'scss': return 'scss';
+            case 'less': return 'less';
             case 'vue': return 'vue';
+            case 'svg': return 'svg';
+
+            // Java & JVM
+            case 'java': return 'java';
+            case 'kt': return 'kotlin';
+            case 'gradle': return 'groovy';
+
+            // Other Languages
+            case 'py': return 'python';
+            case 'rb': return 'ruby';
+            case 'php': return 'php';
+            case 'c': return 'c';
+            case 'h': case 'cpp': return 'cpp';
+            case 'cs': return 'csharp';
+            case 'go': return 'go';
+            case 'rs': return 'rust';
+            case 'r': return 'r';
+
+            // Config & Data
             case 'xml': case 'pom': return 'xml';
-            case 'json': return 'json';
-            case 'md': return 'markdown';
+            case 'json': case 'jsonl': case 'gltf': return 'json';
+            case 'yml': case 'yaml': return 'yaml';
+            case 'toml': return 'toml';
+            case 'ini': case 'properties': case 'conf': case 'env': return 'ini';
+            case 'proto': return 'protobuf';
+
+            // Shell & SQL
+            case 'sh': return 'shell';
+            case 'bat': case 'cmd': return 'bat';
+            case 'sql': return 'sql';
+            case 'dockerfile': case 'docker': return 'dockerfile';
+            case 'makefile': return 'makefile';
+
+            // Markup
+            case 'md': case 'adoc': case 'asciidoc': return 'markdown';
+
+            // Default to plaintext for known text but unhighlighted files
+            case 'gitignore': case 'ignore':
+            case 'log': case 'txt': case 'csv': case 'tsv':
+            case 'tex': case 'rtf': case 'mml': case 'ods': case 'odt':
+            case 'epub': case 'fb2': case 'mhtml': case 'pages':
             default: return 'plaintext';
         }
     },
+    // ========================= 关键修改 END ======================================
 
     getActiveLanguage: function() {
         return this._getLanguageFromPath(this.activeFilePath);
@@ -355,9 +505,12 @@ const CodeEditorManager = {
 
     gotoLine: function({ filePath, lineNumber }) {
         const openAndReveal = () => {
-            this.monacoInstance.setPosition({ lineNumber, column: 1 });
-            this.monacoInstance.revealLineInCenter(lineNumber);
-            this.monacoInstance.focus();
+            const fileInfo = this.openFiles.get(filePath);
+            if (fileInfo && fileInfo.type === 'editor') {
+                this.monacoInstance.setPosition({ lineNumber, column: 1 });
+                this.monacoInstance.revealLineInCenter(lineNumber);
+                this.monacoInstance.focus();
+            }
         };
         if (this.activeFilePath !== filePath) {
             this.openFile(filePath).then(openAndReveal);
@@ -401,7 +554,10 @@ const CodeEditorManager = {
 
     insertSnippet: function(template) {
         if (!this.monacoInstance) return;
-        this.monacoInstance.getContribution('snippetController2').insert(template);
+        const fileInfo = this.openFiles.get(this.activeFilePath);
+        if (fileInfo && fileInfo.type === 'editor') {
+            this.monacoInstance.getContribution('snippetController2').insert(template);
+        }
     },
 };
 

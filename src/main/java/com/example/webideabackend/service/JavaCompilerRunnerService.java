@@ -49,6 +49,26 @@ public class JavaCompilerRunnerService {
         this.mavenHelper = mavenHelper;
     }
 
+    // ========================= 关键修改 START =========================
+    /**
+     * 同步验证一个项目是否为有效的Maven项目。
+     * 如果不是，则会向前端发送错误日志并抛出异常。
+     *
+     * @param projectPath 要验证的项目路径。
+     * @throws IllegalArgumentException 如果项目根目录中没有找到 `pom.xml`。
+     */
+    public void validateIsMavenProject(String projectPath) {
+        Path projectDir = workspaceRoot.resolve(projectPath);
+        Path pomFile = projectDir.resolve("pom.xml");
+        if (!Files.exists(pomFile)) {
+            String errorMessage = "The selected project is not a valid Maven project. The 'Run' feature currently only supports standard Maven projects (must contain a pom.xml at the root).";
+            log.warn("Validation failed for project '{}': {}", projectPath, errorMessage);
+            notificationService.sendBuildLog("[ERROR] " + errorMessage);
+            throw new IllegalArgumentException(errorMessage);
+        }
+    }
+    // ========================= 关键修改 END ===========================
+
     public void buildAndRunProject(String projectPath) {
         notificationService.sendBuildLog("Build command received for: " + projectPath);
 

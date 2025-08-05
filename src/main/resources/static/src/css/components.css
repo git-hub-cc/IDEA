@@ -74,7 +74,6 @@
 /* --- 文件树 --- */
 .file-tree-container { flex-grow: 1; overflow: auto; padding: 5px; }
 .file-tree { list-style: none; padding: 0; margin: 0; }
-/* ========================= 关键修改 START ========================= */
 /*
  * 设计决策: 移除了 `overflow: hidden` 和 `text-overflow: ellipsis`。
  * 之前的样式会截断长文件名并显示省略号，这阻止了父容器 `.file-tree-container`
@@ -94,7 +93,6 @@
     border-radius: 4px;
     border: 1px solid transparent;
 }
-/* ========================= 关键修改 END =========================== */
 .file-tree li:hover {
     /*background-color: var(--border-color);*/
 }
@@ -200,6 +198,26 @@
 .editor-tab .close-tab-btn:hover { background-color: var(--border-color); }
 .editor-tab .unsaved-indicator { color: var(--color-warning); display: none; }
 .editor-tab.modified .unsaved-indicator { display: inline; }
+
+/* ========================= 关键修改 START ========================= */
+/* --- 媒体预览样式 --- */
+#media-preview-container {
+    display: flex; /* 使用 flex 布局来居中内容 */
+    justify-content: center;
+    align-items: center;
+    background-color: var(--bg-panel);
+    padding: 20px;
+    overflow: auto; /* 如果媒体文件过大，允许滚动 */
+}
+
+#media-preview-container .media-preview {
+    max-width: 95%;
+    max-height: 95%;
+    object-fit: contain; /* 保持媒体的原始宽高比 */
+    border-radius: 4px;
+    box-shadow: 0 4px 15px var(--shadow-color);
+}
+/* ========================= 关键修改 END =========================== */
 
 /* --- 底部面板 --- */
 .panel-tab-bar {
