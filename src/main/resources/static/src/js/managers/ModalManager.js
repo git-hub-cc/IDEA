@@ -31,7 +31,6 @@ const ModalManager = {
                 if (actionBtn.dataset.type === 'settings') {
                     this._handleSettingsConfirm();
                 } else {
-                    // 对于列表提示框，确认操作由项目点击/回车键处理
                     if (modal && modal.dataset.type !== 'list-prompt') {
                         this._close(true, 'confirm');
                     }
@@ -56,6 +55,7 @@ const ModalManager = {
         });
         EventBus.on('modal:showSettings', (settings) => this.showSettings(settings));
         EventBus.on('modal:showListPrompt', this.showListPrompt.bind(this));
+        EventBus.on('modal:showChoiceModal', this.showChoiceModal.bind(this));
         EventBus.on('modal:close', () => this._close(false));
     },
 
@@ -99,32 +99,43 @@ const ModalManager = {
             bodyEl.appendChild(bodyContent);
         }
 
-        // 根据选项决定是否显示页脚，并设置模态框类型
         footerEl.style.display = options.showFooter === false ? 'none' : 'flex';
         modal.dataset.type = options.type || 'default';
         modal.dataset.isRepoSelection = options.isRepoSelection ? 'true' : 'false';
 
-        // 如果页脚可见，则配置按钮
         if (options.showFooter !== false) {
             const confirmBtn = footerEl.querySelector('[data-action="confirm-modal"]');
             const cancelBtn = footerEl.querySelector('[data-action="cancel-modal"]');
 
-            confirmBtn.textContent = options.confirmText || '确认';
-            cancelBtn.textContent = options.cancelText || '取消';
-            cancelBtn.style.display = options.showCancel === false ? 'none' : 'inline-block';
-            confirmBtn.dataset.type = options.type || 'default';
-            confirmBtn.disabled = false;
+            if (options.type !== 'choice') {
+                footerEl.innerHTML = `
+                    <button class="modal-action-btn primary-btn" data-action="confirm-modal">确认</button>
+                    <button class="modal-action-btn secondary-btn" data-action="cancel-modal">取消</button>
+                `;
+            }
+            const newConfirmBtn = footerEl.querySelector('[data-action="confirm-modal"]');
+            const newCancelBtn = footerEl.querySelector('[data-action="cancel-modal"]');
 
-            // 仓库选择的特定逻辑
-            if (options.isRepoSelection) {
+            if (newConfirmBtn) {
+                newConfirmBtn.textContent = options.confirmText || '确认';
+                newConfirmBtn.dataset.type = options.type || 'default';
+                newConfirmBtn.disabled = false;
+            }
+            if(newCancelBtn) {
+                newCancelBtn.textContent = options.cancelText || '取消';
+                newCancelBtn.style.display = options.showCancel === false ? 'none' : 'inline-block';
+            }
+
+
+            if (options.isRepoSelection && newConfirmBtn) {
                 const repoList = bodyEl.querySelector('#repo-selection-list');
-                confirmBtn.disabled = true;
+                newConfirmBtn.disabled = true;
 
                 if (repoList) {
                     repoList.addEventListener('click', (e) => {
                         const selectedItem = e.target.closest('.repo-item-label');
                         if (selectedItem) {
-                            confirmBtn.disabled = false;
+                            newConfirmBtn.disabled = false;
                             repoList.querySelectorAll('.repo-item-label').forEach(label => label.classList.remove('selected'));
                             selectedItem.classList.add('selected');
                         }
@@ -148,7 +159,7 @@ const ModalManager = {
         });
     },
 
-    _close: function(confirmed) {
+    _close: function(confirmed, value) {
         const overlay = document.getElementById('modal-overlay');
         const modal = document.getElementById('common-modal');
         const bodyEl = document.getElementById('modal-body');
@@ -158,6 +169,8 @@ const ModalManager = {
             if (modal.dataset.isRepoSelection === 'true') {
                 const selectedItem = bodyEl.querySelector('.repo-item-label.selected');
                 this.resolvePromise(selectedItem ? selectedItem.dataset.cloneUrl : null);
+            } else if (modal.dataset.type === 'choice') {
+                this.resolvePromise(value);
             } else {
                 const input = bodyEl.querySelector('input[type="text"], textarea');
                 this.resolvePromise(input ? input.value : true);
@@ -207,10 +220,6 @@ const ModalManager = {
         });
     },
 
-    /**
-     * 显示一个带搜索功能的列表选择模态框，用于指令面板。
-     * @param {object} options - { title, items, onConfirm }
-     */
     showListPrompt: function({ title, items, onConfirm }) {
         const modalBody = document.createElement('div');
         modalBody.className = 'command-palette';
@@ -248,7 +257,7 @@ const ModalManager = {
                     <div class="item-label">${item.label}</div>
                     <div class="item-description">${item.description || ''}</div>
                 `;
-                if (index === 0) { // Always highlight the first item
+                if (index === 0) {
                     li.classList.add('active');
                 }
                 listContainer.appendChild(li);
@@ -268,8 +277,8 @@ const ModalManager = {
         };
 
         const selectItem = (id) => {
-            this._close(false); // Close modal first
-            if (onConfirm) onConfirm(id); // Then call callback
+            this._close(false);
+            if (onConfirm) onConfirm(id);
         };
 
         input.addEventListener('input', () => {
@@ -308,40 +317,115 @@ const ModalManager = {
         renderList('');
 
         this._show(title, modalBody, { showFooter: false, type: 'list-prompt' })
-            .catch(() => {}); // Suppress 'user cancelled' error
+            .catch(() => {});
 
         setTimeout(() => input.focus(), 50);
     },
 
+    // ========================= 关键修改 START: 重构设置模态框以支持标签页 =========================
     showSettings: function(settings) {
         this.currentSettings = settings;
+
         const body = document.createElement('div');
         body.className = 'settings-modal-body';
+
+        // 1. 创建标签页结构
         body.innerHTML = `
-            <div class="settings-item">
-                <label for="settings-theme">主题</label>
-                <select id="settings-theme">
-                    <option value="dark-theme">深色主题 (Darcula)</option>
-                    <option value="light-theme">浅色主题 (Light)</option>
-                </select>
+            <div class="modal-tabs">
+                <button class="modal-tab active" data-tab="app-settings-pane">应用设置</button>
+                <button class="modal-tab" data-tab="git-settings-pane">Git 设置</button>
             </div>
-            <div class="settings-item">
-                <label for="settings-font-size">编辑器字号</label>
-                <input type="number" id="settings-font-size" min="10" max="24" step="1">
-            </div>
-            <div class="settings-item">
-                <label for="settings-word-wrap">自动换行</label>
-                <select id="settings-word-wrap">
-                    <option value="true">开启</option>
-                    <option value="false">关闭</option>
-                </select>
+            <div class="modal-tab-content">
+                <div id="app-settings-pane" class="tab-pane active">
+                    <div class="settings-item">
+                        <label for="settings-theme">主题</label>
+                        <select id="settings-theme">
+                            <option value="dark-theme">深色主题 (Darcula)</option>
+                            <option value="light-theme">浅色主题 (Light)</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <label for="settings-font-size">编辑器字号</label>
+                        <input type="number" id="settings-font-size" min="10" max="24" step="1">
+                    </div>
+                    <div class="settings-item">
+                        <label for="settings-word-wrap">自动换行</label>
+                        <select id="settings-word-wrap">
+                            <option value="true">开启</option>
+                            <option value="false">关闭</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="git-settings-pane" class="tab-pane">
+                    <div class="settings-item">
+                        <label for="settings-gitee-token">Gitee 访问令牌 (Access Token)</label>
+                        <input type="password" id="settings-gitee-token" placeholder="用于 API 访问和 HTTPS 克隆">
+                    </div>
+                    <div class="settings-item">
+                        <label for="settings-ssh-key-path">SSH 私钥绝对路径</label>
+                        <input type="text" id="settings-ssh-key-path" placeholder="例如 C:/Users/YourName/.ssh/id_ed25519">
+                        <small style="color: var(--text-secondary); font-size: 0.8em; display: block; margin-top: 4px;">注意：此设置主要供 JGit 使用，当前推/拉操作依赖系统级 SSH 配置。</small>
+                    </div>
+                    <div class="settings-item">
+                        <label for="settings-ssh-passphrase">SSH 私钥密码</label>
+                        <input type="password" id="settings-ssh-passphrase" placeholder="如果私钥有密码，在此输入">
+                    </div>
+                </div>
             </div>
         `;
+
+        // 2. 填充设置值
         body.querySelector('#settings-theme').value = settings.theme;
         body.querySelector('#settings-font-size').value = settings.fontSize;
         body.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
+        body.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
+        body.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
+        body.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
 
+        // 3. 添加标签页切换逻辑
+        const tabs = body.querySelectorAll('.modal-tab');
+        const panes = body.querySelectorAll('.tab-pane');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const targetPaneId = tab.dataset.tab;
+                panes.forEach(pane => {
+                    pane.classList.toggle('active', pane.id === targetPaneId);
+                });
+            });
+        });
+
+        // 4. 显示模态框
         return this._show('应用设置', body, { confirmText: '保存', type: 'settings' });
+    },
+    // ========================= 关键修改 END ============================================
+
+    showChoiceModal: function({ title, message, choices = [] }) {
+        const body = document.createElement('div');
+        body.innerHTML = `<p style="margin-bottom: 15px;">${message}</p>`;
+
+        const footerEl = document.getElementById('modal-footer');
+        const choiceButtons = choices.map(choice => {
+            const button = document.createElement('button');
+            button.className = 'modal-action-btn primary-btn';
+            button.textContent = choice.text;
+            button.onclick = () => this._close(true, choice.id);
+            return button;
+        });
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'modal-action-btn secondary-btn';
+        cancelBtn.textContent = '取消';
+        cancelBtn.onclick = () => this._close(false);
+
+        footerEl.innerHTML = '';
+        choiceButtons.forEach(btn => footerEl.appendChild(btn));
+        footerEl.appendChild(cancelBtn);
+
+        return this._show(title, body, { type: 'choice' });
     },
 
     _handleSettingsConfirm: async function() {
@@ -349,7 +433,10 @@ const ModalManager = {
             theme: document.getElementById('settings-theme').value,
             fontSize: parseInt(document.getElementById('settings-font-size').value, 10),
             wordWrap: document.getElementById('settings-word-wrap').value === 'true',
-            editorFontFamily: this.currentSettings.editorFontFamily
+            editorFontFamily: this.currentSettings.editorFontFamily,
+            giteeAccessToken: document.getElementById('settings-gitee-token').value,
+            giteeSshPrivateKeyPath: document.getElementById('settings-ssh-key-path').value,
+            giteeSshPassphrase: document.getElementById('settings-ssh-passphrase').value,
         };
 
         try {

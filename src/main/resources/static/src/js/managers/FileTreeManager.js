@@ -9,6 +9,9 @@ const FileTreeManager = {
     container: null,
     treeData: [],
     focusedElement: null,
+    // ========================= 关键修改 START =========================
+    hoveredElement: null, // 跟踪当前悬浮的元素
+    // ========================= 关键修改 END ===========================
 
     init: function() {
         this.container = document.getElementById('file-tree');
@@ -33,9 +36,12 @@ const FileTreeManager = {
 
         document.addEventListener('paste', this._handlePaste.bind(this));
 
+        // ========================= 关键修改 START: 精细化拖拽事件处理 =========================
+        this.container.addEventListener('dragenter', this._handleDragEnter.bind(this));
         this.container.addEventListener('dragover', this._handleDragOver.bind(this));
         this.container.addEventListener('dragleave', this._handleDragLeave.bind(this));
         this.container.addEventListener('drop', this._handleDrop.bind(this));
+        // ========================= 关键修改 END ==========================================
     },
 
     _handlePaste: async function(e) {
@@ -120,61 +126,183 @@ const FileTreeManager = {
         EventBus.on('filetree:focus', (element) => this.setFocus(element));
     },
 
-    _handleDragOver: function(e) {
+    // ========================= 关键修改 START: 新增拖拽事件处理器 =========================
+    _handleDragEnter: function(e) {
         e.preventDefault();
         e.stopPropagation();
         this.container.classList.add('drag-over');
     },
 
+    _handleDragOver: function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const targetElement = e.target.closest('li[data-type="folder"]');
+
+        if (this.hoveredElement && this.hoveredElement !== targetElement) {
+            this.hoveredElement.classList.remove('drag-hover-target');
+            this.hoveredElement = null;
+        }
+
+        if (targetElement && !targetElement.classList.contains('drag-hover-target')) {
+            this.hoveredElement = targetElement;
+            this.hoveredElement.classList.add('drag-hover-target');
+        }
+    },
+
     _handleDragLeave: function(e) {
         e.preventDefault();
         e.stopPropagation();
-        this.container.classList.remove('drag-over');
+
+        // 如果光标移出的是当前高亮的元素，则移除高亮
+        if (this.hoveredElement && e.target === this.hoveredElement) {
+            this.hoveredElement.classList.remove('drag-hover-target');
+            this.hoveredElement = null;
+        }
+
+        // 如果光标移出了整个容器，则移除容器的拖拽状态
+        if (!this.container.contains(e.relatedTarget)) {
+            this.container.classList.remove('drag-over');
+            if (this.hoveredElement) {
+                this.hoveredElement.classList.remove('drag-hover-target');
+                this.hoveredElement = null;
+            }
+        }
     },
 
     _handleDrop: async function(e) {
         e.preventDefault();
         e.stopPropagation();
         this.container.classList.remove('drag-over');
-
-        let directoryHandle = null;
-        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-            for (const item of e.dataTransfer.items) {
-                if (typeof item.getAsFileSystemHandle === 'function') {
-                    try {
-                        const handle = await item.getAsFileSystemHandle();
-                        if (handle.kind === 'directory') {
-                            directoryHandle = handle;
-                            break;
-                        }
-                    } catch (err) {
-                        console.warn('无法获取文件系统句柄:', err.message);
-                    }
-                }
-            }
+        if (this.hoveredElement) {
+            this.hoveredElement.classList.remove('drag-hover-target');
         }
 
-        if (!directoryHandle) {
-            EventBus.emit('modal:showAlert', {
-                title: '操作不支持',
-                message: '请拖放一个文件夹。此功能需要使用最新的Chrome、Edge或Opera浏览器。'
-            });
+        const dropTarget = this.hoveredElement;
+        this.hoveredElement = null;
+
+        const dataTransferItems = e.dataTransfer.items;
+        if (!dataTransferItems || dataTransferItems.length === 0) return;
+
+        // 如果没有活动项目，则只能作为新项目上传
+        if (!Config.currentProject) {
+            const directoryHandle = await this._getDirectoryHandleFromDropEvent(e);
+            if (directoryHandle) {
+                EventBus.emit('action:open-folder', directoryHandle);
+            } else {
+                EventBus.emit('modal:showAlert', { title: '操作不支持', message: '请拖放单个文件夹以创建新项目。'});
+            }
             return;
         }
 
-        EventBus.emit('modal:showConfirm', {
-            title: '打开本地项目',
-            message: `即将上传文件夹 "${directoryHandle.name}"。如果工作区中存在同名项目，其内容将被替换。`,
-            onConfirm: async () => {
-                const projectName = directoryHandle.name;
-                await NetworkManager.uploadProject(directoryHandle, projectName);
-                const projects = await NetworkManager.getProjects();
-                Config.setProjectList(projects);
-                Config.setActiveProject(projectName);
-                EventBus.emit('modal:showAlert', { title: '成功', message: `项目 '${projectName}' 已成功加载！` });
+        if (!dropTarget) {
+            EventBus.emit('log:warn', '拖放操作未在有效目标上。');
+            return;
+        }
+
+        const targetPath = dropTarget.dataset.path;
+        const targetIsRoot = !targetPath.includes('/');
+
+        if (targetIsRoot) {
+            try {
+                const choice = await EventBus.emit('modal:showChoiceModal', {
+                    title: '选择上传方式',
+                    message: `您想如何处理拖拽的内容？`,
+                    choices: [
+                        { id: 'to_root', text: `上传到根项目` },
+                        { id: 'as_project', text: '作为新项目上传到工作区' }
+                    ]
+                })[0]; // EventBus.emit returns an array of results
+
+                if (choice === 'to_root') {
+                    await this._performUpload(dataTransferItems, ''); // 上传到项目根目录
+                } else if (choice === 'as_project') {
+                    const directoryHandle = await this._getDirectoryHandleFromDropEvent(e);
+                    if(directoryHandle) EventBus.emit('action:open-folder', directoryHandle);
+                }
+            } catch(err) {
+                EventBus.emit('log:info', '用户取消了上传选择。');
             }
-        });
+        } else {
+            // 直接上传到子目录
+            await this._performUpload(dataTransferItems, targetPath);
+        }
     },
+
+    _performUpload: async function(dataTransferItems, destinationPath) {
+        try {
+            EventBus.emit('progress:start', { message: '正在分析文件...', total: 1 });
+            const itemsToUpload = await this._getFilesFromDataTransfer(dataTransferItems);
+            if (itemsToUpload.length === 0) {
+                EventBus.emit('log:warn', '未找到可上传的文件或文件夹。');
+                EventBus.emit('progress:finish');
+                return;
+            }
+
+            const destinationName = destinationPath || '项目根目录';
+            EventBus.emit('log:info', `准备将 ${itemsToUpload.length} 个项目上传至 ${destinationName}`);
+            await NetworkManager.uploadDirectoryStructure(itemsToUpload, destinationPath);
+            EventBus.emit('log:info', '上传成功。');
+            EventBus.emit('filesystem:changed');
+
+        } catch (error) {
+            EventBus.emit('log:error', `上传失败: ${error.message}`);
+            EventBus.emit('modal:showAlert', { title: '上传失败', message: error.message });
+        } finally {
+            EventBus.emit('progress:finish');
+        }
+    },
+
+    _getDirectoryHandleFromDropEvent: async function(e) {
+        if (!e.dataTransfer.items) return null;
+        for (const item of e.dataTransfer.items) {
+            if (typeof item.getAsFileSystemHandle === 'function') {
+                try {
+                    const handle = await item.getAsFileSystemHandle();
+                    if (handle.kind === 'directory') return handle;
+                } catch (err) {
+                    console.warn('无法获取文件系统句柄:', err.message);
+                }
+            }
+        }
+        return null;
+    },
+
+    _getFilesFromDataTransfer: async function(items) {
+        const fileEntries = [];
+        const processEntry = async (entry, pathPrefix = '') => {
+            if (entry.isFile) {
+                return new Promise((resolve, reject) => {
+                    entry.file(
+                        (file) => {
+                            fileEntries.push({ file, path: `${pathPrefix}${file.name}` });
+                            resolve();
+                        },
+                        (err) => reject(err)
+                    );
+                });
+            } else if (entry.isDirectory) {
+                const dirReader = entry.createReader();
+                const entries = await new Promise((resolve, reject) => dirReader.readEntries(resolve, reject));
+                for (const subEntry of entries) {
+                    await processEntry(subEntry, `${pathPrefix}${entry.name}/`);
+                }
+            }
+        };
+
+        const promises = [];
+        for (const item of items) {
+            if (typeof item.webkitGetAsEntry === 'function') {
+                const entry = item.webkitGetAsEntry();
+                if (entry) {
+                    promises.push(processEntry(entry));
+                }
+            }
+        }
+        await Promise.all(promises);
+        return fileEntries;
+    },
+    // ========================= 关键修改 END ==========================================
 
     loadProjectTree: async function() {
         if (!Config.currentProject) {
@@ -209,11 +337,13 @@ const FileTreeManager = {
         document.querySelector('#left-panel .panel-header h3').textContent = '项目';
         this.container.innerHTML = `
             <div style="padding: 20px; color: var(--text-secondary); font-size: 0.9em;">
+                <p style="margin-bottom: 15px;">开始一个新项目:</p>
                 <ul style="list-style-type: none; padding-left: 10px;">
                     <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="open-folder" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">1. 从本地目录打开项目</button></li>
                     <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="clone-from-url" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">2. 通过远程仓库 URL 克隆项目</button></li>
                     <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="vcs-clone" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">3. 选择当前用户的代码仓库进行导入</button></li>
                 </ul>
+                <p style="margin-top: 20px;">或者直接将文件夹拖拽到此处。</p>
             </div>
         `;
     },

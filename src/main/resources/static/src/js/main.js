@@ -16,6 +16,7 @@ import ActionManager from './managers/ActionManager.js';
 import KeyboardManager from './managers/KeyboardManager.js';
 import ContextMenuManager from './managers/ContextMenuManager.js';
 import CommandPaletteManager from './managers/CommandPaletteManager.js';
+import ProjectAnalysisService from './services/ProjectAnalysisService.js'; // 新增导入
 
 
 const App = {
@@ -29,6 +30,7 @@ const App = {
         ToolbarManager.init();
         StatusBarManager.init();
         FileTreeManager.init();
+        ProjectAnalysisService.init(); // 初始化新服务
         await CodeEditorManager.init();
         ConsoleManager.init();
         ProblemsManager.init();
@@ -36,9 +38,7 @@ const App = {
         DebuggerManager.init();
         await CommandPaletteManager.init();
         ActionManager.init();
-        // ========================= 关键修改 START =========================
-        await KeyboardManager.init(); // KeyboardManager.init() 现在是异步的，需要 await
-        // ========================= 关键修改 END ===========================
+        await KeyboardManager.init();
         EventBus.emit('app:ready');
         console.log("应用已准备就绪。");
     }

@@ -1,5 +1,7 @@
 // src/js/services/CompletionProviderService.js
 
+import ProjectAnalysisService from './ProjectAnalysisService.js'; // 导入新服务
+
 /**
  * 此服务负责从 commands.json 加载代码片段，
  * 并将它们注册为 Monaco Editor 的自动补全提供者。
@@ -39,56 +41,65 @@ const CompletionProviderService = {
      * 向 Monaco Editor 注册一个全局的补全项提供者。
      */
     registerCompletionProvider() {
-        // 确保 monaco 对象可用
         if (typeof window.monaco === 'undefined') {
             console.error('Monaco Editor 未加载，无法注册补全提供者。');
             return;
         }
 
         monaco.languages.registerCompletionItemProvider(['java', 'html', 'css', 'javascript', 'vue'], {
-            // provideCompletionItems 是 Monaco Editor 在需要建议时会调用的核心方法
             provideCompletionItems: (model, position) => {
                 const language = model.getLanguageId();
-
-                // ========================= 关键修改 START =========================
-                // 1. 获取用户在光标前输入的单词信息。
-                //    这会返回一个对象，例如 { word: "sout", startColumn: 1, endColumn: 5 }
                 const word = model.getWordUntilPosition(position);
-
-                // 2. 根据获取的单词信息，创建一个将要被替换的文本范围。
                 const range = new monaco.Range(
                     position.lineNumber,
                     word.startColumn,
                     position.lineNumber,
                     word.endColumn
                 );
-                // ========================= 关键修改 END ===========================
 
+                // ========================= 关键修改 START =========================
+                // 1. 获取所有建议，初始化为空数组
+                let allSuggestions = [];
 
-                // 3. 从所有指令中筛选出类型为 'snippet' 且匹配当前语言的项
+                // 2. 如果是Java语言，则添加类名建议
+                if (language === 'java') {
+                    const classNames = ProjectAnalysisService.getClassNames();
+                    const classSuggestions = classNames.map(fqn => {
+                        const simpleName = fqn.substring(fqn.lastIndexOf('.') + 1);
+                        const packageName = fqn.substring(0, fqn.lastIndexOf('.'));
+                        return {
+                            label: simpleName, // 提示列表里显示的是简单类名
+                            kind: monaco.languages.CompletionItemKind.Class, // 图标是"类"
+                            documentation: `Class from package: ${packageName}`, // 悬浮提示
+                            detail: packageName, // 在提示项右侧显示包名
+                            insertText: simpleName, // 插入的文本是简单类名
+                            range: range
+                        };
+                    });
+                    allSuggestions = allSuggestions.concat(classSuggestions);
+                }
+
+                // 3. 添加静态代码片段建议
                 const languageSnippets = this.allCommands.filter(cmd =>
                     cmd.type === 'snippet' && cmd.language === language
                 );
 
-                // 4. 将我们的片段格式转换为 Monaco 需要的格式
-                const suggestions = languageSnippets.map(snippet => {
-                    return {
-                        label: snippet.label, // 显示在建议列表中的文本 (e.g., "sout")
-                        kind: monaco.languages.CompletionItemKind.Snippet, // 告诉 Monaco 这是一个代码片段
-                        documentation: snippet.description, // 鼠标悬浮时显示的详细描述
-                        insertText: snippet.body, // 实际插入的文本内容
-                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, // 使 ${0}, ${1:var} 等占位符生效
-                        // ========================= 关键修改 START =========================
-                        // 5. 将我们计算出的替换范围应用到每个建议项。
-                        range: range
-                        // ========================= 关键修改 END ===========================
-                    };
-                });
+                const snippetSuggestions = languageSnippets.map(snippet => ({
+                    label: snippet.label,
+                    kind: monaco.languages.CompletionItemKind.Snippet,
+                    documentation: snippet.description,
+                    insertText: snippet.body,
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    range: range
+                }));
 
-                // 6. 返回包含所有建议的列表
+                // 4. 合并所有建议
+                allSuggestions = allSuggestions.concat(snippetSuggestions);
+
                 return {
-                    suggestions: suggestions
+                    suggestions: allSuggestions
                 };
+                // ========================= 关键修改 END ===========================
             }
         });
     }

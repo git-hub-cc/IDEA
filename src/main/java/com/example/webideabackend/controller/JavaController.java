@@ -2,11 +2,13 @@ package com.example.webideabackend.controller;
 
 import com.example.webideabackend.model.RunJavaRequest;
 import com.example.webideabackend.service.JavaCompilerRunnerService;
+import com.example.webideabackend.service.JavaStructureService;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,14 +19,15 @@ import java.util.concurrent.TimeUnit;
 public class JavaController implements DisposableBean {
 
     private final JavaCompilerRunnerService javaRunnerService;
+    private final JavaStructureService javaStructureService; // 新增服务
     private final ExecutorService taskExecutor = Executors.newCachedThreadPool();
 
     @Autowired
-    public JavaController(JavaCompilerRunnerService javaRunnerService) {
+    public JavaController(JavaCompilerRunnerService javaRunnerService, JavaStructureService javaStructureService) {
         this.javaRunnerService = javaRunnerService;
+        this.javaStructureService = javaStructureService; // 注入新服务
     }
 
-    // ========================= 关键修改 START =========================
     /**
      * 构建并运行一个项目。
      * 在启动异步构建过程之前，会首先同步验证该项目是否为有效的Maven项目。
@@ -46,6 +49,22 @@ public class JavaController implements DisposableBean {
             // 3. 验证失败，返回一个带有清晰错误信息的 400 Bad Request
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
+    }
+
+    // ========================= 关键修改 START =========================
+    /**
+     * 获取指定项目中的所有公共类和接口名称。
+     *
+     * @param projectPath 目标项目。
+     * @return 包含所有完全限定类名的列表。
+     */
+    @GetMapping("/class-names")
+    public ResponseEntity<List<String>> getClassNames(@RequestParam String projectPath) {
+        if (projectPath == null || projectPath.isBlank()) {
+            return ResponseEntity.badRequest().body(List.of());
+        }
+        List<String> classNames = javaStructureService.findClassNamesInProject(projectPath);
+        return ResponseEntity.ok(classNames);
     }
     // ========================= 关键修改 END ===========================
 

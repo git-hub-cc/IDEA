@@ -8,6 +8,9 @@ import com.example.webideabackend.service.FileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+// ========================= 关键修改 START: 导入新类 =========================
+import org.springframework.http.ContentDisposition;
+// ========================= 关键修改 END ===========================
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -16,6 +19,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+// ========================= 关键修改 START: 导入新类 =========================
+import java.nio.charset.StandardCharsets;
+// ========================= 关键修改 END ===========================
 import java.nio.file.Path;
 import java.util.List;
 
@@ -69,8 +75,18 @@ public class FileController {
 
             String filename = Path.of(path).getFileName().toString();
             HttpHeaders headers = new HttpHeaders();
+
+            // ========================= 关键修改 START: 修复中文文件名问题 =========================
+            // 使用 ContentDisposition.builder 来正确编码包含非ASCII字符的文件名
+            // 之前的 headers.setContentDispositionFormData("attachment", filename) 不支持UTF-8
+            ContentDisposition contentDisposition = ContentDisposition.builder("attachment")
+                    .filename(filename, StandardCharsets.UTF_8) // 明确指定UTF-8编码
+                    .build();
+            headers.setContentDisposition(contentDisposition);
+
+            // 确保 Content-Type 依然设置正确
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-            headers.setContentDispositionFormData("attachment", filename);
+            // ========================= 关键修改 END ========================================
 
             return new ResponseEntity<>(contentBytes, headers, HttpStatus.OK);
 
@@ -143,7 +159,6 @@ public class FileController {
         }
     }
 
-    // ========================= 关键修改 START: 新增粘贴上传端点 =========================
     /**
      * 将文件上传到项目中的指定子目录。
      * 用于支持从前端通过粘贴操作上传文件。
@@ -170,5 +185,4 @@ public class FileController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
     }
-    // ========================= 关键修改 END ========================================
 }

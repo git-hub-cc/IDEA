@@ -86,7 +86,7 @@
   },
   {
     "keys": "Ctrl+Alt+L",
-    "event": "action:format-code",
+    "event": "editor:format-code",
     "description": "格式化代码 (IDEA 风格)"
   },
   {
@@ -138,5 +138,10 @@
     "keys": "Ctrl+G",
     "event": "editor:show-goto-line",
     "description": "跳转到行"
+  },
+  {
+    "keys": "Shift+Enter",
+    "event": "editor:insert-line-after",
+    "description": "在下方开始新行 (IDEA 风格)"
   }
 ]

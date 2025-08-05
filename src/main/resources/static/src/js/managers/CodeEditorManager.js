@@ -95,8 +95,13 @@ const CodeEditorManager = {
         EventBus.on('editor:closeTabsToTheRight', this.closeTabsToTheRight.bind(this));
         EventBus.on('editor:closeTabsToTheLeft', this.closeTabsToTheLeft.bind(this));
         EventBus.on('editor:insertSnippet', this.insertSnippet.bind(this));
+
+        // ========================= 关键修改 START: 监听编辑器相关快捷键事件 =========================
+        // 监听通用动作
         EventBus.on('editor:formatDocument', () => this.monacoInstance?.getAction('editor.action.formatDocument').run());
         EventBus.on('editor:find', () => this.monacoInstance?.getAction('actions.find').run());
+
+        // 监听IDEA风格的编辑动作
         EventBus.on('editor:duplicate-line', () => this.monacoInstance?.getAction('editor.action.copyLinesDownAction').run());
         EventBus.on('editor:delete-line', () => this.monacoInstance?.getAction('editor.action.deleteLines').run());
         EventBus.on('editor:toggle-line-comment', () => this.monacoInstance?.getAction('editor.action.commentLine').run());
@@ -106,6 +111,9 @@ const CodeEditorManager = {
         EventBus.on('editor:expand-selection', () => this.monacoInstance?.getAction('editor.action.smartSelect.expand').run());
         EventBus.on('editor:shrink-selection', () => this.monacoInstance?.getAction('editor.action.smartSelect.shrink').run());
         EventBus.on('editor:show-goto-line', () => this.monacoInstance?.getAction('editor.action.gotoLine').run());
+        // 将 Shift+Enter 快捷键的处理移至此处，由 KeyboardManager 统一管理
+        EventBus.on('editor:insert-line-after', () => this.monacoInstance?.getAction('editor.action.insertLineAfter').run());
+        // ========================= 关键修改 END ============================================
     },
 
     handleContentChange: function() {

@@ -3,6 +3,10 @@ import EventBus from '../utils/event-emitter.js';
 
 const KeyboardManager = {
     shortcuts: {},
+    // ========================= 关键修改 START =========================
+    // 新增一个反向映射，用于根据事件名查找快捷键
+    eventToKeysMap: new Map(),
+    // ========================= 关键修改 END ===========================
 
     /**
      * 初始化快捷键管理器。
@@ -40,6 +44,13 @@ const KeyboardManager = {
      */
     register: function(keyString, eventName) {
         this.shortcuts[keyString.toLowerCase()] = eventName;
+        // ========================= 关键修改 START =========================
+        // 填充反向映射
+        if (!this.eventToKeysMap.has(eventName)) {
+            this.eventToKeysMap.set(eventName, []);
+        }
+        this.eventToKeysMap.get(eventName).push(keyString);
+        // ========================= 关键修改 END ===========================
     },
 
     /**
@@ -80,7 +91,18 @@ const KeyboardManager = {
         if (e.shiftKey) modifier += 'shift+';
         if (e.metaKey) modifier += 'cmd+';
         return modifier + e.key.toLowerCase();
+    },
+
+    // ========================= 关键修改 START =========================
+    /**
+     * 根据事件名称获取其所有已注册的快捷键。
+     * @param {string} eventName - 事件名称，例如 'action:save-file'。
+     * @returns {string[]} - 快捷键字符串数组，例如 ['Ctrl+S']。
+     */
+    getShortcutsForEvent: function(eventName) {
+        return this.eventToKeysMap.get(eventName) || [];
     }
+    // ========================= 关键修改 END ===========================
 };
 
 export default KeyboardManager;

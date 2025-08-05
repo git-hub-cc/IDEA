@@ -4,6 +4,9 @@ package com.example.webideabackend.service;
 
 import com.example.webideabackend.model.GiteeRepoInfo;
 import com.example.webideabackend.model.GitStatusResponse;
+// ========================= 关键修改 START: 导入新类 =========================
+import com.example.webideabackend.model.Settings;
+// ========================= 关键修改 END ===========================
 import com.example.webideabackend.util.SystemCommandExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.apache.commons.io.FileUtils;
@@ -38,13 +41,18 @@ public class GitService {
     private static final String GITEE_USER = "wyswydx"; // Gitee 用户名
     private static final String GITEE_API_URL_TEMPLATE = "https://gitee.com/api/v5/users/" + GITEE_USER + "/repos?access_token=%s";
 
+    // ========================= 关键修改 START =========================
     @Value("${gitee.api.access-token}")
-    private String giteeAccessToken;
+    private String giteeAccessTokenFromProps; // 重命名以明确来源
 
+    // 这两个值目前在 pull/push 中未使用，但为保持一致性而保留
     @Value("${gitee.ssh.private-key-path:}")
-    private String giteeSshPrivateKeyPath;
+    private String giteeSshPrivateKeyPathFromProps;
     @Value("${gitee.ssh.passphrase:}")
-    private String giteeSshPassphrase;
+    private String giteeSshPassphraseFromProps;
+
+    private final SettingsService settingsService; // 注入 SettingsService
+    // ========================= 关键修改 END ===========================
 
     private final Path workspaceRoot;
     private final RestTemplate restTemplate;
@@ -53,10 +61,12 @@ public class GitService {
     @Autowired
     public GitService(@Value("${app.workspace-root}") String workspaceRootPath,
                       RestTemplate restTemplate,
-                      SystemCommandExecutor commandExecutor) {
+                      SystemCommandExecutor commandExecutor,
+                      SettingsService settingsService) { // 注入
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
         this.restTemplate = restTemplate;
         this.commandExecutor = commandExecutor;
+        this.settingsService = settingsService; // 赋值
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -65,7 +75,14 @@ public class GitService {
     private record GiteeApiOwner(String login) {}
 
     public List<GiteeRepoInfo> getGiteeRepositories() {
-        final String apiUrl = String.format(GITEE_API_URL_TEMPLATE, giteeAccessToken);
+        // ========================= 关键修改 START =========================
+        String accessToken = settingsService.getSettings().getGiteeAccessToken();
+        if (!StringUtils.hasText(accessToken)) {
+            accessToken = this.giteeAccessTokenFromProps;
+        }
+        // ========================= 关键修改 END ===========================
+
+        final String apiUrl = String.format(GITEE_API_URL_TEMPLATE, accessToken);
         try {
             GiteeApiRepo[] repos = restTemplate.getForObject(apiUrl, GiteeApiRepo[].class);
             if (repos == null) return Collections.emptyList();
@@ -93,6 +110,13 @@ public class GitService {
             throw new IllegalArgumentException("Could not determine project name from URL: " + repoHttpsUrl);
         }
 
+        // ========================= 关键修改 START =========================
+        String accessToken = settingsService.getSettings().getGiteeAccessToken();
+        if (!StringUtils.hasText(accessToken)) {
+            accessToken = this.giteeAccessTokenFromProps;
+        }
+        // ========================= 关键修改 END ===========================
+
         Path projectDir = workspaceRoot.resolve(projectName);
         if (Files.exists(projectDir)) {
             LOGGER.warn("Project directory {} already exists. Deleting it before clone.", projectDir);
@@ -102,7 +126,7 @@ public class GitService {
         try (Git git = Git.cloneRepository()
                 .setURI(repoHttpsUrl)
                 .setDirectory(projectDir.toFile())
-                .setCredentialsProvider(new UsernamePasswordCredentialsProvider("private-token", giteeAccessToken))
+                .setCredentialsProvider(new UsernamePasswordCredentialsProvider("private-token", accessToken))
                 .call()) {
             LOGGER.info("Repository cloned successfully via HTTPS into: {}", git.getRepository().getDirectory());
             LOGGER.info("Switching remote 'origin' URL to SSH format for push operations...");
@@ -149,18 +173,6 @@ public class GitService {
         }
     }
 
-    // ========================= 关键修改 START =========================
-    /**
-     * 【根本性解决方案】
-     * 使用 SystemCommandExecutor 来调用系统原生的 'git pull' 命令。
-     * 这与 'push' 方法的实现保持一致，可以绕过 JGit 的 SSH 密钥格式和会话工厂问题，
-     * 直接利用系统已经配置好的、并且经过验证可以正常工作的 Git 和 SSH 环境。
-     *
-     * @param projectPath 要执行拉取的项目路径
-     * @return 包含拉取结果消息的字符串
-     * @throws IOException 如果命令执行过程中发生 I/O 错误
-     * @throws GitAPIException 如果 Git 命令返回非零退出码，表示拉取失败
-     */
     public String pull(String projectPath) throws IOException, GitAPIException {
         if (!StringUtils.hasText(projectPath)) {
             throw new IllegalArgumentException("Project path cannot be empty.");
@@ -192,7 +204,6 @@ public class GitService {
             } else {
                 String errorMessage = "Pull failed with exit code: " + exitCode + ".\nOutput:\n" + commandOutput;
                 LOGGER.error(errorMessage);
-                // 抛出一个具体的异常，这样 Controller 层可以捕获并返回一个合适的 HTTP 错误
                 throw new GitAPIException(errorMessage) {};
             }
         } catch (InterruptedException | ExecutionException e) {
@@ -201,7 +212,6 @@ public class GitService {
             throw new IOException("Failed to execute git pull command.", e);
         }
     }
-    // ========================= 关键修改 END ===========================
 
 
     public Map<String, Object> push(String projectPath) throws IOException, GitAPIException {
@@ -214,7 +224,6 @@ public class GitService {
             throw new IllegalStateException("Project is not a valid Git repository.");
         }
 
-        // 1. 获取远程URL以便后续转换和返回
         String remoteUrl;
         try (Git git = Git.open(projectDir)) {
             Config storedConfig = git.getRepository().getConfig();
@@ -240,10 +249,8 @@ public class GitService {
             if (exitCode == 0) {
                 LOGGER.info("Native git push completed successfully for project '{}'.", projectPath);
 
-                // 2. 转换URL为可浏览格式
                 String browseableUrl = convertSshToHttps(remoteUrl);
 
-                // 3. 构造包含消息和URL的响应
                 Map<String, Object> result = new HashMap<>();
                 result.put("message", "Push successful.\n" + commandOutput);
                 result.put("repoUrl", browseableUrl);

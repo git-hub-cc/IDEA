@@ -170,14 +170,15 @@ public class FileService {
         LOGGER.info("Successfully replaced project '{}' with {} files.", projectPath, files.length);
     }
 
-    // ========================= 关键修改 START: 新增服务方法 =========================
+    // ========================= 关键修改 START: 优化上传逻辑以支持目录结构 =========================
     /**
      * 将一组文件上传到指定的项目子目录中。
+     * 此方法现在能识别并创建文件在上传时的相对目录结构。
      *
      * @param projectPath     目标项目。
      * @param destinationPath 目标子目录的相对路径。
-     * @param files           要保存的文件数组。
-     * @throws IOException 如果发生I/O错误。
+     * @param files           要保存的文件数组，其原始文件名可能包含相对路径。
+     * @throws IOException 如果发生I/O错误或检测到路径遍历攻击。
      */
     public void uploadFilesToPath(String projectPath, String destinationPath, MultipartFile[] files) throws IOException {
         // 获取并验证目标目录的绝对路径
@@ -192,29 +193,31 @@ public class FileService {
         }
 
         for (MultipartFile file : files) {
-            // 防止文件名为空
-            String originalFilename = file.getOriginalFilename();
-            if (originalFilename == null || originalFilename.isBlank()) {
+            // 从 MultipartFile 获取包含相对路径的文件名 (例如, "subdir/file.txt")
+            String relativePath = file.getOriginalFilename();
+            if (relativePath == null || relativePath.isBlank()) {
                 continue;
             }
 
-            // 安全处理文件名，移除可能存在的路径信息
-            String safeFilename = Paths.get(originalFilename).getFileName().toString();
-
             // 解析最终的文件路径
-            Path targetPath = destinationDir.resolve(safeFilename).normalize();
+            Path targetPath = destinationDir.resolve(relativePath).normalize();
 
-            // 再次进行安全检查，确保最终路径仍在目标目录内，防止路径遍历攻击 (如 "..\..\file.txt")
+            // 安全检查，确保最终路径仍在目标目录内，防止路径遍历攻击 (如 "..\..\file.txt")
             if (!targetPath.startsWith(destinationDir)) {
-                LOGGER.error("Path traversal attempt blocked for uploaded file: {}", safeFilename);
-                throw new IOException("无效的文件名，可能包含非法路径: " + safeFilename);
+                LOGGER.error("Path traversal attempt blocked for uploaded file: {}", relativePath);
+                throw new IOException("无效的文件名，可能包含非法路径: " + relativePath);
+            }
+
+            // 如果上传的是文件，确保其父目录存在
+            if (targetPath.getParent() != null) {
+                Files.createDirectories(targetPath.getParent());
             }
 
             // 保存文件
             file.transferTo(targetPath);
-            LOGGER.debug("Pasted file to: {}", targetPath);
+            LOGGER.debug("Uploaded item to: {}", targetPath);
         }
-        LOGGER.info("Successfully uploaded {} files to project '{}' at '{}'.", files.length, projectPath, destinationPath);
+        LOGGER.info("Successfully uploaded {} items to project '{}' at '{}'.", files.length, projectPath, destinationPath);
     }
     // ========================= 关键修改 END ========================================
 

@@ -118,25 +118,7 @@ const NetworkManager = {
             formData.append('files', file, file.name);
         });
 
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            const url = this.baseUrl + 'api/files/upload-to-path';
-            xhr.open('POST', url, true);
-
-            xhr.upload.onprogress = (event) => EventBus.emit('progress:update', { value: event.loaded, total: event.total, message: `正在粘贴... ${Math.round((event.loaded / event.total) * 100)}%` });
-            xhr.onloadstart = () => EventBus.emit('progress:start', { message: '开始粘贴...', total: 1 });
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve(xhr.responseText);
-                } else {
-                    reject(new Error(`粘贴失败: ${xhr.status} ${xhr.responseText}`));
-                }
-            };
-            xhr.onerror = () => reject(new Error('网络错误，无法粘贴文件。'));
-            xhr.onloadend = () => EventBus.emit('progress:finish');
-
-            xhr.send(formData);
-        });
+        return this._uploadWithXHR('api/files/upload-to-path', formData);
     },
 
     // --- Existing API wrapper methods ---
@@ -164,6 +146,7 @@ const NetworkManager = {
     resumeDebug: () => NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }),
     getSettings: () => NetworkManager._rawFetchApi('api/settings'),
     saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
+    getProjectClassNames: (projectName) => NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`),
 
     // ========================= 关键修改 START =========================
     /**
@@ -185,6 +168,55 @@ const NetworkManager = {
         }
     },
 
+    // ========================= 关键修改 START: 新增辅助函数和方法 =========================
+    /**
+     * 一个通用的 XHR 上传辅助函数，用于处理带进度条的上传。
+     * @param {string} endpoint - API 端点。
+     * @param {FormData} formData - 要发送的表单数据。
+     * @returns {Promise<string>} - 成功时解析为响应文本的 Promise。
+     */
+    _uploadWithXHR: function(endpoint, formData) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', this.baseUrl + endpoint, true);
+
+            xhr.upload.onprogress = (event) => EventBus.emit('progress:update', { value: event.loaded, total: event.total, message: `上传中... ${Math.round((event.loaded / event.total) * 100)}%` });
+            xhr.onloadstart = () => EventBus.emit('progress:start', { message: '开始上传...', total: 1 });
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else {
+                    reject(new Error(`上传失败: ${xhr.status} ${xhr.responseText}`));
+                }
+            };
+            xhr.onerror = () => reject(new Error('网络错误，无法完成上传。'));
+            xhr.onloadend = () => EventBus.emit('progress:finish');
+
+            xhr.send(formData);
+        });
+    },
+
+    /**
+     * 上传包含目录结构的文件/文件夹。
+     * @param {Array<{file: File, path: string}>} items - 包含文件对象和其相对路径的数组。
+     * @param {string} destinationPath - 文件在项目中的目标父目录。
+     * @returns {Promise<string>}
+     */
+    uploadDirectoryStructure: function(items, destinationPath) {
+        if (!Config.currentProject) {
+            return Promise.reject(new Error("没有活动项目以上传文件。"));
+        }
+        const formData = new FormData();
+        formData.append('projectPath', Config.currentProject);
+        formData.append('destinationPath', destinationPath);
+        items.forEach(({ file, path }) => {
+            formData.append('files', file, path);
+        });
+        return this._uploadWithXHR('api/files/upload-to-path', formData);
+    },
+    // ========================= 关键修改 END ======================================
+
+
     // --- Project upload methods ---
     uploadProject: async function(directoryHandle, projectName) {
         EventBus.emit('statusbar:updateStatus', '正在分析文件夹...');
@@ -198,19 +230,7 @@ const NetworkManager = {
         formData.append('projectPath', projectName);
         filesToUpload.forEach(({ file, path }) => formData.append('files', file, path));
 
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', this.baseUrl + 'api/files/replace-project', true);
-            xhr.upload.onprogress = (event) => EventBus.emit('progress:update', { value: event.loaded, total: event.total, message: `上传中... ${Math.round((event.loaded / event.total) * 100)}%` });
-            xhr.onloadstart = () => EventBus.emit('progress:start', { message: '开始上传...', total: 1 });
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
-                else reject(new Error(`上传失败: ${xhr.status} ${xhr.responseText}`));
-            };
-            xhr.onerror = () => reject(new Error('网络错误，无法上传项目。'));
-            xhr.onloadend = () => EventBus.emit('progress:finish');
-            xhr.send(formData);
-        });
+        return this._uploadWithXHR('api/files/replace-project', formData);
     },
 
     _getFilesRecursively: async function(dirHandle, currentPath = '') {

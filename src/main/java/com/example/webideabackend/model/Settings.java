@@ -17,4 +17,20 @@ public class Settings {
     private String editorFontFamily = "JetBrains Mono";
     private boolean wordWrap = true;
 
+    // ========================= 关键修改 START =========================
+    /**
+     * Gitee 个人访问令牌，用于API访问和HTTPS操作。
+     */
+    private String giteeAccessToken;
+
+    /**
+     * 用于SSH操作的私钥文件的绝对路径。
+     */
+    private String giteeSshPrivateKeyPath;
+
+    /**
+     * SSH私钥的密码（如果已设置）。
+     */
+    private String giteeSshPassphrase;
+    // ========================= 关键修改 END ===========================
 }

@@ -33,16 +33,16 @@ const ActionManager = {
         EventBus.on('action:settings', this.handleSettings.bind(this));
         EventBus.on('action:about', this.handleAbout.bind(this));
 
+        // ========================= 关键修改 START: 新增对重命名快捷键的监听 =========================
         // 文件树上下文菜单 & 快捷键动作
         EventBus.on('action:rename-active-file', this.handleRenameActiveFile.bind(this));
+        // ========================= 关键修改 END ==============================================
         EventBus.on('context-action:new-file', ({ path }) => this.handleNewFile(path, 'folder'));
         EventBus.on('context-action:new-folder', ({ path }) => this.handleNewFolder(path));
         EventBus.on('context-action:rename', ({ path, type }) => this.handleRenamePath(path, type));
         EventBus.on('context-action:delete', this.handleDeletePath.bind(this));
         EventBus.on('context-action:download', this.handleDownloadFile.bind(this));
-        // ========================= 关键修改 START =========================
         EventBus.on('context-action:open-in-terminal', this.handleOpenInTerminal.bind(this));
-        // ========================= 关键修改 END ===========================
 
         // 编辑器标签页上下文菜单动作
         EventBus.on('context-action:close-tab', this.handleCloseTab.bind(this));
@@ -491,17 +491,22 @@ const ActionManager = {
         EventBus.emit('editor:closeTabsToTheLeft', filePath);
     },
 
+    // ========================= 关键修改 START: 新增方法处理重命名快捷键 =========================
+    /**
+     * Handles the 'Rename Active File' action triggered by a shortcut.
+     */
     handleRenameActiveFile: function() {
         const activePath = CodeEditorManager.activeFilePath;
         if (activePath) {
+            // Re-use the existing logic for renaming from the context menu
             this.handleRenamePath(activePath, 'file');
         } else {
             EventBus.emit('log:warn', '没有激活的文件可以重命名。');
             EventBus.emit('modal:showAlert', { title: '操作无效', message: '请先打开一个文件。' });
         }
     },
+    // ========================= 关键修改 END ================================================
 
-    // ========================= 关键修改 START: 新增方法 =========================
     /**
      * Handles the 'Open in Terminal' context menu action.
      * @param {object} context - The context object from the event, e.g., { path, type }.
@@ -528,6 +533,5 @@ const ActionManager = {
         EventBus.emit('ui:activateBottomPanelTab', 'terminal-panel');
         NetworkManager.startTerminal(fullPath);
     },
-    // ========================= 关键修改 END ===========================
 };
 export default ActionManager;

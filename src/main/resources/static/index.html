@@ -6,32 +6,33 @@
     <title>Web IDEA</title>
 
     <!-- 引入 CSS 样式 -->
-    <link rel="stylesheet" href="src/css/main.css">
-    <link rel="stylesheet" href="src/css/components.css">
+    <link href="src/css/main.css" rel="stylesheet"/>
+    <link href="src/css/components.css" rel="stylesheet"/>
     <!-- ThemeManager 将会动态修改这个 link 的 href -->
-    <link id="theme-link" rel="stylesheet" href="src/css/theme-dark.css">
+    <link href="src/css/theme-dark.css" id="theme-link" rel="stylesheet"/>
     <!-- 引入 Font Awesome (CDN) - 用于图标 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-
+    <link href="src/js/lib/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet"/>
     <!-- 引入 ansi_up.js 用于将ANSI码转换为HTML -->
-    <script src="https://cdn.jsdelivr.net/npm/ansi_up@5.1.0/ansi_up.min.js"></script>
-
+    <script src="src/js/lib/ansi_up@5.1.0/ansi_up.min.js">
+    </script>
     <!-- Stomp.js 和 SockJS 客户端库 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
-
+    <script src="src/js/lib/libs/sockjs-client/1.6.1/sockjs.min.js">
+    </script>
+    <script src="src/js/lib/libs/stomp.js/2.3.3/stomp.min.js">
+    </script>
     <!-- 引入 Monaco Editor Loader (CDN) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.46.0/min/vs/loader.min.js"></script>
+    <script src="src/js/lib/libs/monaco-editor/0.46.0/min/vs/loader.min.js">
+    </script>
     <script>
         // Monaco Editor 的 AMD Loader 配置
-        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.46.0/min/vs' } });
+        require.config({ paths: { 'vs': './src/js/lib/ajax/libs/monaco-editor/0.46.0/min/vs' } });
         // 在此处加载 Monaco Editor 的核心模块，确保 CodeEditor 模块能直接使用 window.monaco
         require(['vs/editor/editor.main'], function() {
-            console.log('Monaco Editor 核心已加载。');
-            // 触发一个自定义事件，通知应用Monaco已准备好
-            document.dispatchEvent(new CustomEvent('monaco-ready'));
-        });
-    </script>
+        console.log('Monaco Editor 核心已加载。');
+        // 触发一个自定义事件，通知应用Monaco已准备好
+        document.dispatchEvent(new CustomEvent('monaco-ready'));
+    });
+</script>
 </head>
 <body class="dark-theme">
 
