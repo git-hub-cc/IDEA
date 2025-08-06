@@ -84,11 +84,9 @@
             <button class="toolbar-btn" data-action="settings" title="设置 (Ctrl+,)">
                 <i class="fas fa-cog"></i>
             </button>
-            <!-- ========================= 关键修改 START ========================= -->
             <button class="toolbar-btn" data-action="start-tour" title="功能引导">
                 <i class="fas fa-question-circle"></i>
             </button>
-            <!-- ========================= 关键修改 END =========================== -->
         </div>
     </div>
 
@@ -125,7 +123,7 @@
             </div>
             <div class="panel-content-area">
                 <div id="console-output" class="panel-content active">
-                    <pre></pre>
+                    <!-- 这个区域的内容将由 ConsoleManager.js 动态创建以支持虚拟滚动 -->
                 </div>
                 <div id="problems-list" class="panel-content">
                     <ul><li>无问题</li></ul>
@@ -161,6 +159,7 @@
             </div>
         </div>
     </div>
+
     <div id="status-bar" class="status-bar">
         <div class="status-left">
             <span>就绪</span>

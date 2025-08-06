@@ -47,7 +47,7 @@ const SessionLockManager = {
      */
     async checkLockStatus() {
         try {
-            const status = await fetch('/api/session/status').then(res => res.json());
+            const status = await fetch('api/session/status').then(res => res.json());
             if (status.isLocked) {
                 this.showLockScreen();
                 if (!this.pollingInterval) {

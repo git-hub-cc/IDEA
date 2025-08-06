@@ -82,10 +82,17 @@ const NetworkManager = {
     },
     onSessionStatusReceived: function(message) {
         if (message.body === 'LOCKED') {
+            // ========================= 关键修改 START =========================
+            // 当收到“LOCKED”消息时，我们不再主动断开连接。
+            // 而是只触发 session:locked 事件，让 SessionLockManager 来处理UI显示和轮询。
+            // 这样可以避免在控制台产生不必要的“错误”日志，并允许在应用解锁后无缝接管。
             EventBus.emit('session:locked');
-            if (this.stompClient) {
-                this.stompClient.disconnect(() => console.log("因应用被占用，已主动断开 WebSocket 连接。"));
-            }
+
+            // 移除了以下主动断开连接的代码块:
+            // if (this.stompClient) {
+            //     this.stompClient.disconnect(() => console.log("因应用被占用，已主动断开 WebSocket 连接。"));
+            // }
+            // ========================= 关键修改 END ===========================
         }
     },
 
@@ -159,6 +166,9 @@ const NetworkManager = {
     stepInto: () => NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }),
     stepOut: () => NetworkManager.fetchApi('api/debug/stepOut', { method: 'POST' }),
     resumeDebug: () => NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }),
+    // ========================= 关键修改 START =========================
+    toggleBreakpoint: (filePath, lineNumber, enabled) => NetworkManager._rawFetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify({ filePath, lineNumber, enabled }) }),
+    // ========================= 关键修改 END ===========================
     getSettings: () => NetworkManager._rawFetchApi('api/settings'),
     saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
     getProjectClassNames: (projectName) => NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`),

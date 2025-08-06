@@ -267,6 +267,31 @@ const CodeEditorManager = {
         this.activeFilePath = filePath;
     },
 
+    // ========================= 关键修改 START =========================
+    toggleBreakpoint: function(filePath, lineNumber) {
+        if (!filePath) return;
+
+        // 检查此行是否已存在断点
+        const existingDecorationIndex = this.breakpointDecorations.findIndex(d =>
+            d.filePath === filePath && d.range.startLineNumber === lineNumber
+        );
+
+        const isEnabled = existingDecorationIndex === -1; // 如果不存在，则代表要启用它
+
+        // 先调用后端API
+        NetworkManager.toggleBreakpoint(filePath, lineNumber, isEnabled)
+            .then(() => {
+                // 后端成功后，再更新UI
+                this.updateBreakpointDecorations(filePath, lineNumber, isEnabled);
+                EventBus.emit('log:info', `断点已在 ${filePath.split('/').pop()}:${lineNumber} ${isEnabled ? '设置' : '移除'}`);
+            })
+            .catch(error => {
+                EventBus.emit('log:error', `切换断点失败: ${error.message}`);
+                EventBus.emit('modal:showAlert', { title: '断点错误', message: `无法切换断点: ${error.message}` });
+            });
+    },
+    // ========================= 关键修改 END ===========================
+
     updateBreakpointDecorations: function(filePath, lineNumber, enabled) {
         const model = this.monacoInstance.getModel();
         if (!model || this.activeFilePath !== filePath) return;

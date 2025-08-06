@@ -74,14 +74,6 @@
 /* --- 文件树 --- */
 .file-tree-container { flex-grow: 1; overflow: auto; padding: 5px; }
 .file-tree { list-style: none; padding: 0; margin: 0; }
-/*
- * 设计决策: 移除了 `overflow: hidden` 和 `text-overflow: ellipsis`。
- * 之前的样式会截断长文件名并显示省略号，这阻止了父容器 `.file-tree-container`
- * 检测到内容的实际溢出，因此水平滚动条无法出现。
- * 移除这些属性后，`<li>` 元素会根据其内容（由 `white-space: nowrap` 强制不换行）
- * 自然伸展到所需宽度。当这个宽度超过 `.file-tree-container` 的宽度时，
- * 该容器的 `overflow: auto` 属性就会正确地触发水平滚动条。
- */
 .file-tree li {
     padding: 5px 8px;
     cursor: pointer;
@@ -89,7 +81,6 @@
     display: flex;
     align-items: center;
     white-space: nowrap;
-    /* 移除了 overflow: hidden 和 text-overflow: ellipsis 以允许内容溢出，从而触发父容器的滚动条 */
     border-radius: 4px;
     border: 1px solid transparent;
 }
@@ -123,14 +114,12 @@
 .file-tree li.folder.expanded > ul { display: block; }
 .file-tree li i { margin-right: 8px; width: 14px; text-align: center; }
 .file-tree li.folder > i { color: var(--accent-color); }
-/* ========================= 关键修改 START ========================= */
 .file-tree li.drag-hover-target > span,
 .file-tree li.drag-hover-target > i {
     background-color: var(--selection-color);
     outline: 1px solid var(--accent-color);
     border-radius: 2px;
 }
-/* ========================= 关键修改 END =========================== */
 
 /* --- 上下文菜单 --- */
 .context-menu {
@@ -207,7 +196,6 @@
 .editor-tab .unsaved-indicator { color: var(--color-warning); display: none; }
 .editor-tab.modified .unsaved-indicator { display: inline; }
 
-/* ========================= 关键修改 START ========================= */
 /* --- 媒体预览样式 --- */
 #media-preview-container {
     display: flex; /* 使用 flex 布局来居中内容 */
@@ -225,7 +213,6 @@
     border-radius: 4px;
     box-shadow: 0 4px 15px var(--shadow-color);
 }
-/* ========================= 关键修改 END =========================== */
 
 /* --- 底部面板 --- */
 .panel-tab-bar {
@@ -249,14 +236,46 @@
 .panel-tab:hover { background-color: var(--border-color); color: var(--text-primary); }
 .panel-tab.active { color: var(--accent-color); font-weight: bold; border-bottom: 2px solid var(--accent-color); }
 
-/* 控制台输出 */
-#console-output pre { font-family: var(--font-family-mono); white-space: pre-wrap; word-break: break-all; }
+/* ========================= 关键修改 START: 替换为虚拟滚动样式 ========================= */
+#console-output .console-viewport {
+    height: 100%;
+    overflow-y: auto;
+    font-size: 0.9rem;
+}
 
-/* 当控制台禁用自动换行时，使用 pre 默认行为并允许水平滚动 */
-#console-output.no-wrap pre {
+#console-output .console-content {
+    position: relative;
+    overflow: hidden;
+    font-family: var(--font-family-mono);
+    color: var(--text-primary);
+}
+
+#console-output .console-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    padding: 0 10px; /* 保持与旧版一致的内边距 */
+    line-height: 1.5; /* 用于动态行高计算 */
+    white-space: pre-wrap; /* 默认开启自动换行 */
+    word-break: break-all;
+}
+
+/* 当控制台禁用自动换行时，应用此样式 */
+#console-output.no-wrap .console-line {
     white-space: pre;
     word-break: normal;
+    min-width: fit-content; /* 确保不换行时内容能撑开容器，出现水平滚动条 */
 }
+
+/* 不同类型日志的颜色 */
+#console-output .console-line.error {
+    color: var(--color-error);
+}
+
+#console-output .console-line.warn {
+    color: var(--color-warning);
+}
+/* ========================= 关键修改 END ========================================== */
 
 /* 问题列表 */
 #problems-list ul { list-style: none; padding: 0; margin: 0; }
@@ -396,7 +415,6 @@
 .modal-body input:focus, .modal-body select:focus, .modal-body textarea:focus { border-color: var(--accent-color); }
 .modal-body label { display: block; margin-top: 15px; font-size: 0.9rem; color: var(--text-secondary); }
 
-/* ========================= 关键修改 START: 设置模态框的标签页样式 ========================= */
 .settings-modal-body .settings-item {
     margin-bottom: 15px;
     display: flex;
@@ -407,7 +425,6 @@
 .modal-tabs {
     display: flex;
     border-bottom: 1px solid var(--border-color);
-    /* 让标签栏延伸到模态框主体的边缘 */
     margin: -20px -20px 20px -20px;
     padding: 0 20px;
 }
@@ -421,7 +438,6 @@
     font-size: 0.9rem;
     border-bottom: 2px solid transparent;
     transition: color 0.2s, border-color 0.2s;
-    /* 让标签页的底部边框与父元素的边框重叠 */
     margin-bottom: -1px;
 }
 
@@ -442,9 +458,7 @@
 .modal-tab-content .tab-pane.active {
     display: block;
 }
-/* ========================= 关键修改 END ======================================== */
 
-/* ================== 新增 Git 仓库选择列表样式 START ================== */
 .repo-item-label {
     display: flex;
     justify-content: space-between;
@@ -482,21 +496,17 @@
     color: var(--text-secondary);
     margin: 4px 0 0 0;
 }
-/* ================== 新增 Git 仓库选择列表样式 END ==================== */
 
 .modal-footer { padding: 15px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
 .modal-action-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: background-color 0.2s, opacity 0.2s; }
 .modal-action-btn.primary-btn { background-color: var(--accent-color); color: white; }
 .modal-action-btn.primary-btn:hover:not(:disabled) { background-color: var(--accent-color-hover); }
 .modal-action-btn.secondary-btn { background-color: var(--border-color); color: var(--text-primary); }
-
-/* ================== 新增禁用按钮样式 ================== */
 .modal-action-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
     background-color: var(--border-color);
 }
-/* ======================================================= */
 
 /* --- Monaco/Debugger 特有样式 --- */
 .debug-line-highlight { background-color: rgba(98, 163, 255, 0.2); }
@@ -653,7 +663,6 @@
     cursor: not-allowed;
 }
 
-/* ========================= 关键修改 START ========================= */
 /* --- 功能引导 / Tour --- */
 .tour-overlay {
     position: fixed;
@@ -673,7 +682,6 @@
 .tour-highlight {
     position: relative;
     z-index: 10001;
-    /* 关键技巧: 使用一个巨大的扩散阴影来创建遮罩效果 */
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
     pointer-events: auto; /* 高亮元素本身可以交互 */
     border-radius: 4px; /* 为高亮区域添加圆角 */
@@ -750,4 +758,3 @@
 .tour-popover-nav button.primary:hover {
     background-color: var(--accent-color-hover);
 }
-/* ========================= 关键修改 END =========================== */

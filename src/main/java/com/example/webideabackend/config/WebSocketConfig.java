@@ -1,3 +1,5 @@
+// src/main/java/com/example/webideabackend/config/WebSocketConfig.java
+
 package com.example.webideabackend.config;
 
 import com.sun.security.auth.UserPrincipal;
@@ -31,7 +33,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
         // ========================= 关键修改 START =========================
-        // 添加 /topic/run/status 用于广播运行状态
+        // 通过 setHeartbeatValue 配置心跳机制，以保持连接活跃
+        // 数组的第一个值(10000ms): 服务器向客户端发送心跳的频率
+        // 数组的第二个值(10000ms): 服务器期望从客户端接收心跳的频率
         config.enableSimpleBroker("/topic", "/queue")
                 .setHeartbeatValue(new long[]{10000, 10000})
                 .setTaskScheduler(this.taskScheduler);
