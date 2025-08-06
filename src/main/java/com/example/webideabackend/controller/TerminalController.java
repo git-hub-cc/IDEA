@@ -35,7 +35,6 @@ public class TerminalController {
         }
     }
 
-    // ========================= 关键修改 START =========================
     /**
      * Handles a request from the frontend to start a new terminal session.
      * @param relativePath The project context to start the terminal in (e.g., "project-name/src/main"). Can be null or empty.
@@ -49,7 +48,6 @@ public class TerminalController {
             terminalService.startSession(sessionId, relativePath);
         }
     }
-    // ========================= 关键修改 END ===========================
 
     /**
      * Handles input from the frontend terminal.

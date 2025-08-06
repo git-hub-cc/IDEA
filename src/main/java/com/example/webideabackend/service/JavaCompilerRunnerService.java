@@ -30,7 +30,6 @@ import java.util.concurrent.CompletableFuture;
 public class JavaCompilerRunnerService {
 
     private final Path workspaceRoot;
-    // private final SystemCommandExecutor commandExecutor; // 移除
     private final WebSocketNotificationService notificationService;
     private final MavenProjectHelper mavenHelper;
     private final RunSessionService runSessionService; // 新增依赖
@@ -43,19 +42,16 @@ public class JavaCompilerRunnerService {
     @Autowired
     public JavaCompilerRunnerService(
             @Value("${app.workspace-root}") String workspaceRootPath,
-            // SystemCommandExecutor commandExecutor, // 移除
             WebSocketNotificationService notificationService,
             MavenProjectHelper mavenHelper,
             RunSessionService runSessionService) { // 新增依赖
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
-        // this.commandExecutor = commandExecutor; // 移除
         this.notificationService = notificationService;
         this.mavenHelper = mavenHelper;
         this.runSessionService = runSessionService; // 新增依赖
     }
 
     public void validateIsMavenProject(String projectPath) {
-        // ... 此方法保持不变 ...
         Path projectDir = workspaceRoot.resolve(projectPath);
         Path pomFile = projectDir.resolve("pom.xml");
         if (!Files.exists(pomFile)) {
@@ -116,7 +112,6 @@ public class JavaCompilerRunnerService {
 
 
     private List<String> buildJavaCommandList(File projectDir, String mainClass, String jvmOptions, String jdkVersionKey) {
-        // ... 此方法保持不变 ...
         var targetDir = new File(projectDir, "target");
         String jarFileName = getJarNameFromPom(projectDir);
         var jarFile = new File(targetDir, jarFileName);
@@ -203,7 +198,6 @@ public class JavaCompilerRunnerService {
     // ========================= 关键修改 END ===========================
 
     private String getJarNameFromPom(File projectDir) {
-        // ... 此方法保持不变 ...
         File pomFile = new File(projectDir, "pom.xml");
         String fallbackJarName = projectDir.getName() + "-1.0-SNAPSHOT.jar";
 

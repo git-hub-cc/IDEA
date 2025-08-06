@@ -14,6 +14,7 @@ const NetworkManager = {
         this.onRunLogReceived = this.onRunLogReceived.bind(this);
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
         this.onRunStatusReceived = this.onRunStatusReceived.bind(this);
+        this.onSessionStatusReceived = this.onSessionStatusReceived.bind(this);
         EventBus.on('app:ready', () => this.connectWebSocket());
     },
 
@@ -24,7 +25,6 @@ const NetworkManager = {
             this.stompClient = Stomp.over(socket);
             this.stompClient.debug = null;
 
-            // 增加心跳配置，客户端每10秒发送一次，期望服务器每10秒响应一次
             this.stompClient.heartbeat.outgoing = 10000;
             this.stompClient.heartbeat.incoming = 10000;
 
@@ -42,11 +42,11 @@ const NetworkManager = {
                 this.sessionId = null;
                 EventBus.emit('network:websocketDisconnected', error);
 
-                // 添加自动重连逻辑
                 setTimeout(() => {
                     console.log("尝试重新连接 WebSocket...");
-                    this.connectWebSocket();
-                }, 5000); // 5秒后重连
+                    // 注意：这里不直接调用 connectWebSocket，因为如果应用被锁定，应该由 SessionLockManager 控制
+                    // EventBus.emit('session:check');
+                }, 5000);
 
                 reject(error);
             });
@@ -62,28 +62,31 @@ const NetworkManager = {
         this.stompClient.subscribe(`/topic/terminal-output/${this.sessionId}`, (message) => {
             EventBus.emit('terminal:data', message.body);
         });
+        // 订阅用户特定的会话状态主题
+        this.stompClient.subscribe('/user/queue/session/status', this.onSessionStatusReceived);
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
     onBuildLogReceived: function(message) {
-        // 后端批处理后，message.body可能包含多行，所以直接发送
         EventBus.emit('console:log', '[构建]\n' + message.body);
     },
     onRunLogReceived: function(message) {
-        // 后端批处理后，message.body可能包含多行
         EventBus.emit('console:log', message.body);
     },
     onDebugEventReceived: function(message) {
         try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); }
         catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); }
     },
-
-    /**
-     * 接收到运行状态变更时，将其转发到全局事件总线。
-     * @param {object} message - STOMP消息。
-     */
     onRunStatusReceived: function(message) {
         EventBus.emit('run:statusChanged', message.body);
+    },
+    onSessionStatusReceived: function(message) {
+        if (message.body === 'LOCKED') {
+            EventBus.emit('session:locked');
+            if (this.stompClient) {
+                this.stompClient.disconnect(() => console.log("因应用被占用，已主动断开 WebSocket 连接。"));
+            }
+        }
     },
 
     _rawFetchApi: async function(endpoint, options = {}, responseType = 'json') {
@@ -134,22 +137,7 @@ const NetworkManager = {
         return this._rawFetchApi(finalEndpoint, finalOptions, responseType);
     },
 
-    uploadFilesToPath: function(files, destinationPath) {
-        if (!Config.currentProject) {
-            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
-        }
-
-        const formData = new FormData();
-        formData.append('projectPath', Config.currentProject);
-        formData.append('destinationPath', destinationPath);
-        files.forEach(file => {
-            formData.append('files', file, file.name);
-        });
-
-        return this._uploadWithXHR('api/files/upload-to-path', formData);
-    },
-
-    // --- API wrapper methods ---
+    // --- API wrapper methods (unchanged) ---
     getProjects: () => NetworkManager._rawFetchApi('api/projects'),
     getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
     getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
@@ -163,7 +151,6 @@ const NetworkManager = {
     createFileOrDir: (parentPath, name, type) => NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }),
     deletePath: (path) => NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
     renamePath: (oldPath, newName) => NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }),
-    toggleBreakpoint: (breakpoint) => NetworkManager.fetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify(breakpoint) }),
     getRemoteRepos: () => NetworkManager._rawFetchApi('api/git/remote-repos'),
     cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', { method: 'POST', body: JSON.stringify({ cloneUrl }) }),
     startDebug: (mainClass) => NetworkManager.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }),
@@ -252,7 +239,6 @@ const NetworkManager = {
         }
         return files;
     },
-    getBreakpoints: () => NetworkManager.fetchApi('api/debug/breakpoints'),
 };
 
 export default NetworkManager;

@@ -8,6 +8,9 @@ import CodeEditorManager from './CodeEditorManager.js';
 import ModalManager from './ModalManager.js';
 import RunManager from './RunManager.js';
 import DebuggerManager from './DebuggerManager.js';
+// ========================= 关键修改 START =========================
+import TourManager from './TourManager.js';
+// ========================= 关键修改 END ===========================
 
 const ActionManager = {
     init: function() {
@@ -34,7 +37,9 @@ const ActionManager = {
         EventBus.on('action:vcs-pull', this.handleVCSPull.bind(this));
         EventBus.on('action:vcs-push', this.handleVCSPush.bind(this));
         EventBus.on('action:settings', this.handleSettings.bind(this));
-        EventBus.on('action:about', this.handleAbout.bind(this));
+        // ========================= 关键修改 START =========================
+        EventBus.on('action:start-tour', () => TourManager.start(true));
+        // ========================= 关键修改 END ===========================
         EventBus.on('action:rename-active-file', this.handleRenameActiveFile.bind(this));
 
         // Context Menu Actions
@@ -427,13 +432,6 @@ const ActionManager = {
             EventBus.emit('log:error', `加载设置失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '错误', message: '无法加载设置。' });
         }
-    },
-
-    handleAbout: function() {
-        EventBus.emit('modal:showAlert', {
-            title: '关于 Web IDEA',
-            message: '这是一个基于Vanilla JS和ES6模块构建的IDE原型。\n版本: 3.0.0'
-        });
     },
 
     handleDeletePath: function({ path }) {

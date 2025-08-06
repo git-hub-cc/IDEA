@@ -1,0 +1,44 @@
+[
+  {
+    "element": "#project-selector",
+    "title": "1. 项目选择器",
+    "content": "在这里，您可以选择、切换或加载您的项目。所有文件和操作都将基于当前选定的项目。",
+    "position": "bottom"
+  },
+  {
+    "element": "#left-panel",
+    "title": "2. 文件浏览器",
+    "content": "这里显示了您当前项目的文件和文件夹结构。您可以单击文件以在编辑器中打开它，或右键单击以进行更多操作（如新建、重命名、删除）。",
+    "position": "right"
+  },
+  {
+    "element": ".toolbar-group:nth-child(2)",
+    "title": "3. 运行与调试",
+    "content": "使用这些按钮来构建、运行或调试您的Java应用程序。输出将显示在下方的“日志”面板中。",
+    "position": "bottom"
+  },
+  {
+    "element": ".toolbar-group:nth-child(3)",
+    "title": "4. 版本控制 (Git)",
+    "content": "通过这些按钮与Git进行交互。您可以克隆仓库、提交更改、拉取最新代码以及推送到远程仓库。",
+    "position": "bottom"
+  },
+  {
+    "element": "#center-panel",
+    "title": "5. 主编辑区",
+    "content": "这是您的主工作区。您打开的文件将以标签页的形式显示在这里，并且可以在Monaco编辑器中进行编辑。",
+    "position": "bottom"
+  },
+  {
+    "element": "#bottom-panel .panel-tab-bar",
+    "title": "6. 辅助面板",
+    "content": "这里包含了多个有用的面板，如显示构建/运行输出的“日志”、报告代码问题的“问题”、可交互的“终端”以及用于调试的“调试”面板。",
+    "position": "top"
+  },
+  {
+    "element": "[data-action='settings']",
+    "title": "7. 设置",
+    "content": "点击这里可以配置IDE的外观（主题、字体）、Git凭证等。",
+    "position": "left"
+  }
+]

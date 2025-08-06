@@ -56,14 +56,12 @@
             </button>
         </div>
         <div class="toolbar-group">
-            <!-- ========================= 关键修改 START ========================= -->
             <button class="toolbar-btn" data-action="run-code" title="运行代码 (Shift+F10)">
                 <span class="btn-icon-wrapper">
                     <i class="fas fa-play run-icon"></i>      <!-- 运行图标 -->
                     <i class="fas fa-stop stop-icon"></i>     <!-- 停止图标，默认隐藏 -->
                 </span>
             </button>
-            <!-- ========================= 关键修改 END =========================== -->
             <button class="toolbar-btn" data-action="debug-code" title="调试代码 (Shift+F9)">
                 <i class="fas fa-bug"></i>
             </button>
@@ -86,9 +84,11 @@
             <button class="toolbar-btn" data-action="settings" title="设置 (Ctrl+,)">
                 <i class="fas fa-cog"></i>
             </button>
-            <button class="toolbar-btn" data-action="about" title="关于">
-                <i class="fas fa-info-circle"></i>
+            <!-- ========================= 关键修改 START ========================= -->
+            <button class="toolbar-btn" data-action="start-tour" title="功能引导">
+                <i class="fas fa-question-circle"></i>
             </button>
+            <!-- ========================= 关键修改 END =========================== -->
         </div>
     </div>
 
@@ -199,6 +199,20 @@
 </div>
 <div id="context-menu" class="context-menu">
 </div>
+
+<!-- 会话锁定屏幕遮罩层 -->
+<div id="lock-screen-overlay" class="lock-screen-overlay">
+    <div class="lock-screen-content">
+        <div class="lock-screen-icon">
+            <i class="fas fa-user-lock"></i>
+        </div>
+        <h1>应用正在使用中</h1>
+        <p>当前有其他用户正在使用此 Web IDE。请稍后...</p>
+        <p class="lock-screen-timer">我们将在 <span id="lock-screen-countdown">5</span> 秒后自动重试。</p>
+        <div class="spinner"></div>
+    </div>
+</div>
+
 
 <!-- 唯一的应用入口点 -->
 <script type="module" src="src/js/main.js"></script>

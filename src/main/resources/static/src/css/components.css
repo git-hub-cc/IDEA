@@ -652,3 +652,102 @@
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+/* ========================= 关键修改 START ========================= */
+/* --- 功能引导 / Tour --- */
+.tour-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10000;
+    pointer-events: none; /* 允许点击穿透覆盖层 */
+    display: none;
+}
+
+.tour-overlay.visible {
+    display: block;
+}
+
+.tour-highlight {
+    position: relative;
+    z-index: 10001;
+    /* 关键技巧: 使用一个巨大的扩散阴影来创建遮罩效果 */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+    pointer-events: auto; /* 高亮元素本身可以交互 */
+    border-radius: 4px; /* 为高亮区域添加圆角 */
+    transition: box-shadow 0.3s ease-in-out;
+}
+
+.tour-popover {
+    position: absolute;
+    z-index: 10002;
+    background-color: var(--bg-panel);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 5px 15px var(--shadow-color);
+    padding: 15px;
+    width: 300px;
+    max-width: 90vw;
+    pointer-events: auto; /* 弹出框可交互 */
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+.tour-popover.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.tour-popover h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+    color: var(--accent-color);
+}
+
+.tour-popover p {
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.tour-popover-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tour-popover-steps {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.tour-popover-nav button {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 5px;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.tour-popover-nav button:hover {
+    background-color: var(--border-color);
+}
+
+.tour-popover-nav button.primary {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.tour-popover-nav button.primary:hover {
+    background-color: var(--accent-color-hover);
+}
+/* ========================= 关键修改 END =========================== */
