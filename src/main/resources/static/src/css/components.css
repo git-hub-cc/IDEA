@@ -265,12 +265,14 @@
 
 /* 当控制台禁用自动换行时，应用此样式 */
 #console-output.no-wrap .console-line {
-    white-space: pre; /* 强制不换行 */
-    word-break: normal;
-    /* 关键修复: 让元素宽度由其内容决定，从而可以超出视口宽度，触发水平滚动条 */
-    width: -moz-fit-content;
-    width: fit-content;
+    white-space: pre;              /* 保留空格和换行 */
+    word-break: normal;            /* 不强制换词 */
+    width: fit-content;            /* 宽度适应内容 */
+    width: -moz-fit-content;       /* Firefox 旧版本兼容 */
+    max-width: 100%;               /* 防止内容撑破父容器 */
+    overflow-x: auto;              /* 内容超出时显示滚动条 */
 }
+
 
 /* 不同类型日志的颜色 */
 #console-output .console-line.error {
@@ -763,3 +765,65 @@
 .tour-popover-nav button.primary:hover {
     background-color: var(--accent-color-hover);
 }
+
+/* ========================= 关键修改 START: 为环境设置面板添加样式 ========================= */
+.settings-list {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.settings-list-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    gap: 15px;
+}
+.settings-list-item:last-child {
+    border-bottom: none;
+}
+
+.settings-list-item .jdk-key {
+    font-weight: bold;
+    color: var(--accent-color);
+    flex-shrink: 0;
+    width: 80px;
+}
+.settings-list-item .jdk-path {
+    flex-grow: 1;
+    font-family: var(--font-family-mono);
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.settings-list-item .jdk-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9em;
+    padding: 4px;
+    border-radius: 4px;
+}
+.icon-btn:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.settings-list-empty {
+    padding: 15px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+/* ========================= 关键修改 END ============================================ */

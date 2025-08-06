@@ -10,32 +10,21 @@ const CodeEditorManager = {
     monacoContainer: null,
     mediaPreviewContainer: null,
     tabBar: null,
-    openFiles: new Map(), // Map<filePath, { type, model?, tabEl, isDirty, viewState?, previewElement?, objectUrl? }>
+    openFiles: new Map(),
     activeFilePath: null,
     debugDecorations: [],
-    breakpointDecorations: [], // Stores { id, range, options, filePath }
+    breakpointDecorations: [],
 
-    // ========================= 关键修改 START: 扩展已知文本文件类型 =========================
-    // 优化后的列表，包含更多文本格式并排除了不合适的二进制格式
     KNOWN_TEXT_EXTENSIONS: new Set([
-        // Core Web & Scripting
         'html', 'css', 'js', 'jsx', 'ts', 'tsx', 'vue',
-        // Backend & Systems
         'java', 'kt', 'gradle', 'py', 'rb', 'php', 'go', 'rs', 'r', 'c', 'cpp', 'h', 'cs',
-        // Config & Data
         'xml', 'pom', 'json', 'jsonl', 'yml', 'yaml', 'toml', 'ini', 'conf', 'properties', 'env',
-        // Shell & Build
         'sh', 'bat', 'cmd', 'sql', 'dockerfile', 'docker', 'makefile', 'ignore', 'gitignore',
-        // Markup & Docs
         'md', 'adoc', 'asciidoc', 'tex', 'rtf', 'svg', 'mml',
-        // Plain Text & Logs
         'txt', 'log', 'csv', 'tsv',
-        // Data Formats (Text-based)
         'proto', 'gltf',
-        // Document formats that can be viewed as text
         'ods', 'odt', 'epub', 'fb2', 'mhtml', 'pages'
     ]),
-    // ========================= 关键修改 END ==========================================
 
     KNOWN_MEDIA_EXTENSIONS: new Set([
         'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'avif',
@@ -62,7 +51,7 @@ const CodeEditorManager = {
         this.monacoInstance = window.monaco.editor.create(this.monacoContainer, {
             value: '// 欢迎使用 Web IDEA！请从顶部选择一个项目，然后从左侧文件树中选择一个文件。\n',
             language: 'plaintext',
-            theme: 'vs-dark',
+            theme: 'vs-dark', // 将由 ThemeManager 更新
             automaticLayout: true,
             fontSize: 14,
             wordWrap: 'on',
@@ -96,12 +85,8 @@ const CodeEditorManager = {
         EventBus.on('editor:closeTabsToTheLeft', this.closeTabsToTheLeft.bind(this));
         EventBus.on('editor:insertSnippet', this.insertSnippet.bind(this));
 
-        // ========================= 关键修改 START: 监听编辑器相关快捷键事件 =========================
-        // 监听通用动作
         EventBus.on('editor:formatDocument', () => this.monacoInstance?.getAction('editor.action.formatDocument').run());
         EventBus.on('editor:find', () => this.monacoInstance?.getAction('actions.find').run());
-
-        // 监听IDEA风格的编辑动作
         EventBus.on('editor:duplicate-line', () => this.monacoInstance?.getAction('editor.action.copyLinesDownAction').run());
         EventBus.on('editor:delete-line', () => this.monacoInstance?.getAction('editor.action.deleteLines').run());
         EventBus.on('editor:toggle-line-comment', () => this.monacoInstance?.getAction('editor.action.commentLine').run());
@@ -111,9 +96,7 @@ const CodeEditorManager = {
         EventBus.on('editor:expand-selection', () => this.monacoInstance?.getAction('editor.action.smartSelect.expand').run());
         EventBus.on('editor:shrink-selection', () => this.monacoInstance?.getAction('editor.action.smartSelect.shrink').run());
         EventBus.on('editor:show-goto-line', () => this.monacoInstance?.getAction('editor.action.gotoLine').run());
-        // 将 Shift+Enter 快捷键的处理移至此处，由 KeyboardManager 统一管理
         EventBus.on('editor:insert-line-after', () => this.monacoInstance?.getAction('editor.action.insertLineAfter').run());
-        // ========================= 关键修改 END ============================================
     },
 
     handleContentChange: function() {
@@ -267,21 +250,17 @@ const CodeEditorManager = {
         this.activeFilePath = filePath;
     },
 
-    // ========================= 关键修改 START =========================
     toggleBreakpoint: function(filePath, lineNumber) {
         if (!filePath) return;
 
-        // 检查此行是否已存在断点
         const existingDecorationIndex = this.breakpointDecorations.findIndex(d =>
             d.filePath === filePath && d.range.startLineNumber === lineNumber
         );
 
-        const isEnabled = existingDecorationIndex === -1; // 如果不存在，则代表要启用它
+        const isEnabled = existingDecorationIndex === -1;
 
-        // 先调用后端API
         NetworkManager.toggleBreakpoint(filePath, lineNumber, isEnabled)
             .then(() => {
-                // 后端成功后，再更新UI
                 this.updateBreakpointDecorations(filePath, lineNumber, isEnabled);
                 EventBus.emit('log:info', `断点已在 ${filePath.split('/').pop()}:${lineNumber} ${isEnabled ? '设置' : '移除'}`);
             })
@@ -290,7 +269,6 @@ const CodeEditorManager = {
                 EventBus.emit('modal:showAlert', { title: '断点错误', message: `无法切换断点: ${error.message}` });
             });
     },
-    // ========================= 关键修改 END ===========================
 
     updateBreakpointDecorations: function(filePath, lineNumber, enabled) {
         const model = this.monacoInstance.getModel();
@@ -356,9 +334,7 @@ const CodeEditorManager = {
             EventBus.emit('log:info', `文件 '${this.activeFilePath}' 已成功保存。`);
             EventBus.emit('statusbar:updateStatus', '文件已保存', 2000);
             EventBus.emit('git:statusChanged');
-            // ========================= 关键修改 START: 发出文件保存事件 =========================
             EventBus.emit('file:saved', this.activeFilePath);
-            // ========================= 关键修改 END ==========================================
         } catch (error) {
             EventBus.emit('log:error', `保存文件 ${this.activeFilePath} 失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '保存失败', message: error.message });
@@ -467,71 +443,23 @@ const CodeEditorManager = {
         return this.KNOWN_TEXT_EXTENSIONS.has(ext);
     },
 
-    // ========================= 关键修改 START: 扩展语言映射 =========================
     _getLanguageFromPath: function(filePath) {
         if (!filePath) return 'plaintext';
         const ext = filePath.split('.').pop().toLowerCase();
-
-        if (this._isMediaFile(filePath)) {
-            if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'avif'].includes(ext)) return 'Image';
-            if (['mp4', 'webm', 'ogg', 'mov', 'mp3', 'wav', 'flac'].includes(ext)) return 'Video/Audio';
-            return 'Media';
-        }
-
+        if (this._isMediaFile(filePath)) return 'Media';
         switch (ext) {
-            // Web
             case 'js': case 'jsx': return 'javascript';
             case 'ts': case 'tsx': return 'typescript';
             case 'html': return 'html';
             case 'css': return 'css';
-            case 'scss': return 'scss';
-            case 'less': return 'less';
-            case 'vue': return 'vue';
-            case 'svg': return 'svg';
-
-            // Java & JVM
             case 'java': return 'java';
-            case 'kt': return 'kotlin';
-            case 'gradle': return 'groovy';
-
-            // Other Languages
             case 'py': return 'python';
-            case 'rb': return 'ruby';
-            case 'php': return 'php';
-            case 'c': return 'c';
-            case 'h': case 'cpp': return 'cpp';
-            case 'cs': return 'csharp';
-            case 'go': return 'go';
-            case 'rs': return 'rust';
-            case 'r': return 'r';
-
-            // Config & Data
             case 'xml': case 'pom': return 'xml';
-            case 'json': case 'jsonl': case 'gltf': return 'json';
-            case 'yml': case 'yaml': return 'yaml';
-            case 'toml': return 'toml';
-            case 'ini': case 'properties': case 'conf': case 'env': return 'ini';
-            case 'proto': return 'protobuf';
-
-            // Shell & SQL
-            case 'sh': return 'shell';
-            case 'bat': case 'cmd': return 'bat';
-            case 'sql': return 'sql';
-            case 'dockerfile': case 'docker': return 'dockerfile';
-            case 'makefile': return 'makefile';
-
-            // Markup
-            case 'md': case 'adoc': case 'asciidoc': return 'markdown';
-
-            // Default to plaintext for known text but unhighlighted files
-            case 'gitignore': case 'ignore':
-            case 'log': case 'txt': case 'csv': case 'tsv':
-            case 'tex': case 'rtf': case 'mml': case 'ods': case 'odt':
-            case 'epub': case 'fb2': case 'mhtml': case 'pages':
+            case 'json': return 'json';
+            case 'md': return 'markdown';
             default: return 'plaintext';
         }
     },
-    // ========================= 关键修改 END ======================================
 
     getActiveLanguage: function() {
         return this._getLanguageFromPath(this.activeFilePath);
@@ -579,14 +507,17 @@ const CodeEditorManager = {
         }
     },
 
+    // ========================= 关键修改 START: applySettings 从 settings 对象读取更多配置 =========================
     applySettings: function(settings) {
+        if (!this.monacoInstance || !settings) return;
         this.monacoInstance.updateOptions({
             fontSize: settings.fontSize,
             wordWrap: settings.wordWrap ? 'on' : 'off',
-            fontFamily: settings.editorFontFamily
+            fontFamily: settings.editorFontFamily || 'JetBrains Mono', // 提供一个默认值
         });
-        this.setTheme(settings.theme);
+        // 主题设置由 ThemeManager 通过 'theme:changed' 事件处理，此处无需重复调用
     },
+    // ========================= 关键修改 END ====================================================
 
     insertSnippet: function(template) {
         if (!this.monacoInstance) return;

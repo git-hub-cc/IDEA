@@ -44,8 +44,6 @@ const NetworkManager = {
 
                 setTimeout(() => {
                     console.log("尝试重新连接 WebSocket...");
-                    // 注意：这里不直接调用 connectWebSocket，因为如果应用被锁定，应该由 SessionLockManager 控制
-                    // EventBus.emit('session:check');
                 }, 5000);
 
                 reject(error);
@@ -62,7 +60,6 @@ const NetworkManager = {
         this.stompClient.subscribe(`/topic/terminal-output/${this.sessionId}`, (message) => {
             EventBus.emit('terminal:data', message.body);
         });
-        // 订阅用户特定的会话状态主题
         this.stompClient.subscribe('/user/queue/session/status', this.onSessionStatusReceived);
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
@@ -82,20 +79,19 @@ const NetworkManager = {
     },
     onSessionStatusReceived: function(message) {
         if (message.body === 'LOCKED') {
-            // ========================= 关键修改 START =========================
-            // 当收到“LOCKED”消息时，我们不再主动断开连接。
-            // 而是只触发 session:locked 事件，让 SessionLockManager 来处理UI显示和轮询。
-            // 这样可以避免在控制台产生不必要的“错误”日志，并允许在应用解锁后无缝接管。
             EventBus.emit('session:locked');
-
-            // 移除了以下主动断开连接的代码块:
-            // if (this.stompClient) {
-            //     this.stompClient.disconnect(() => console.log("因应用被占用，已主动断开 WebSocket 连接。"));
-            // }
-            // ========================= 关键修改 END ===========================
         }
     },
 
+    // ========================= 关键修改 START: 重构 fetchApi 以处理结构化错误 =========================
+    /**
+     * 底层的 fetch API 包装器。
+     * @param {string} endpoint - API 端点路径。
+     * @param {object} options - fetch 选项。
+     * @param {string} responseType - 期望的响应类型 ('json', 'text', 'blob')。
+     * @returns {Promise<any>}
+     * @private
+     */
     _rawFetchApi: async function(endpoint, options = {}, responseType = 'json') {
         const url = this.baseUrl + endpoint;
         try {
@@ -103,15 +99,32 @@ const NetworkManager = {
                 headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json', ...options.headers },
                 ...options,
             });
+
             if (!response.ok) {
+                // 如果响应状态码不是 2xx，则尝试解析错误体
+                let errorData;
                 const errorText = await response.text();
-                throw new Error(`API错误 ${response.status}: ${errorText || response.statusText}`);
+                try {
+                    // 尝试解析为 JSON
+                    errorData = JSON.parse(errorText);
+                } catch (e) {
+                    // 如果不是 JSON，则使用原始文本
+                    errorData = { message: errorText || response.statusText };
+                }
+
+                // 抛出一个包含 HTTP 状态和解析后数据的错误
+                const error = new Error(`API错误 ${response.status}`);
+                error.status = response.status;
+                error.data = errorData;
+                throw error;
             }
+
+            // 处理成功响应
             switch (responseType) {
                 case 'json':
                     const contentType = response.headers.get('content-type');
                     if (contentType && contentType.includes('application/json')) return response.json();
-                    return response.text();
+                    return response.text(); // 如果后端返回的不是JSON，则返回文本以避免解析错误
                 case 'text':
                     return response.text();
                 case 'blob':
@@ -120,11 +133,18 @@ const NetworkManager = {
                     return response;
             }
         } catch (error) {
+            // 如果是我们自己构造的 API 错误，重新抛出
+            if (error.data) {
+                // 为了向后兼容，将 data 附加到 message 中
+                error.message = `${error.message}: ${JSON.stringify(error.data)}`;
+                throw error;
+            }
+            // 如果是网络层面的错误（如 fetch 失败）
             EventBus.emit('log:error', `[网络错误] ${error.message}`);
-            throw error;
+            throw new Error(`网络请求失败: ${error.message}`);
         }
     },
-
+    // ========================= 关键修改 END ====================================================
 
     uploadFilesToPath: function(files, destinationPath) {
         if (!Config.currentProject) {
@@ -140,7 +160,6 @@ const NetworkManager = {
 
         return this._uploadWithXHR('api/files/upload-to-path', formData);
     },
-
 
     fetchApi: async function(endpoint, options = {}, responseType = 'json') {
         let finalEndpoint = endpoint;
@@ -161,7 +180,7 @@ const NetworkManager = {
         return this._rawFetchApi(finalEndpoint, finalOptions, responseType);
     },
 
-    // --- API wrapper methods (unchanged) ---
+    // --- API wrapper methods (大部分保持不变) ---
     getProjects: () => NetworkManager._rawFetchApi('api/projects'),
     getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
     getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
@@ -183,9 +202,7 @@ const NetworkManager = {
     stepInto: () => NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }),
     stepOut: () => NetworkManager.fetchApi('api/debug/stepOut', { method: 'POST' }),
     resumeDebug: () => NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }),
-    // ========================= 关键修改 START =========================
     toggleBreakpoint: (filePath, lineNumber, enabled) => NetworkManager._rawFetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify({ filePath, lineNumber, enabled }) }),
-    // ========================= 关键修改 END ===========================
     getSettings: () => NetworkManager._rawFetchApi('api/settings'),
     saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
     getProjectClassNames: (projectName) => NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`),

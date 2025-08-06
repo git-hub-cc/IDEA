@@ -8,9 +8,7 @@ import CodeEditorManager from './CodeEditorManager.js';
 import ModalManager from './ModalManager.js';
 import RunManager from './RunManager.js';
 import DebuggerManager from './DebuggerManager.js';
-// ========================= 关键修改 START =========================
 import TourManager from './TourManager.js';
-// ========================= 关键修改 END ===========================
 
 const ActionManager = {
     init: function() {
@@ -37,9 +35,7 @@ const ActionManager = {
         EventBus.on('action:vcs-pull', this.handleVCSPull.bind(this));
         EventBus.on('action:vcs-push', this.handleVCSPush.bind(this));
         EventBus.on('action:settings', this.handleSettings.bind(this));
-        // ========================= 关键修改 START =========================
         EventBus.on('action:start-tour', () => TourManager.start(true));
-        // ========================= 关键修改 END ===========================
         EventBus.on('action:rename-active-file', this.handleRenameActiveFile.bind(this));
 
         // Context Menu Actions
@@ -182,21 +178,40 @@ const ActionManager = {
         try {
             await NetworkManager.buildProject();
             EventBus.emit('log:info', '构建与运行请求已发送。');
+            // ========================= 关键修改 START: 捕获并处理环境配置错误 =========================
         } catch (error) {
             EventBus.emit('log:error', `构建请求失败: ${error.message}`);
-            let userMessage = '构建失败。请查看控制台日志。';
+            let errorPayload = {};
             try {
+                // 尝试从错误消息中解析出JSON体
                 const jsonString = error.message.substring(error.message.indexOf('{'));
-                const errorPayload = JSON.parse(jsonString);
-                if (errorPayload && errorPayload.message) {
-                    userMessage = errorPayload.message;
-                }
+                errorPayload = JSON.parse(jsonString);
             } catch (e) {
-                // Not a JSON error, use as is.
+                // 如果解析失败，说明不是我们期望的结构化错误
+                EventBus.emit('modal:showAlert', { title: '无法运行', message: '构建失败。请查看控制台日志。' });
+                EventBus.emit('statusbar:updateStatus', '构建失败', 2000);
+                return;
             }
-            EventBus.emit('modal:showAlert', { title: '无法运行', message: userMessage });
+
+            // 检查是否是环境错误
+            if (errorPayload.type === 'ENVIRONMENT_ERROR') {
+                EventBus.emit('modal:showConfirm', {
+                    title: '环境配置错误',
+                    message: errorPayload.details || '执行环境未正确配置，无法运行项目。',
+                    confirmText: '前往设置',
+                    cancelText: '关闭',
+                    onConfirm: () => {
+                        // 打开设置并默认定位到环境面板
+                        this.handleSettings('env-settings-pane');
+                    }
+                });
+            } else {
+                // 其他类型的后端错误
+                EventBus.emit('modal:showAlert', { title: '无法运行', message: errorPayload.message || '未知构建错误' });
+            }
             EventBus.emit('statusbar:updateStatus', '构建失败', 2000);
         }
+        // ========================= 关键修改 END ============================================
     },
 
     handleDebugCode: async function() {
@@ -424,15 +439,17 @@ const ActionManager = {
         }
     },
 
-    handleSettings: async function() {
+    // ========================= 关键修改 START: 接收一个可选参数来指定打开的标签页 =========================
+    handleSettings: async function(defaultTab = 'app-settings-pane') {
         try {
             const currentSettings = await NetworkManager.getSettings();
-            EventBus.emit('modal:showSettings', currentSettings);
+            EventBus.emit('modal:showSettings', currentSettings, defaultTab);
         } catch (error) {
             EventBus.emit('log:error', `加载设置失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '错误', message: '无法加载设置。' });
         }
     },
+    // ========================= 关键修改 END ============================================
 
     handleDeletePath: function({ path }) {
         EventBus.emit('modal:showConfirm', {

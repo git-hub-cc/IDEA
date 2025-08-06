@@ -3,10 +3,85 @@
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
 
+const JDK_PATHS_STORAGE_KEY = 'web-ide-jdk-paths';
+
 const ModalManager = {
     resolvePromise: null,
     rejectPromise: null,
     currentSettings: null,
+
+    /**
+     * 从 localStorage 安全地读取 JDK 路径配置
+     * @returns {Object} JDK 路径对象，如果不存在或格式错误则返回空对象
+     */
+    _getJdkPathsFromStorage: function() {
+        try {
+            const stored = localStorage.getItem(JDK_PATHS_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+                    return parsed;
+                }
+            }
+        } catch (e) {
+            console.error('从 localStorage 加载 JDK 路径配置失败:', e);
+        }
+        return {};
+    },
+
+    /**
+     * 将 JDK 路径对象安全地保存到 localStorage
+     * @param {Object} jdkPaths 要保存的 JDK 路径对象
+     */
+    _saveJdkPathsToStorage: function(jdkPaths) {
+        try {
+            localStorage.setItem(JDK_PATHS_STORAGE_KEY, JSON.stringify(jdkPaths));
+        } catch (e) {
+            console.error('保存 JDK 路径配置到 localStorage 失败:', e);
+        }
+    },
+
+    /**
+     * 收集所有当前设置（包括表单和localStorage中的jdkPaths）并调用API保存。
+     * @returns {Promise<void>}
+     * @private
+     */
+    _collectAndSaveAllSettings: async function() {
+        // 确保模态框的DOM元素存在，否则无法收集数据
+        if (!document.getElementById('settings-theme')) {
+            console.warn('_collectAndSaveAllSettings 无法执行，因为设置模态框未渲染。');
+            return Promise.reject(new Error("设置UI未加载。"));
+        }
+
+        const newSettings = {
+            // App
+            theme: document.getElementById('settings-theme').value,
+            fontSize: parseInt(document.getElementById('settings-font-size').value, 10),
+            wordWrap: document.getElementById('settings-word-wrap').value === 'true',
+            // Git
+            gitPlatform: document.getElementById('settings-git-platform').value,
+            giteeAccessToken: document.getElementById('settings-gitee-token').value,
+            giteeSshPrivateKeyPath: document.getElementById('settings-ssh-key-path').value,
+            giteeSshPassphrase: document.getElementById('settings-ssh-passphrase').value,
+            // Env
+            workspaceRoot: document.getElementById('settings-workspace-root').value,
+            mavenHome: document.getElementById('settings-maven-home').value,
+            // 直接从 localStorage 获取最终的 jdkPaths
+            jdkPaths: this._getJdkPathsFromStorage(),
+        };
+
+        try {
+            await NetworkManager.saveSettings(newSettings);
+            // 使用更通用的消息，因为它可能在后台触发
+            EventBus.emit('log:info', '设置已更新并保存。');
+            EventBus.emit('settings:changed', newSettings);
+            return Promise.resolve();
+        } catch (error) {
+            EventBus.emit('log:error', `保存设置失败: ${error.message}`);
+            this.showAlert('保存失败', `无法保存设置: ${error.message}`);
+            return Promise.reject(error);
+        }
+    },
 
     init: function() {
         this.bindDOMEvents();
@@ -44,7 +119,7 @@ const ModalManager = {
     bindAppEvents: function() {
         EventBus.on('modal:showAlert', (options) => this.showAlert(options.title, options.message));
         EventBus.on('modal:showConfirm', (options) => {
-            this.showConfirm(options.title, options.message)
+            this.showConfirm(options.title, options.message, options)
                 .then(() => options.onConfirm && options.onConfirm())
                 .catch(() => options.onCancel && options.onCancel());
         });
@@ -63,8 +138,8 @@ const ModalManager = {
         return this._show(title, `<p>${message.replace(/\n/g, '<br>')}</p>`, { confirmText: '关闭', showCancel: false });
     },
 
-    showConfirm: function(title, message) {
-        return this._show(title, `<p>${message}</p>`);
+    showConfirm: function(title, message, options = {}) {
+        return this._show(title, `<p>${message}</p>`, options);
     },
 
     showPrompt: function(title, message, defaultValue = '') {
@@ -104,9 +179,6 @@ const ModalManager = {
         modal.dataset.isRepoSelection = options.isRepoSelection ? 'true' : 'false';
 
         if (options.showFooter !== false) {
-            const confirmBtn = footerEl.querySelector('[data-action="confirm-modal"]');
-            const cancelBtn = footerEl.querySelector('[data-action="cancel-modal"]');
-
             if (options.type !== 'choice') {
                 footerEl.innerHTML = `
                     <button class="modal-action-btn primary-btn" data-action="confirm-modal">确认</button>
@@ -125,7 +197,6 @@ const ModalManager = {
                 newCancelBtn.textContent = options.cancelText || '取消';
                 newCancelBtn.style.display = options.showCancel === false ? 'none' : 'inline-block';
             }
-
 
             if (options.isRepoSelection && newConfirmBtn) {
                 const repoList = bodyEl.querySelector('#repo-selection-list');
@@ -214,198 +285,174 @@ const ModalManager = {
             </div>
         `;
 
-        return this._show('选择要克隆的仓库', bodyHtml, {
-            confirmText: '克隆',
-            isRepoSelection: true
-        });
+        return this._show('选择要克隆的仓库', bodyHtml, { confirmText: '克隆', isRepoSelection: true });
     },
 
     showListPrompt: function({ title, items, onConfirm }) {
         const modalBody = document.createElement('div');
         modalBody.className = 'command-palette';
-
         const input = document.createElement('input');
         input.type = 'text';
         input.placeholder = '搜索指令...';
         input.className = 'modal-search-input';
-
         const listContainer = document.createElement('ul');
         listContainer.className = 'modal-list';
-
         modalBody.appendChild(input);
         modalBody.appendChild(listContainer);
-
         let activeIndex = 0;
-
         const renderList = (filter = '') => {
             listContainer.innerHTML = '';
             const filteredItems = items.filter(item =>
                 item.label.toLowerCase().includes(filter.toLowerCase()) ||
                 (item.description && item.description.toLowerCase().includes(filter.toLowerCase()))
             );
-
             if (filteredItems.length === 0) {
                 listContainer.innerHTML = `<li class="modal-list-item disabled">无匹配结果</li>`;
                 return;
             }
-
             filteredItems.forEach((item, index) => {
                 const li = document.createElement('li');
                 li.className = 'modal-list-item';
                 li.dataset.id = item.id;
-                li.innerHTML = `
-                    <div class="item-label">${item.label}</div>
-                    <div class="item-description">${item.description || ''}</div>
-                `;
-                if (index === 0) {
-                    li.classList.add('active');
-                }
+                li.innerHTML = `<div class="item-label">${item.label}</div><div class="item-description">${item.description || ''}</div>`;
+                if (index === 0) li.classList.add('active');
                 listContainer.appendChild(li);
             });
             updateActiveItem();
         };
-
         const updateActiveItem = () => {
             const allItems = listContainer.querySelectorAll('.modal-list-item');
-            allItems.forEach((item, index) => {
-                item.classList.toggle('active', index === activeIndex);
-            });
+            allItems.forEach((item, index) => item.classList.toggle('active', index === activeIndex));
             const activeElem = listContainer.querySelector('.active');
-            if (activeElem) {
-                activeElem.scrollIntoView({ block: 'nearest' });
-            }
+            if (activeElem) activeElem.scrollIntoView({ block: 'nearest' });
         };
-
         const selectItem = (id) => {
             this._close(false);
             if (onConfirm) onConfirm(id);
         };
-
-        input.addEventListener('input', () => {
-            activeIndex = 0;
-            renderList(input.value);
-        });
-
+        input.addEventListener('input', () => { activeIndex = 0; renderList(input.value); });
         modalBody.addEventListener('click', (e) => {
             const itemElement = e.target.closest('.modal-list-item');
-            if (itemElement && !itemElement.classList.contains('disabled')) {
-                selectItem(itemElement.dataset.id);
-            }
+            if (itemElement && !itemElement.classList.contains('disabled')) selectItem(itemElement.dataset.id);
         });
-
         input.addEventListener('keydown', (e) => {
             const items = listContainer.querySelectorAll('.modal-list-item:not(.disabled)');
             if (items.length === 0) return;
-
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                activeIndex = (activeIndex + 1) % items.length;
-                updateActiveItem();
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                activeIndex = (activeIndex - 1 + items.length) % items.length;
-                updateActiveItem();
-            } else if (e.key === 'Enter') {
+            if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = (activeIndex + 1) % items.length; updateActiveItem(); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = (activeIndex - 1 + items.length) % items.length; updateActiveItem(); }
+            else if (e.key === 'Enter') {
                 e.preventDefault();
                 const activeItem = items[activeIndex];
-                if (activeItem && activeItem.dataset.id) {
-                    selectItem(activeItem.dataset.id);
-                }
+                if (activeItem && activeItem.dataset.id) selectItem(activeItem.dataset.id);
             }
         });
-
         renderList('');
-
-        this._show(title, modalBody, { showFooter: false, type: 'list-prompt' })
-            .catch(() => {});
-
+        this._show(title, modalBody, { showFooter: false, type: 'list-prompt' }).catch(() => {});
         setTimeout(() => input.focus(), 50);
     },
 
-    // ========================= 关键修改 START: 重构设置模态框以支持多平台 =========================
-    showSettings: function(settings) {
-        this.currentSettings = settings;
+    showSettings: function(settings, openTab = 'app-settings-pane') {
+        this.currentSettings = { ...settings };
+        delete this.currentSettings.jdkPaths;
 
         const body = document.createElement('div');
         body.className = 'settings-modal-body';
-
         body.innerHTML = `
             <div class="modal-tabs">
-                <button class="modal-tab active" data-tab="app-settings-pane">应用设置</button>
-                <button class="modal-tab" data-tab="git-settings-pane">Git 设置</button>
+                <button class="modal-tab" data-tab="app-settings-pane">主题设置</button>
+                <button class="modal-tab" data-tab="git-settings-pane">Git设置</button>
+                <button class="modal-tab" data-tab="env-settings-pane">环境设置</button>
             </div>
             <div class="modal-tab-content">
-                <div id="app-settings-pane" class="tab-pane active">
+                <div id="app-settings-pane" class="tab-pane"></div>
+                <div id="git-settings-pane" class="tab-pane"></div>
+                <div id="env-settings-pane" class="tab-pane">
                     <div class="settings-item">
-                        <label for="settings-theme">主题</label>
-                        <select id="settings-theme">
-                            <option value="dark-theme">深色主题 (Darcula)</option>
-                            <option value="light-theme">浅色主题 (Light)</option>
-                        </select>
+                        <label for="settings-workspace-root">工作区根目录</label>
+                        <input type="text" id="settings-workspace-root" placeholder="例如: C:/Users/YourName/web-ide-workspace">
                     </div>
                     <div class="settings-item">
-                        <label for="settings-font-size">编辑器字号</label>
-                        <input type="number" id="settings-font-size" min="10" max="24" step="1">
+                        <label for="settings-maven-home">Maven 主目录 (MAVEN_HOME)</label>
+                        <input type="text" id="settings-maven-home" placeholder="例如: C:/tools/apache-maven-3.9.6">
                     </div>
                     <div class="settings-item">
-                        <label for="settings-word-wrap">自动换行</label>
-                        <select id="settings-word-wrap">
-                            <option value="true">开启</option>
-                            <option value="false">关闭</option>
-                        </select>
-                    </div>
-                </div>
-                <div id="git-settings-pane" class="tab-pane">
-                    <div class="settings-item">
-                        <label for="settings-git-platform">代码托管平台</label>
-                        <select id="settings-git-platform">
-                            <option value="gitee">Gitee</option>
-                            <option value="github">GitHub</option>
-                        </select>
-                    </div>
-                    <div class="settings-item">
-                        <label for="settings-gitee-token">访问令牌 (Access Token)</label>
-                        <input type="password" id="settings-gitee-token" placeholder="用于 API 访问和 HTTPS 克隆">
-                        <small id="git-token-help" style="color: var(--text-secondary); font-size: 0.8em; display: block; margin-top: 4px;"></small>
-                    </div>
-                    <div class="settings-item">
-                        <label for="settings-ssh-key-path">SSH 私钥绝对路径</label>
-                        <input type="text" id="settings-ssh-key-path" placeholder="例如 C:/Users/YourName/.ssh/id_ed25519">
-                    </div>
-                    <div class="settings-item">
-                        <label for="settings-ssh-passphrase">SSH 私钥密码</label>
-                        <input type="password" id="settings-ssh-passphrase" placeholder="如果私钥有密码，在此输入">
+                        <label>JDK 路径配置 (修改后自动保存到服务器)</label>
+                        <div id="jdk-paths-list" class="settings-list"></div>
+                        <button id="add-jdk-path-btn" class="modal-action-btn secondary-btn" style="margin-top: 10px; align-self: flex-start;">
+                            <i class="fas fa-plus"></i> 添加 JDK
+                        </button>
                     </div>
                 </div>
             </div>
         `;
 
-        // --- 填充设置值 ---
-        body.querySelector('#settings-theme').value = settings.theme;
-        body.querySelector('#settings-font-size').value = settings.fontSize;
-        body.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
-        body.querySelector('#settings-git-platform').value = settings.gitPlatform || 'gitee';
-        body.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
-        body.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
-        body.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
+        this._populateAppSettings(body, settings);
+        this._populateGitSettings(body, settings);
 
-        // --- 动态帮助链接逻辑 ---
-        const platformSelector = body.querySelector('#settings-git-platform');
-        const helpTextElement = body.querySelector('#git-token-help');
-        const tokenLinks = {
-            gitee: 'https://gitee.com/personal_access_tokens',
-            github: 'https://github.com/settings/personal-access-tokens'
+        body.querySelector('#settings-workspace-root').value = settings.workspaceRoot || '';
+        body.querySelector('#settings-maven-home').value = settings.mavenHome || '';
+
+        const jdkListContainer = body.querySelector('#jdk-paths-list');
+        const addJdkBtn = body.querySelector('#add-jdk-path-btn');
+
+        const renderJdkList = () => {
+            const jdkPaths = this._getJdkPathsFromStorage();
+            jdkListContainer.innerHTML = '';
+            if (Object.keys(jdkPaths).length === 0) {
+                jdkListContainer.innerHTML = `<p class="settings-list-empty">尚未配置 JDK 路径。</p>`;
+                return;
+            }
+            for (const [key, value] of Object.entries(jdkPaths)) {
+                const item = document.createElement('div');
+                item.className = 'settings-list-item';
+                item.innerHTML = `
+                    <span class="jdk-key">${key}</span>
+                    <span class="jdk-path">${value}</span>
+                    <div class="jdk-actions">
+                        <button class="icon-btn" data-action="edit-jdk" data-key="${key}" title="编辑"><i class="fas fa-pen"></i></button>
+                        <button class="icon-btn" data-action="delete-jdk" data-key="${key}" title="删除"><i class="fas fa-trash"></i></button>
+                    </div>`;
+                jdkListContainer.appendChild(item);
+            }
         };
 
-        const updateHelpLink = (platform) => {
-            const url = tokenLinks[platform];
-            helpTextElement.innerHTML = `不知道如何获取？点击 <a href="${url}" target="_blank" rel="noopener noreferrer">这里</a> 生成一个。`;
-        };
+        jdkListContainer.addEventListener('click', e => {
+            const button = e.target.closest('button');
+            if (!button) return;
+            const action = button.dataset.action;
+            const key = button.dataset.key;
+            let currentJdkPaths = this._getJdkPathsFromStorage();
 
-        platformSelector.addEventListener('change', (e) => updateHelpLink(e.target.value));
-        updateHelpLink(platformSelector.value); // 初始化
+            if (action === 'delete-jdk') {
+                delete currentJdkPaths[key];
+                this._saveJdkPathsToStorage(currentJdkPaths);
+                renderJdkList();
+                this._collectAndSaveAllSettings().catch(() => {});
+            } else if (action === 'edit-jdk') {
+                const currentValue = currentJdkPaths[key];
+                this._showJdkPrompt('编辑 JDK', key, currentValue).then(({ newKey, newValue }) => {
+                    currentJdkPaths = this._getJdkPathsFromStorage();
+                    if (newKey !== key) delete currentJdkPaths[key];
+                    currentJdkPaths[newKey] = newValue;
+                    this._saveJdkPathsToStorage(currentJdkPaths);
+                    renderJdkList();
+                    this._collectAndSaveAllSettings().catch(() => {});
+                }).catch(()=>{});
+            }
+        });
 
-        // --- 标签页切换逻辑 ---
+        addJdkBtn.addEventListener('click', () => {
+            this._showJdkPrompt('添加 JDK').then(({ newKey, newValue }) => {
+                const currentJdkPaths = this._getJdkPathsFromStorage();
+                currentJdkPaths[newKey] = newValue;
+                this._saveJdkPathsToStorage(currentJdkPaths);
+                renderJdkList();
+                this._collectAndSaveAllSettings().catch(() => {});
+            }).catch(()=>{});
+        });
+
+        renderJdkList();
+
         const tabs = body.querySelectorAll('.modal-tab');
         const panes = body.querySelectorAll('.tab-pane');
         tabs.forEach(tab => {
@@ -416,15 +463,89 @@ const ModalManager = {
                 panes.forEach(pane => pane.classList.toggle('active', pane.id === targetPaneId));
             });
         });
+        body.querySelector(`.modal-tab[data-tab="${openTab}"]`).click();
 
-        return this._show('应用设置', body, { confirmText: '保存', type: 'settings' });
+        return this._show('设置', body, { confirmText: '保存到服务器', type: 'settings' });
     },
-    // ========================= 关键修改 END ============================================
+
+    _populateAppSettings(container, settings) {
+        const pane = container.querySelector('#app-settings-pane');
+        pane.innerHTML = `
+            <div class="settings-item">
+                <label for="settings-theme">主题</label>
+                <select id="settings-theme">
+                    <option value="dark-theme">深色主题 (Darcula)</option>
+                    <option value="light-theme">浅色主题 (Light)</option>
+                </select>
+            </div>
+            <div class="settings-item">
+                <label for="settings-font-size">编辑器字号</label>
+                <input type="number" id="settings-font-size" min="10" max="24" step="1">
+            </div>
+            <div class="settings-item">
+                <label for="settings-word-wrap">自动换行</label>
+                <select id="settings-word-wrap">
+                    <option value="true">开启</option>
+                    <option value="false">关闭</option>
+                </select>
+            </div>`;
+        pane.querySelector('#settings-theme').value = settings.theme;
+        pane.querySelector('#settings-font-size').value = settings.fontSize;
+        pane.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
+    },
+
+    _populateGitSettings(container, settings) {
+        const pane = container.querySelector('#git-settings-pane');
+        pane.innerHTML = `
+            <div class="settings-item">
+                <label for="settings-git-platform">代码托管平台</label>
+                <select id="settings-git-platform">
+                    <option value="gitee">Gitee</option>
+                    <option value="github">GitHub</option>
+                </select>
+            </div>
+            <div class="settings-item">
+                <label for="settings-gitee-token">访问令牌 (Access Token)</label>
+                <input type="password" id="settings-gitee-token" placeholder="用于 API 访问和 HTTPS 克隆">
+            </div>
+            <div class="settings-item">
+                <label for="settings-ssh-key-path">SSH 私钥绝对路径</label>
+                <input type="text" id="settings-ssh-key-path" placeholder="例如 C:/Users/YourName/.ssh/id_ed25519">
+            </div>
+            <div class="settings-item">
+                <label for="settings-ssh-passphrase">SSH 私钥密码</label>
+                <input type="password" id="settings-ssh-passphrase" placeholder="如果私钥有密码，在此输入">
+            </div>`;
+        pane.querySelector('#settings-git-platform').value = settings.gitPlatform || 'gitee';
+        pane.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
+        pane.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
+        pane.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
+    },
+
+    _showJdkPrompt(title, initialKey = 'jdk', initialValue = '') {
+        const body = document.createElement('div');
+        body.innerHTML = `
+            <div class="settings-item">
+                <label for="jdk-prompt-key">JDK 标识符 (例如: jdk8, jdk11, jdk17)</label>
+                <input type="text" id="jdk-prompt-key" value="${initialKey}">
+            </div>
+            <div class="settings-item">
+                <label for="jdk-prompt-value">JDK 可执行文件路径 (java.exe)</label>
+                <input type="text" id="jdk-prompt-value" value="${initialValue}" placeholder="例如: C:/Program Files/Java/jdk-17/bin/java.exe">
+            </div>`;
+        return this._show(title, body).then(() => {
+            const newKey = body.querySelector('#jdk-prompt-key').value.trim();
+            const newValue = body.querySelector('#jdk-prompt-value').value.trim();
+            if (!newKey || !newValue) {
+                return Promise.reject(new Error('标识符和路径不能为空。'));
+            }
+            return { newKey, newValue };
+        });
+    },
 
     showChoiceModal: function({ title, message, choices = [] }) {
         const body = document.createElement('div');
         body.innerHTML = `<p style="margin-bottom: 15px;">${message}</p>`;
-
         const footerEl = document.getElementById('modal-footer');
         const choiceButtons = choices.map(choice => {
             const button = document.createElement('button');
@@ -433,40 +554,22 @@ const ModalManager = {
             button.onclick = () => this._close(true, choice.id);
             return button;
         });
-
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'modal-action-btn secondary-btn';
         cancelBtn.textContent = '取消';
         cancelBtn.onclick = () => this._close(false);
-
         footerEl.innerHTML = '';
         choiceButtons.forEach(btn => footerEl.appendChild(btn));
         footerEl.appendChild(cancelBtn);
-
         return this._show(title, body, { type: 'choice' });
     },
 
     _handleSettingsConfirm: async function() {
-        const newSettings = {
-            theme: document.getElementById('settings-theme').value,
-            fontSize: parseInt(document.getElementById('settings-font-size').value, 10),
-            wordWrap: document.getElementById('settings-word-wrap').value === 'true',
-            editorFontFamily: this.currentSettings.editorFontFamily,
-            // --- 读取新字段 ---
-            gitPlatform: document.getElementById('settings-git-platform').value,
-            giteeAccessToken: document.getElementById('settings-gitee-token').value,
-            giteeSshPrivateKeyPath: document.getElementById('settings-ssh-key-path').value,
-            giteeSshPassphrase: document.getElementById('settings-ssh-passphrase').value,
-        };
-
         try {
-            await NetworkManager.saveSettings(newSettings);
-            EventBus.emit('log:info', '设置已保存。');
-            EventBus.emit('settings:changed', newSettings);
+            await this._collectAndSaveAllSettings();
             this._close(true);
         } catch (error) {
-            EventBus.emit('log:error', `保存设置失败: ${error.message}`);
-            this.showAlert('保存失败', `无法保存设置: ${error.message}`);
+            // 错误已由 _collectAndSaveAllSettings 处理，保持模态框打开
         }
     },
 };

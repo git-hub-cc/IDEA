@@ -1,6 +1,6 @@
 // src/js/utils/theme-manager.js - 主题管理器
 
-import EventBus from './event-emitter.js';
+import EventBus from '../utils/event-emitter.js';
 import NetworkManager from '../managers/NetworkManager.js';
 
 const ThemeManager = {
@@ -11,14 +11,16 @@ const ThemeManager = {
         this.themeLink = document.getElementById('theme-link');
         this.bindEvents();
 
-        // On startup, try to load settings from the backend to apply the theme
+        // 启动时，从 localStorage 加载主题以避免闪烁，然后再从后端同步
+        const savedTheme = localStorage.getItem('ideTheme') || this.currentTheme;
+        this.setTheme(savedTheme);
+
         EventBus.on('app:ready', async () => {
             try {
                 const settings = await NetworkManager.getSettings();
                 this.applySettings(settings);
             } catch (e) {
-                console.warn("Could not load initial settings, using default theme.", e);
-                this.setTheme(this.currentTheme);
+                console.warn("无法加载初始设置，将使用本地缓存的主题。", e);
             }
         });
     },
@@ -34,13 +36,18 @@ const ThemeManager = {
     },
 
     setTheme: function(themeName) {
-        if (!themeName) return;
+        if (!themeName || this.currentTheme === themeName) return;
+
         document.body.classList.remove('dark-theme', 'light-theme');
         document.body.classList.add(themeName);
 
         const themeFileName = themeName.split('-')[0];
         this.themeLink.href = `src/css/theme-${themeFileName}.css`;
         this.currentTheme = themeName;
+
+        // ========================= 关键修改 START: 将主题选择持久化到 localStorage =========================
+        localStorage.setItem('ideTheme', themeName);
+        // ========================= 关键修改 END ====================================================
 
         EventBus.emit('theme:changed', themeName);
     },

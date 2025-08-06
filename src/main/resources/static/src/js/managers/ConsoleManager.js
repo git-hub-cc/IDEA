@@ -10,12 +10,9 @@ const ConsoleManager = {
 
     logLines: [],
     maxLines: 2000,
-    lineHeight: 18, // 作为未测量行的预估高度
+    lineHeight: 18,
     renderRequest: null,
 
-    /**
-     * @description 初始化控制台管理器。
-     */
     init: function() {
         this.container = document.getElementById('console-output');
 
@@ -33,14 +30,19 @@ const ConsoleManager = {
         EventBus.on('ui:layoutChanged', () => this.requestRender());
         window.addEventListener('resize', () => this.requestRender());
 
+        // ========================= 关键修改 START: 确保在 app:ready 后加载设置 =========================
         EventBus.on('app:ready', async () => {
             try {
+                // 等待app ready确保settings可以被获取
                 const settings = await NetworkManager.getSettings();
                 this.applySettings(settings);
             } catch (e) {
                 console.warn("无法为控制台加载初始设置，使用默认值。", e);
+                // 即使加载失败，也应用一个默认值
+                this.applySettings({ wordWrap: true });
             }
         });
+        // ========================= 关键修改 END ===================================================
 
         this.clear();
         this.log('欢迎使用Web IDEA控制台。');
@@ -49,7 +51,7 @@ const ConsoleManager = {
     measureLineHeight() {
         const tempLine = document.createElement('div');
         tempLine.className = 'console-line';
-        tempLine.style.position = 'absolute'; // 确保不影响布局
+        tempLine.style.position = 'absolute';
         tempLine.style.visibility = 'hidden';
         tempLine.textContent = 'M';
         this.contentElement.appendChild(tempLine);
@@ -78,15 +80,13 @@ const ConsoleManager = {
         const wasAtBottom = this.isAtBottom();
 
         lines.forEach(line => {
-            // ========================= 关键修改 START: 增加 height 和 top 属性 =========================
             this.logLines.push({
                 text: line,
                 timestamp,
                 type,
-                height: null, // 初始高度未知
-                top: null     // 初始位置未知
+                height: null,
+                top: null
             });
-            // ========================= 关键修改 END ==========================================
         });
 
         if (this.logLines.length > this.maxLines) {
@@ -97,7 +97,7 @@ const ConsoleManager = {
 
         if (wasAtBottom) {
             requestAnimationFrame(() => {
-                this.viewportElement.scrollTop = this.viewportElement.scrollHeight;
+                if(this.viewportElement) this.viewportElement.scrollTop = this.viewportElement.scrollHeight;
             });
         }
     },
@@ -120,23 +120,17 @@ const ConsoleManager = {
         }
     },
 
-    // ========================= 关键修改 START: 重写整个 render 方法以支持动态行高 =========================
-    /**
-     * @description 核心渲染函数，实现支持动态行高的虚拟滚动。
-     */
     render: function() {
         if (!this.viewportElement) return;
 
-        // 1. 重新计算每行的 top 位置和总高度
         let currentTop = 0;
         this.logLines.forEach(line => {
             line.top = currentTop;
-            currentTop += line.height || this.lineHeight; // 使用已缓存的真实高度，否则使用预估高度
+            currentTop += line.height || this.lineHeight;
         });
         const totalHeight = currentTop;
         this.contentElement.style.height = `${totalHeight}px`;
 
-        // 2. 确定需要渲染的可见行范围
         const { scrollTop, clientHeight } = this.viewportElement;
 
         let startIndex = this.logLines.findIndex(line => (line.top + (line.height || this.lineHeight)) >= scrollTop);
@@ -145,29 +139,24 @@ const ConsoleManager = {
         let endIndex = this.logLines.findIndex(line => line.top >= scrollTop + clientHeight);
         if (endIndex === -1) endIndex = this.logLines.length;
 
-        // 添加缓冲区，优化平滑滚动体验
         const buffer = 10;
         startIndex = Math.max(0, startIndex - buffer);
         endIndex = Math.min(this.logLines.length, endIndex + buffer);
 
-        // 3. 生成可见行的 HTML
         let visibleLinesHtml = '';
         for (let i = startIndex; i < endIndex; i++) {
             const lineData = this.logLines[i];
             const escapedText = this.escapeHtml(lineData.text);
-            // 使用缓存的 `top` 值进行绝对定位
             visibleLinesHtml += `<div class="console-line ${lineData.type}" style="top: ${lineData.top}px;" data-index="${i}">[${lineData.timestamp}] ${escapedText}</div>`;
         }
         this.contentElement.innerHTML = visibleLinesHtml;
 
-        // 4. 测量新渲染行的实际高度并缓存
         const renderedElements = this.contentElement.querySelectorAll('.console-line');
         let heightHasChanged = false;
 
         renderedElements.forEach(element => {
             const index = parseInt(element.dataset.index, 10);
             const lineData = this.logLines[index];
-            // 只测量高度未知的行
             if (lineData && lineData.height === null) {
                 const measuredHeight = element.offsetHeight;
                 lineData.height = measuredHeight;
@@ -175,35 +164,28 @@ const ConsoleManager = {
             }
         });
 
-        // 5. 如果有任何行的高度被更新，则在下一帧重新渲染以修正布局
         if (heightHasChanged) {
             this.requestRender();
         }
     },
-    // ========================= 关键修改 END =======================================================
 
     isAtBottom: function() {
         if (!this.viewportElement) return true;
         const { scrollTop, scrollHeight, clientHeight } = this.viewportElement;
-        return scrollHeight - scrollTop - clientHeight < (this.lineHeight * 2); // 允许两行误差
+        return scrollHeight - scrollTop - clientHeight < (this.lineHeight * 2);
     },
 
     applySettings: function(settings) {
-        if (!this.container) return;
-        // ========================= 关键修改 START =========================
-        // 修正了在切换换行设置时更新UI的逻辑
-        const shouldWrap = settings.wordWrap; // true代表需要换行
+        if (!this.container || !settings) return;
+        const shouldWrap = settings.wordWrap;
         const hasNoWrapClass = this.container.classList.contains('no-wrap');
-        const shouldHaveNoWrapClass = !shouldWrap; // 不换行时，应有 'no-wrap' 类
+        const shouldHaveNoWrapClass = !shouldWrap;
 
-        // 仅当当前状态与目标状态不符时才执行操作
         if (hasNoWrapClass !== shouldHaveNoWrapClass) {
             this.container.classList.toggle('no-wrap', shouldHaveNoWrapClass);
-            // 切换换行模式会改变所有行高，因此清空缓存并请求重绘
             this.logLines.forEach(line => { line.height = null; });
             this.requestRender();
         }
-        // ========================= 关键修改 END ===========================
     },
 
     escapeHtml: function(str) {

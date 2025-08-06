@@ -1,7 +1,8 @@
 package com.example.webideabackend.service;
 
+import com.example.webideabackend.exception.EnvironmentConfigurationException;
+import com.example.webideabackend.model.Settings;
 import com.example.webideabackend.util.MavenProjectHelper;
-// import com.example.webideabackend.util.SystemCommandExecutor; // 不再需要
 import lombok.extern.slf4j.Slf4j;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
@@ -9,6 +10,7 @@ import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -23,7 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-// import java.util.concurrent.CompletableFuture; // runJavaApplication 的返回类型会改变
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 @Slf4j
@@ -32,10 +35,13 @@ public class JavaCompilerRunnerService {
     private final Path workspaceRoot;
     private final WebSocketNotificationService notificationService;
     private final MavenProjectHelper mavenHelper;
-    private final RunSessionService runSessionService; // 新增依赖
+    private final RunSessionService runSessionService;
+    private final SettingsService settingsService;
+    private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
+
 
     @Value("#{${app.jdk.paths}}")
-    private Map<String, String> jdkPaths;
+    private Map<String, String> legacyJdkPaths;
 
     private static final String MAIN_CLASS = "com.example.Main";
 
@@ -44,11 +50,13 @@ public class JavaCompilerRunnerService {
             @Value("${app.workspace-root}") String workspaceRootPath,
             WebSocketNotificationService notificationService,
             MavenProjectHelper mavenHelper,
-            RunSessionService runSessionService) { // 新增依赖
+            RunSessionService runSessionService,
+            SettingsService settingsService) {
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
         this.notificationService = notificationService;
         this.mavenHelper = mavenHelper;
-        this.runSessionService = runSessionService; // 新增依赖
+        this.runSessionService = runSessionService;
+        this.settingsService = settingsService;
     }
 
     public void validateIsMavenProject(String projectPath) {
@@ -62,41 +70,92 @@ public class JavaCompilerRunnerService {
         }
     }
 
-    // ========================= 关键修改 START =========================
-    // 这个方法现在是异步的，但它不直接返回 CompletableFuture 了
-    public void buildAndRunProject(String projectPath) {
+    // ========================= 关键修改 START: 重构方法为同步验证 + 异步执行 =========================
+    /**
+     * 同步方法：验证环境配置，如果通过，则异步启动构建和运行过程。
+     * @param projectPath 项目路径
+     * @throws EnvironmentConfigurationException 如果环境配置无效
+     */
+    public void initiateBuildAndRun(String projectPath) {
         notificationService.sendBuildLog("Build command received for: " + projectPath);
 
-        // 使用 CompletableFuture 来链式执行构建和运行
-        CompletableFuture.runAsync(() -> {
-            try {
-                final String jdkVersion = mavenHelper.getJavaVersionFromPom(
-                        workspaceRoot.resolve(projectPath).toFile(),
-                        (logLine) -> notificationService.sendBuildLog(logLine)
-                );
+        // 1. 获取最新设置 (同步)
+        Settings settings = settingsService.getSettings();
 
-                // 同步执行 Maven 构建
-                int buildExitCode = runMavenBuild(projectPath);
-                notificationService.sendBuildLog("Build finished with exit code: " + buildExitCode);
+        // 2. 环境检查 (同步, 可能抛出 EnvironmentConfigurationException)
+        final String mvnExecutable = validateMavenHome(settings.getMavenHome());
+        final String jdkVersion = mavenHelper.getJavaVersionFromPom(
+                workspaceRoot.resolve(projectPath).toFile(),
+                (logLine) -> notificationService.sendBuildLog(logLine)
+        );
+        final String javaExecutable = validateJdkPath(settings.getJdkPaths(), jdkVersion);
 
-                if (buildExitCode == 0) {
-                    notificationService.sendRunLog("Build successful. Initiating run for main class: " + MAIN_CLASS);
-                    // 构建成功后，调用 runJavaApplication
-                    runJavaApplication(projectPath, MAIN_CLASS, jdkVersion);
-                } else {
-                    notificationService.sendRunLog("Build failed. Skipping run.");
-                }
-            } catch (Exception e) {
-                log.error("Build and run process failed for project '{}'", projectPath, e);
-                notificationService.sendBuildLog("[FATAL] Build failed with exception: " + e.getMessage());
-            }
+        // 3. 验证通过后，将耗时任务提交到线程池 (异步)
+        taskExecutor.submit(() -> {
+            executeBuildAndRunAsync(projectPath, mvnExecutable, javaExecutable);
         });
     }
 
-    // runJavaApplication 现在不再返回 Future，而是直接调用 RunSessionService
-    public void runJavaApplication(String projectPath, String mainClass, String jdkVersion) {
+    /**
+     * 私有方法：实际执行耗时的构建和运行任务。
+     * 这个方法在背景线程中执行。
+     */
+    private void executeBuildAndRunAsync(String projectPath, String mvnExecutable, String javaExecutable) {
+        try {
+            // 执行构建
+            int buildExitCode = runMavenBuild(projectPath, mvnExecutable);
+            notificationService.sendBuildLog("Build finished with exit code: " + buildExitCode);
+
+            // 如果构建成功，则运行
+            if (buildExitCode == 0) {
+                notificationService.sendRunLog("Build successful. Initiating run for main class: " + MAIN_CLASS);
+                runJavaApplication(projectPath, MAIN_CLASS, javaExecutable);
+            } else {
+                notificationService.sendRunLog("Build failed. Skipping run.");
+            }
+        } catch (Exception e) {
+            log.error("Async build and run process failed for project '{}'", projectPath, e);
+            notificationService.sendBuildLog("[FATAL] Build failed with exception: " + e.getMessage());
+        }
+    }
+    // ========================= 关键修改 END ====================================================
+
+    private String validateMavenHome(String mavenHome) {
+        if (!StringUtils.hasText(mavenHome)) {
+            throw new EnvironmentConfigurationException("Maven 主目录未配置。请前往“设置” -> “环境”进行配置。", "maven");
+        }
+        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+        String executableName = isWindows ? "mvn.cmd" : "mvn";
+        Path executablePath = Paths.get(mavenHome, "bin", executableName);
+
+        if (!Files.exists(executablePath) || !Files.isExecutable(executablePath)) {
+            String message = String.format("Maven 可执行文件在以下路径未找到或不可执行：%s。请检查 Maven 主目录配置。", executablePath);
+            throw new EnvironmentConfigurationException(message, "maven");
+        }
+        return executablePath.toAbsolutePath().toString();
+    }
+
+    private String validateJdkPath(Map<String, String> jdkPathsMap, String requiredVersion) {
+        String lookupKey = "jdk" + requiredVersion;
+        Map<String, String> effectiveJdkPaths = (jdkPathsMap != null && !jdkPathsMap.isEmpty()) ? jdkPathsMap : this.legacyJdkPaths;
+
+        if (effectiveJdkPaths == null || !effectiveJdkPaths.containsKey(lookupKey)) {
+            String message = String.format("项目中指定的 JDK 版本 '%s' 未在设置中配置。请前往“设置” -> “环境”添加一个标识符为 '%s' 的 JDK 路径。", requiredVersion, lookupKey);
+            throw new EnvironmentConfigurationException(message, "jdk", requiredVersion);
+        }
+
+        String javaExecutablePath = effectiveJdkPaths.get(lookupKey);
+        if (!StringUtils.hasText(javaExecutablePath) || !Files.exists(Paths.get(javaExecutablePath)) || !Files.isExecutable(Paths.get(javaExecutablePath))) {
+            String message = String.format("为 JDK '%s' (标识符: '%s') 配置的路径无效或不可执行：%s。请在设置中更正。", requiredVersion, lookupKey, javaExecutablePath);
+            throw new EnvironmentConfigurationException(message, "jdk", requiredVersion);
+        }
+
+        return javaExecutablePath;
+    }
+
+    public void runJavaApplication(String projectPath, String mainClass, String javaExecutable) {
         var projectDir = workspaceRoot.resolve(projectPath).toFile();
-        List<String> commandList = buildJavaCommandList(projectDir, mainClass, "", jdkVersion);
+        List<String> commandList = buildJavaCommandList(projectDir, mainClass, "", javaExecutable);
 
         if (commandList == null) {
             notificationService.sendRunLog("Error: No compiled artifacts found. Please build the project first.");
@@ -104,14 +163,10 @@ public class JavaCompilerRunnerService {
         }
 
         notificationService.sendRunLog("Executing: " + String.join(" ", commandList));
-
-        // 委托给 RunSessionService 执行
         runSessionService.start(commandList, projectDir);
     }
-    // ========================= 关键修改 END ===========================
 
-
-    private List<String> buildJavaCommandList(File projectDir, String mainClass, String jvmOptions, String jdkVersionKey) {
+    private List<String> buildJavaCommandList(File projectDir, String mainClass, String jvmOptions, String javaExecutable) {
         var targetDir = new File(projectDir, "target");
         String jarFileName = getJarNameFromPom(projectDir);
         var jarFile = new File(targetDir, jarFileName);
@@ -121,34 +176,11 @@ public class JavaCompilerRunnerService {
         String mainClassName = mainClass;
         if (jarFile.exists()) {
             effectiveClassPath = jarFile.getAbsolutePath();
-            mainClassName = ""; // Main-Class is in MANIFEST.MF when using -jar
+            mainClassName = "";
         } else if (classesDir.exists()) {
             effectiveClassPath = classesDir.getAbsolutePath();
         } else {
             return null;
-        }
-
-        String javaExecutable = "java";
-        boolean foundConfiguredJdk = false;
-
-        if (jdkVersionKey != null) {
-            String lookupKey = "jdk" + jdkVersionKey;
-            if (jdkPaths.containsKey(lookupKey)) {
-                String configuredPath = jdkPaths.get(lookupKey);
-                if (new File(configuredPath).canExecute()) {
-                    javaExecutable = configuredPath;
-                    foundConfiguredJdk = true;
-                } else {
-                    log.warn("Path for JDK '{}' (key: '{}') is configured but not executable: {}.", jdkVersionKey, lookupKey, configuredPath);
-                }
-            }
-        }
-
-        if (!foundConfiguredJdk) {
-            String reason = (jdkVersionKey == null) ? "not specified in pom.xml" :
-                    String.format("specified as JDK '%s' in pom.xml, but no matching/valid path was found in application configuration", jdkVersionKey);
-            String logMessage = String.format("INFO: JDK version was %s. Falling back to the system's default 'java' command. Please ensure it is compatible.", reason);
-            notificationService.sendBuildLog(logMessage);
         }
 
         List<String> command = new ArrayList<>();
@@ -169,9 +201,7 @@ public class JavaCompilerRunnerService {
         return command;
     }
 
-    // ========================= 关键修改 START =========================
-    // runMavenBuild 现在返回 int (退出码)，而不是 Future
-    public int runMavenBuild(String projectPath) throws IOException, InterruptedException {
+    public int runMavenBuild(String projectPath, String mvnExecutable) throws IOException, InterruptedException {
         var projectDir = workspaceRoot.resolve(projectPath).toFile();
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             String errorMessage = "Error: Project directory not found: " + projectDir.getAbsolutePath();
@@ -179,13 +209,9 @@ public class JavaCompilerRunnerService {
             return -1;
         }
 
-        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
-        String mvnCommandName = isWindows ? "mvn.cmd" : "mvn";
-        List<String> mavenCommand = Arrays.asList(mvnCommandName, "clean", "install", "-U", "-Dfile.encoding=UTF-8");
-
+        List<String> mavenCommand = Arrays.asList(mvnExecutable, "clean", "install", "-U", "-Dfile.encoding=UTF-8");
         notificationService.sendBuildLog("Executing: " + String.join(" ", mavenCommand) + " in " + projectDir.getAbsolutePath());
 
-        // 直接执行并等待结果
         ProcessBuilder pb = new ProcessBuilder(mavenCommand).directory(projectDir).redirectErrorStream(true);
         Process process = pb.start();
 
@@ -195,7 +221,6 @@ public class JavaCompilerRunnerService {
 
         return process.waitFor();
     }
-    // ========================= 关键修改 END ===========================
 
     private String getJarNameFromPom(File projectDir) {
         File pomFile = new File(projectDir, "pom.xml");
