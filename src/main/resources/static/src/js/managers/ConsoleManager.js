@@ -10,7 +10,7 @@ const ConsoleManager = {
 
     logLines: [],
     maxLines: 2000,
-    lineHeight: 18, // 默认值, 会在初始化时动态测量
+    lineHeight: 18, // 作为未测量行的预估高度
     renderRequest: null,
 
     /**
@@ -19,7 +19,6 @@ const ConsoleManager = {
     init: function() {
         this.container = document.getElementById('console-output');
 
-        // 动态创建虚拟滚动所需的 DOM 结构
         this.container.innerHTML = `
             <div class="console-viewport">
                 <div class="console-content"></div>
@@ -30,14 +29,10 @@ const ConsoleManager = {
         this.bindAppEvents();
         this.measureLineHeight();
 
-        // 绑定滚动事件，用于按需渲染
         this.viewportElement.addEventListener('scroll', () => this.requestRender(), { passive: true });
-        // 监听UI布局变化，确保在面板大小调整后重新渲染
         EventBus.on('ui:layoutChanged', () => this.requestRender());
         window.addEventListener('resize', () => this.requestRender());
 
-
-        // 应用初始设置
         EventBus.on('app:ready', async () => {
             try {
                 const settings = await NetworkManager.getSettings();
@@ -51,65 +46,55 @@ const ConsoleManager = {
         this.log('欢迎使用Web IDEA控制台。');
     },
 
-    /**
-     * @description 动态测量单行日志的高度。
-     */
     measureLineHeight() {
         const tempLine = document.createElement('div');
         tempLine.className = 'console-line';
+        tempLine.style.position = 'absolute'; // 确保不影响布局
         tempLine.style.visibility = 'hidden';
-        tempLine.textContent = 'M'; // 用一个字符来测量
+        tempLine.textContent = 'M';
         this.contentElement.appendChild(tempLine);
         this.lineHeight = tempLine.offsetHeight;
         this.contentElement.removeChild(tempLine);
 
-        if (this.lineHeight === 0) { // 回退方案
+        if (this.lineHeight === 0) {
             this.lineHeight = 18;
             console.warn("无法动态测量行高，回退到默认值 18px。");
         }
     },
 
-    /**
-     * @description 绑定应用事件。
-     */
     bindAppEvents: function() {
         EventBus.on('console:log', this.log.bind(this));
         EventBus.on('console:error', this.error.bind(this));
         EventBus.on('console:clear', this.clear.bind(this));
-        // 统一监听所有日志事件
         EventBus.on('log:info', (msg) => this.log(`[信息] ${msg}`));
         EventBus.on('log:warn', (msg) => this.log(`[警告] ${msg}`, 'warn'));
         EventBus.on('log:error', (msg) => this.error(msg));
-        // 监听全局设置变更事件
         EventBus.on('settings:changed', this.applySettings.bind(this));
     },
 
-    /**
-     * @description 在控制台输出一条标准日志。
-     * @param {string} message - 要输出的消息。
-     * @param {string} type - 日志类型: 'log', 'warn', 'error'
-     */
     log: function(message, type = 'log') {
         const timestamp = new Date().toLocaleTimeString();
         const lines = String(message).split('\n');
         const wasAtBottom = this.isAtBottom();
 
         lines.forEach(line => {
+            // ========================= 关键修改 START: 增加 height 和 top 属性 =========================
             this.logLines.push({
                 text: line,
                 timestamp,
-                type
+                type,
+                height: null, // 初始高度未知
+                top: null     // 初始位置未知
             });
+            // ========================= 关键修改 END ==========================================
         });
 
-        // 超过2000行时，从开头移除旧日志
         if (this.logLines.length > this.maxLines) {
             this.logLines.splice(0, this.logLines.length - this.maxLines);
         }
 
         this.requestRender();
 
-        // 如果之前就在底部，新日志到达后自动滚动到底部
         if (wasAtBottom) {
             requestAnimationFrame(() => {
                 this.viewportElement.scrollTop = this.viewportElement.scrollHeight;
@@ -117,25 +102,15 @@ const ConsoleManager = {
         }
     },
 
-    /**
-     * @description 在控制台输出一条错误日志。
-     * @param {string} message - 错误消息。
-     */
     error: function(message) {
         this.log(`[错误] ${message}`, 'error');
     },
 
-    /**
-     * @description 清空控制台。
-     */
     clear: function() {
         this.logLines = [];
         this.requestRender();
     },
 
-    /**
-     * @description 请求在下一动画帧执行渲染，避免频繁操作DOM。
-     */
     requestRender: function() {
         if (!this.renderRequest) {
             this.renderRequest = requestAnimationFrame(() => {
@@ -145,61 +120,92 @@ const ConsoleManager = {
         }
     },
 
+    // ========================= 关键修改 START: 重写整个 render 方法以支持动态行高 =========================
     /**
-     * @description 核心渲染函数，实现虚拟滚动。
+     * @description 核心渲染函数，实现支持动态行高的虚拟滚动。
      */
     render: function() {
         if (!this.viewportElement) return;
 
+        // 1. 重新计算每行的 top 位置和总高度
+        let currentTop = 0;
+        this.logLines.forEach(line => {
+            line.top = currentTop;
+            currentTop += line.height || this.lineHeight; // 使用已缓存的真实高度，否则使用预估高度
+        });
+        const totalHeight = currentTop;
+        this.contentElement.style.height = `${totalHeight}px`;
+
+        // 2. 确定需要渲染的可见行范围
         const { scrollTop, clientHeight } = this.viewportElement;
 
-        // 计算可见区域的起始和结束行索引，并加入上下缓冲区以优化平滑滚动体验
-        const firstVisibleLine = Math.floor(scrollTop / this.lineHeight);
-        const numVisibleLines = Math.ceil(clientHeight / this.lineHeight);
+        let startIndex = this.logLines.findIndex(line => (line.top + (line.height || this.lineHeight)) >= scrollTop);
+        if (startIndex === -1) startIndex = 0;
+
+        let endIndex = this.logLines.findIndex(line => line.top >= scrollTop + clientHeight);
+        if (endIndex === -1) endIndex = this.logLines.length;
+
+        // 添加缓冲区，优化平滑滚动体验
         const buffer = 10;
-        const startIndex = Math.max(0, firstVisibleLine - buffer);
-        const endIndex = Math.min(this.logLines.length, firstVisibleLine + numVisibleLines + buffer);
+        startIndex = Math.max(0, startIndex - buffer);
+        endIndex = Math.min(this.logLines.length, endIndex + buffer);
 
-        // 更新内容容器的总高度，以确保滚动条正确反映所有日志行的总高度
-        this.contentElement.style.height = `${this.logLines.length * this.lineHeight}px`;
-
-        // 生成仅对可见行有效的HTML
+        // 3. 生成可见行的 HTML
         let visibleLinesHtml = '';
         for (let i = startIndex; i < endIndex; i++) {
             const lineData = this.logLines[i];
             const escapedText = this.escapeHtml(lineData.text);
-            visibleLinesHtml += `<div class="console-line ${lineData.type}" style="top: ${i * this.lineHeight}px;">[${lineData.timestamp}] ${escapedText}</div>`;
+            // 使用缓存的 `top` 值进行绝对定位
+            visibleLinesHtml += `<div class="console-line ${lineData.type}" style="top: ${lineData.top}px;" data-index="${i}">[${lineData.timestamp}] ${escapedText}</div>`;
         }
-
         this.contentElement.innerHTML = visibleLinesHtml;
-    },
 
-    /**
-     * @description 检查滚动条是否在底部。
-     * @returns {boolean}
-     */
+        // 4. 测量新渲染行的实际高度并缓存
+        const renderedElements = this.contentElement.querySelectorAll('.console-line');
+        let heightHasChanged = false;
+
+        renderedElements.forEach(element => {
+            const index = parseInt(element.dataset.index, 10);
+            const lineData = this.logLines[index];
+            // 只测量高度未知的行
+            if (lineData && lineData.height === null) {
+                const measuredHeight = element.offsetHeight;
+                lineData.height = measuredHeight;
+                heightHasChanged = true;
+            }
+        });
+
+        // 5. 如果有任何行的高度被更新，则在下一帧重新渲染以修正布局
+        if (heightHasChanged) {
+            this.requestRender();
+        }
+    },
+    // ========================= 关键修改 END =======================================================
+
     isAtBottom: function() {
         if (!this.viewportElement) return true;
         const { scrollTop, scrollHeight, clientHeight } = this.viewportElement;
-        // 允许一些像素误差
-        return scrollHeight - scrollTop - clientHeight < this.lineHeight;
+        return scrollHeight - scrollTop - clientHeight < (this.lineHeight * 2); // 允许两行误差
     },
 
-    /**
-     * @description 应用设置，特别是自动换行。
-     * @param {object} settings - 新的设置对象。
-     */
     applySettings: function(settings) {
         if (!this.container) return;
-        this.container.classList.toggle('no-wrap', !settings.wordWrap);
-        this.requestRender();
+        // ========================= 关键修改 START =========================
+        // 修正了在切换换行设置时更新UI的逻辑
+        const shouldWrap = settings.wordWrap; // true代表需要换行
+        const hasNoWrapClass = this.container.classList.contains('no-wrap');
+        const shouldHaveNoWrapClass = !shouldWrap; // 不换行时，应有 'no-wrap' 类
+
+        // 仅当当前状态与目标状态不符时才执行操作
+        if (hasNoWrapClass !== shouldHaveNoWrapClass) {
+            this.container.classList.toggle('no-wrap', shouldHaveNoWrapClass);
+            // 切换换行模式会改变所有行高，因此清空缓存并请求重绘
+            this.logLines.forEach(line => { line.height = null; });
+            this.requestRender();
+        }
+        // ========================= 关键修改 END ===========================
     },
 
-    /**
-     * @description 对HTML进行转义，防止XSS。
-     * @param {string} str - 原始字符串。
-     * @returns {string} - 转义后的字符串。
-     */
     escapeHtml: function(str) {
         return str.replace(/[&<>"']/g, match => ({
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

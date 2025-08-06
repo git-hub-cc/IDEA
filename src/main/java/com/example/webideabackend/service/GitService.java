@@ -282,7 +282,9 @@ public class GitService {
             if (exitCode == 0) {
                 LOGGER.info("Native git push completed successfully for project '{}'.", projectPath);
 
-                String browseableUrl = convertSshToHttps(remoteUrl);
+                // ========================= 关键修改 START =========================
+                String browseableUrl = convertGitUrlToBrowsableHttps(remoteUrl);
+                // ========================= 关键修改 END ===========================
 
                 Map<String, Object> result = new HashMap<>();
                 result.put("message", "Push successful.\n" + commandOutput);
@@ -300,12 +302,34 @@ public class GitService {
         }
     }
 
-    private String convertSshToHttps(String sshUrl) {
-        if (sshUrl != null && sshUrl.startsWith("git@")) {
-            return sshUrl.replaceFirst("git@", "https://")
-                    .replaceFirst(":", "/")
-                    .replaceAll("\\.git$", "");
+    // ========================= 关键修改 START =========================
+    /**
+     * 将一个Git仓库的URL（SSH或HTTPS格式）转换为可在浏览器中打开的HTTPS URL。
+     * 例如：
+     * - "git@gitee.com:user/repo.git" -> "https://gitee.com/user/repo"
+     * - "https://gitee.com/user/repo.git" -> "https://gitee.com/user/repo"
+     *
+     * @param gitUrl 从.git/config中读取的原始URL。
+     * @return 可浏览的HTTPS链接，如果无法转换则返回原始URL。
+     */
+    private String convertGitUrlToBrowsableHttps(String gitUrl) {
+        if (gitUrl == null || gitUrl.trim().isEmpty()) {
+            return gitUrl;
         }
-        return sshUrl;
+
+        String browsableUrl = gitUrl;
+
+        // 处理SSH格式
+        if (gitUrl.startsWith("git@")) {
+            browsableUrl = "https://" + gitUrl.substring(4).replaceFirst(":", "/");
+        }
+
+        // 为SSH转换后或原始的HTTPS链接移除.git后缀
+        if (browsableUrl.endsWith(".git")) {
+            browsableUrl = browsableUrl.substring(0, browsableUrl.length() - 4);
+        }
+
+        return browsableUrl;
     }
+    // ========================= 关键修改 END ===========================
 }

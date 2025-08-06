@@ -125,6 +125,23 @@ const NetworkManager = {
         }
     },
 
+
+    uploadFilesToPath: function(files, destinationPath) {
+        if (!Config.currentProject) {
+            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
+        }
+
+        const formData = new FormData();
+        formData.append('projectPath', Config.currentProject);
+        formData.append('destinationPath', destinationPath);
+        files.forEach(file => {
+            formData.append('files', file, file.name);
+        });
+
+        return this._uploadWithXHR('api/files/upload-to-path', formData);
+    },
+
+
     fetchApi: async function(endpoint, options = {}, responseType = 'json') {
         let finalEndpoint = endpoint;
         let finalOptions = { ...options };

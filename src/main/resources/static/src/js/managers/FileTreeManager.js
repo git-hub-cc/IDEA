@@ -9,9 +9,7 @@ const FileTreeManager = {
     container: null,
     treeData: [],
     focusedElement: null,
-    // ========================= 关键修改 START =========================
     hoveredElement: null, // 跟踪当前悬浮的元素
-    // ========================= 关键修改 END ===========================
 
     init: function() {
         this.container = document.getElementById('file-tree');
@@ -36,12 +34,11 @@ const FileTreeManager = {
 
         document.addEventListener('paste', this._handlePaste.bind(this));
 
-        // ========================= 关键修改 START: 精细化拖拽事件处理 =========================
+        // 精细化拖拽事件处理
         this.container.addEventListener('dragenter', this._handleDragEnter.bind(this));
         this.container.addEventListener('dragover', this._handleDragOver.bind(this));
         this.container.addEventListener('dragleave', this._handleDragLeave.bind(this));
         this.container.addEventListener('drop', this._handleDrop.bind(this));
-        // ========================= 关键修改 END ==========================================
     },
 
     _handlePaste: async function(e) {
@@ -126,7 +123,7 @@ const FileTreeManager = {
         EventBus.on('filetree:focus', (element) => this.setFocus(element));
     },
 
-    // ========================= 关键修改 START: 新增拖拽事件处理器 =========================
+    // 新增拖拽事件处理器
     _handleDragEnter: function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -154,13 +151,11 @@ const FileTreeManager = {
         e.preventDefault();
         e.stopPropagation();
 
-        // 如果光标移出的是当前高亮的元素，则移除高亮
         if (this.hoveredElement && e.target === this.hoveredElement) {
             this.hoveredElement.classList.remove('drag-hover-target');
             this.hoveredElement = null;
         }
 
-        // 如果光标移出了整个容器，则移除容器的拖拽状态
         if (!this.container.contains(e.relatedTarget)) {
             this.container.classList.remove('drag-over');
             if (this.hoveredElement) {
@@ -178,55 +173,31 @@ const FileTreeManager = {
             this.hoveredElement.classList.remove('drag-hover-target');
         }
 
+        if (!Config.currentProject) {
+            EventBus.emit('modal:showAlert', {
+                title: '操作无效',
+                message: '请先打开一个项目，再拖拽文件或文件夹进行上传。'
+            });
+            this.hoveredElement = null;
+            return;
+        }
+
         const dropTarget = this.hoveredElement;
         this.hoveredElement = null;
+
+        if (!dropTarget) {
+            EventBus.emit('log:warn', '拖放操作未在有效目标上。请将文件拖放到一个文件夹上。');
+            return;
+        }
 
         const dataTransferItems = e.dataTransfer.items;
         if (!dataTransferItems || dataTransferItems.length === 0) return;
 
-        // 如果没有活动项目，则只能作为新项目上传
-        if (!Config.currentProject) {
-            const directoryHandle = await this._getDirectoryHandleFromDropEvent(e);
-            if (directoryHandle) {
-                EventBus.emit('action:open-folder', directoryHandle);
-            } else {
-                EventBus.emit('modal:showAlert', { title: '操作不支持', message: '请拖放单个文件夹以创建新项目。'});
-            }
-            return;
-        }
-
-        if (!dropTarget) {
-            EventBus.emit('log:warn', '拖放操作未在有效目标上。');
-            return;
-        }
-
         const targetPath = dropTarget.dataset.path;
-        const targetIsRoot = !targetPath.includes('/');
+        const targetName = dropTarget.querySelector('span')?.textContent || targetPath || '项目根目录';
 
-        if (targetIsRoot) {
-            try {
-                const choice = await EventBus.emit('modal:showChoiceModal', {
-                    title: '选择上传方式',
-                    message: `您想如何处理拖拽的内容？`,
-                    choices: [
-                        { id: 'to_root', text: `上传到根项目` },
-                        { id: 'as_project', text: '作为新项目上传到工作区' }
-                    ]
-                })[0]; // EventBus.emit returns an array of results
-
-                if (choice === 'to_root') {
-                    await this._performUpload(dataTransferItems, ''); // 上传到项目根目录
-                } else if (choice === 'as_project') {
-                    const directoryHandle = await this._getDirectoryHandleFromDropEvent(e);
-                    if(directoryHandle) EventBus.emit('action:open-folder', directoryHandle);
-                }
-            } catch(err) {
-                EventBus.emit('log:info', '用户取消了上传选择。');
-            }
-        } else {
-            // 直接上传到子目录
-            await this._performUpload(dataTransferItems, targetPath);
-        }
+        EventBus.emit('log:info', `准备上传内容到目录: "${targetName}"`);
+        await this._performUpload(dataTransferItems, targetPath);
     },
 
     _performUpload: async function(dataTransferItems, destinationPath) {
@@ -253,26 +224,29 @@ const FileTreeManager = {
         }
     },
 
-    _getDirectoryHandleFromDropEvent: async function(e) {
-        if (!e.dataTransfer.items) return null;
-        for (const item of e.dataTransfer.items) {
-            if (typeof item.getAsFileSystemHandle === 'function') {
-                try {
-                    const handle = await item.getAsFileSystemHandle();
-                    if (handle.kind === 'directory') return handle;
-                } catch (err) {
-                    console.warn('无法获取文件系统句柄:', err.message);
-                }
-            }
-        }
-        return null;
-    },
-
     _getFilesFromDataTransfer: async function(items) {
         const fileEntries = [];
+
+        const readAllEntries = (dirReader) => {
+            return new Promise((resolve, reject) => {
+                const allEntries = [];
+                const readBatch = () => {
+                    dirReader.readEntries(entries => {
+                        if (entries.length) {
+                            allEntries.push(...entries);
+                            readBatch();
+                        } else {
+                            resolve(allEntries);
+                        }
+                    }, reject);
+                };
+                readBatch();
+            });
+        };
+
         const processEntry = async (entry, pathPrefix = '') => {
             if (entry.isFile) {
-                return new Promise((resolve, reject) => {
+                await new Promise((resolve, reject) => {
                     entry.file(
                         (file) => {
                             fileEntries.push({ file, path: `${pathPrefix}${file.name}` });
@@ -283,7 +257,7 @@ const FileTreeManager = {
                 });
             } else if (entry.isDirectory) {
                 const dirReader = entry.createReader();
-                const entries = await new Promise((resolve, reject) => dirReader.readEntries(resolve, reject));
+                const entries = await readAllEntries(dirReader);
                 for (const subEntry of entries) {
                     await processEntry(subEntry, `${pathPrefix}${entry.name}/`);
                 }
@@ -302,7 +276,6 @@ const FileTreeManager = {
         await Promise.all(promises);
         return fileEntries;
     },
-    // ========================= 关键修改 END ==========================================
 
     loadProjectTree: async function() {
         if (!Config.currentProject) {
@@ -361,8 +334,8 @@ const FileTreeManager = {
         }
 
         fragment.appendChild(rootUl);
-        this.container.innerHTML = ''; // Clear the container once
-        this.container.appendChild(fragment); // Append the entire tree at once
+        this.container.innerHTML = '';
+        this.container.appendChild(fragment);
 
         if (previouslyFocusedPath) {
             const elementToFocus = this.container.querySelector(`li[data-path="${previouslyFocusedPath}"]`);
@@ -446,7 +419,6 @@ const FileTreeManager = {
         return state;
     },
 
-    // ========================= 关键修改 START: 扩展文件图标 =========================
     getFileIcon: function(fileName) {
         const ext = fileName.split('.').pop().toLowerCase();
         switch (ext) {
@@ -502,7 +474,6 @@ const FileTreeManager = {
             default: return 'fas fa-file';
         }
     },
-    // ========================= 关键修改 END ======================================
 
     openDefaultFile: function() {
         if (!this.treeData || this.treeData.length === 0) return;

@@ -240,6 +240,8 @@
 #console-output .console-viewport {
     height: 100%;
     overflow-y: auto;
+    /* 关键修复: 允许水平滚动以处理长日志行 */
+    overflow-x: auto;
     font-size: 0.9rem;
 }
 
@@ -253,7 +255,8 @@
 #console-output .console-line {
     position: absolute;
     left: 0;
-    right: 0;
+    /* 关键修复: 移除 right: 0，允许元素宽度超过视口 */
+    /* right: 0; */
     padding: 0 10px; /* 保持与旧版一致的内边距 */
     line-height: 1.5; /* 用于动态行高计算 */
     white-space: pre-wrap; /* 默认开启自动换行 */
@@ -262,9 +265,11 @@
 
 /* 当控制台禁用自动换行时，应用此样式 */
 #console-output.no-wrap .console-line {
-    white-space: pre;
+    white-space: pre; /* 强制不换行 */
     word-break: normal;
-    min-width: fit-content; /* 确保不换行时内容能撑开容器，出现水平滚动条 */
+    /* 关键修复: 让元素宽度由其内容决定，从而可以超出视口宽度，触发水平滚动条 */
+    width: -moz-fit-content;
+    width: fit-content;
 }
 
 /* 不同类型日志的颜色 */

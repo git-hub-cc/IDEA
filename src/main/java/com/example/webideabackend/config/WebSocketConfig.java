@@ -32,14 +32,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // ========================= 关键修改 START =========================
-        // 通过 setHeartbeatValue 配置心跳机制，以保持连接活跃
-        // 数组的第一个值(10000ms): 服务器向客户端发送心跳的频率
-        // 数组的第二个值(10000ms): 服务器期望从客户端接收心跳的频率
+        // 通过 setHeartbeatValue 配置 STOMP 协议层面的心跳机制
+        // 这用于应用级别的存活检测
         config.enableSimpleBroker("/topic", "/queue")
                 .setHeartbeatValue(new long[]{10000, 10000})
                 .setTaskScheduler(this.taskScheduler);
-        // ========================= 关键修改 END ===========================
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
     }
@@ -54,6 +51,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         return new UserPrincipal(UUID.randomUUID().toString());
                     }
                 })
-                .withSockJS();
+                .withSockJS()
+                // ========================= 关键修改 START =========================
+                // 添加 SockJS 传输层心跳，以防止反向代理（如Nginx）因超时而关闭连接。
+                // SockJS 会每隔 25 秒发送一个心跳帧，以保持连接活跃。
+                // 这是一个标准的做法，可以解决生产环境中常见的“Session closed”问题。
+                .setHeartbeatTime(25000);
+        // ========================= 关键修改 END ===========================
     }
 }
