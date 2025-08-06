@@ -27,11 +27,26 @@ import java.util.stream.Stream;
 @Slf4j
 public class JavaStructureService {
 
-    private final Path workspaceRoot;
+    private final SettingsService settingsService;
 
-    public JavaStructureService(@Value("${app.workspace-root}") String workspaceRootPath) {
-        this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+    // ========================= 关键修改 START: 移除 @Value 注入 =========================
+    public JavaStructureService(SettingsService settingsService) {
+        // 移除了 @Value("${app.workspace-root}") String workspaceRootPath 参数
+        this.settingsService = settingsService;
     }
+
+    /**
+     * 动态获取最新的工作区根目录。
+     * @return 当前配置的工作区根目录的 Path 对象。
+     */
+    private Path getWorkspaceRoot() {
+        String workspaceRootPath = settingsService.getSettings().getWorkspaceRoot();
+        if (workspaceRootPath == null || workspaceRootPath.isBlank()) {
+            workspaceRootPath = "./workspace"; // 安全回退
+        }
+        return Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+    }
+    // ========================= 关键修改 END ============================================
 
     /**
      * 在指定项目中查找所有Java类和接口的完全限定名称，并捕获语法错误。
@@ -40,7 +55,8 @@ public class JavaStructureService {
      * @return 一个包含类名和错误列表的 AnalysisResult 对象。
      */
     public AnalysisResult findClassNamesAndErrorsInProject(String projectPath) {
-        Path projectDir = workspaceRoot.resolve(projectPath);
+        // 使用动态路径获取
+        Path projectDir = getWorkspaceRoot().resolve(projectPath);
         Path srcDir = projectDir.resolve("src/main/java");
 
         if (!Files.exists(srcDir)) {
@@ -83,20 +99,18 @@ public class JavaStructureService {
             return new AnalysisResult(classNames, Collections.emptyList());
         } catch (ParseProblemException e) {
             log.debug("Could not parse file: {}. Reason: {}", javaFile, e.getMessage());
-            Path relativePath = workspaceRoot.relativize(javaFile);
+            // 使用动态路径获取
+            Path relativePath = getWorkspaceRoot().relativize(javaFile);
             String projectRelativePath = relativePath.toString().replace("\\", "/");
 
             List<CompilationResult> errors = e.getProblems().stream()
                     .map(problem -> {
-                        // ========================= 关键修复 START =========================
-                        // 修正了获取行号和列号的访问路径，直接从 TokenRange 访问
                         int line = problem.getLocation()
                                 .map(tokenRange -> tokenRange.getBegin().getRange().map(r -> r.begin.line).orElse(1))
                                 .orElse(1);
                         int column = problem.getLocation()
                                 .map(tokenRange -> tokenRange.getBegin().getRange().map(r -> r.begin.column).orElse(1))
                                 .orElse(1);
-                        // ========================= 关键修复 END ===========================
                         return new CompilationResult("ERROR", problem.getMessage(), projectRelativePath, line, column);
                     })
                     .collect(Collectors.toList());

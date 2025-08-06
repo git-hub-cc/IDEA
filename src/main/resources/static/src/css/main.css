@@ -161,7 +161,6 @@ html, body {
     background-color: var(--accent-color);
 }
 
-/* ========================= 关键修改 START ========================= */
 /* 拖拽时禁用页面选择 */
 body.is-resizing {
     user-select: none !important;
@@ -171,7 +170,6 @@ body.is-resizing {
 body.is-resizing * {
     pointer-events: none !important;
 }
-/* ========================= 关键修改 END =========================== */
 
 /* 自定义滚动条 (Webkit) */
 ::-webkit-scrollbar {
@@ -192,7 +190,7 @@ body.is-resizing * {
     background: #606060;
 }
 
-/* ========================= 关键修改 START: 等待页面样式 ========================= */
+/* 会话锁定屏幕样式 */
 .lock-screen-overlay {
     position: fixed;
     top: 0;
@@ -254,3 +252,26 @@ body.is-resizing * {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* ========================= 关键优化 START ========================= */
+/* --- 繁忙状态遮罩层 --- */
+.busy-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* 使用一个非常淡的背景色来提供轻微的视觉反馈，但主要通过光标来指示状态 */
+    background-color: rgba(0, 0, 0, 0.05);
+    /* 确保它在大多数UI元素之上，以拦截点击 */
+    z-index: 10001;
+    /* 核心功能：将鼠标指针变为等待状态 */
+    cursor: wait;
+    /* 默认隐藏 */
+    display: none;
+}
+
+.busy-overlay.visible {
+    display: block;
+}
+/* ========================= 关键优化 END =========================== */

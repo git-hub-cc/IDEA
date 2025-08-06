@@ -1,0 +1,157 @@
+<!-- template.html - A central repository for all dynamic HTML templates used in the application. -->
+
+<!-- Template for the Settings Modal -->
+<template id="settings-modal-template">
+    <div class="settings-modal-body">
+        <div class="modal-tabs">
+            <button class="modal-tab" data-tab="app-settings-pane">主题设置</button>
+            <button class="modal-tab" data-tab="git-settings-pane">Git设置</button>
+            <button class="modal-tab" data-tab="env-settings-pane">环境设置</button>
+        </div>
+        <div class="modal-tab-content">
+            <div id="app-settings-pane" class="tab-pane">
+                <!-- App settings content will be populated by JS -->
+            </div>
+            <div id="git-settings-pane" class="tab-pane">
+                <!-- Git settings content will be populated by JS -->
+            </div>
+            <div id="env-settings-pane" class="tab-pane">
+                <div class="settings-item">
+                    <label for="settings-workspace-root">工作区根目录</label>
+                    <input type="text" id="settings-workspace-root" placeholder="例如: C:/Users/YourName/web-ide-workspace">
+                </div>
+                <div class="settings-item">
+                    <label for="settings-maven-home">Maven 主目录 (MAVEN_HOME)</label>
+                    <input type="text" id="settings-maven-home" placeholder="例如: C:/tools/apache-maven-3.9.6">
+                </div>
+                <div class="settings-item">
+                    <label>JDK 路径配置 (修改后自动保存到服务器)</label>
+                    <div id="jdk-paths-list" class="settings-list"></div>
+                    <button id="add-jdk-path-btn" class="modal-action-btn secondary-btn" style="margin-top: 10px; align-self: flex-start;">
+                        <i class="fas fa-plus"></i> 添加 JDK
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Template for the App Settings Pane within the Settings Modal -->
+<template id="app-settings-pane-template">
+    <div class="settings-item">
+        <label for="settings-theme">主题</label>
+        <select id="settings-theme">
+            <option value="dark-theme">深色主题 (Darcula)</option>
+            <option value="light-theme">浅色主题 (Light)</option>
+        </select>
+    </div>
+    <div class="settings-item">
+        <label for="settings-font-size">编辑器字号</label>
+        <input type="number" id="settings-font-size" min="10" max="24" step="1">
+    </div>
+    <div class="settings-item">
+        <label for="settings-editor-font">编辑器字体</label>
+        <input type="text" id="settings-editor-font" placeholder="例如: 'JetBrains Mono', 'Fira Code'">
+    </div>
+    <div class="settings-item">
+        <label for="settings-word-wrap">自动换行</label>
+        <select id="settings-word-wrap">
+            <option value="true">开启</option>
+            <option value="false">关闭</option>
+        </select>
+    </div>
+</template>
+
+<!-- Template for the Git Settings Pane within the Settings Modal -->
+<template id="git-settings-pane-template">
+    <div class="settings-item">
+        <label for="settings-git-platform">代码托管平台</label>
+        <select id="settings-git-platform">
+            <option value="gitee">Gitee</option>
+            <option value="github">GitHub</option>
+        </select>
+    </div>
+    <div class="settings-item">
+        <label for="settings-gitee-token">访问令牌 (Access Token)</label>
+        <input type="password" id="settings-gitee-token" placeholder="用于 API 访问和 HTTPS 克隆">
+    </div>
+    <div class="settings-item">
+        <label for="settings-ssh-key-path">SSH 私钥绝对路径</label>
+        <input type="text" id="settings-ssh-key-path" placeholder="例如 C:/Users/YourName/.ssh/id_ed25519">
+    </div>
+    <div class="settings-item">
+        <label for="settings-ssh-passphrase">SSH 私钥密码</label>
+        <input type="password" id="settings-ssh-passphrase" placeholder="如果私钥有密码，在此输入">
+    </div>
+</template>
+
+<!-- Template for the JDK Add/Edit Prompt -->
+<template id="jdk-prompt-template">
+    <div class="settings-item">
+        <label for="jdk-prompt-key">JDK 标识符 (例如: jdk8, jdk11, jdk17)</label>
+        <input type="text" id="jdk-prompt-key">
+    </div>
+    <div class="settings-item">
+        <label for="jdk-prompt-value">JDK 可执行文件路径 (java.exe)</label>
+        <input type="text" id="jdk-prompt-value" placeholder="例如: C:/Program Files/Java/jdk-17/bin/java.exe">
+    </div>
+</template>
+
+<!-- Template for the Git Repository Selection Modal -->
+<template id="repo-selection-modal-template">
+    <div>
+        <p>请从 <span class="repo-owner-name"></span> 的公开仓库中选择一个进行克隆:</p>
+        <div id="repo-selection-list" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); margin-top: 10px; border-radius: 4px;">
+            <!-- Repo items will be populated by JS -->
+        </div>
+    </div>
+</template>
+
+<!-- Template for a single repository item in the selection list -->
+<template id="repo-item-template">
+    <div class="repo-item-label">
+        <div class="repo-item-details">
+            <strong class="repo-name"></strong>
+            <p class="repo-description"></p>
+        </div>
+    </div>
+</template>
+
+<!-- Template for the Command Palette / List Prompt -->
+<template id="list-prompt-template">
+    <div class="command-palette">
+        <input type="text" placeholder="搜索指令..." class="modal-search-input">
+        <ul class="modal-list"></ul>
+    </div>
+</template>
+
+<!-- Template for the File Tree Welcome View -->
+<template id="file-tree-welcome-template">
+    <div style="padding: 20px; color: var(--text-secondary); font-size: 0.9em;">
+        <p style="margin-bottom: 15px;">开始一个新项目:</p>
+        <ul style="list-style-type: none; padding-left: 10px;">
+            <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="open-folder" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">1. 从本地目录打开项目</button></li>
+            <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="clone-from-url" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">2. 通过远程仓库 URL 克隆项目</button></li>
+            <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="vcs-clone" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">3. 选择当前用户的代码仓库进行导入</button></li>
+        </ul>
+    </div>
+</template>
+
+<!-- Template for the Tour Popover -->
+<template id="tour-popover-template">
+    <h4></h4>
+    <p></p>
+    <div class="tour-popover-footer">
+        <span class="tour-popover-steps"></span>
+        <div class="tour-popover-nav">
+            <!-- Navigation buttons will be populated by JS -->
+        </div>
+    </div>
+</template>
+
+<!-- Template for the Console Viewport -->
+<template id="console-viewport-template">
+    <div class="console-viewport">
+        <div class="console-content"></div>
+    </div>
+</template>

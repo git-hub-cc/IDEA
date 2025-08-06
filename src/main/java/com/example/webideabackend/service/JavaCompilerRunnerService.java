@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -32,35 +31,48 @@ import java.util.concurrent.Executors;
 @Slf4j
 public class JavaCompilerRunnerService {
 
-    private final Path workspaceRoot;
     private final WebSocketNotificationService notificationService;
     private final MavenProjectHelper mavenHelper;
     private final RunSessionService runSessionService;
     private final SettingsService settingsService;
     private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
 
-
     @Value("#{${app.jdk.paths}}")
     private Map<String, String> legacyJdkPaths;
 
     private static final String MAIN_CLASS = "com.example.Main";
 
+    // ========================= 关键修改 START: 移除 @Value 注入 =========================
     @Autowired
     public JavaCompilerRunnerService(
-            @Value("${app.workspace-root}") String workspaceRootPath,
             WebSocketNotificationService notificationService,
             MavenProjectHelper mavenHelper,
             RunSessionService runSessionService,
             SettingsService settingsService) {
-        this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+        // 移除了 @Value("${app.workspace-root}") String workspaceRootPath 参数
         this.notificationService = notificationService;
         this.mavenHelper = mavenHelper;
         this.runSessionService = runSessionService;
         this.settingsService = settingsService;
     }
 
+    /**
+     * 动态获取最新的工作区根目录。
+     * @return 当前配置的工作区根目录的 Path 对象。
+     */
+    private Path getWorkspaceRoot() {
+        String workspaceRootPath = settingsService.getSettings().getWorkspaceRoot();
+        if (workspaceRootPath == null || workspaceRootPath.isBlank()) {
+            workspaceRootPath = "./workspace"; // 安全回退
+        }
+        return Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+    }
+    // ========================= 关键修改 END ============================================
+
+
     public void validateIsMavenProject(String projectPath) {
-        Path projectDir = workspaceRoot.resolve(projectPath);
+        // 使用动态路径获取
+        Path projectDir = getWorkspaceRoot().resolve(projectPath);
         Path pomFile = projectDir.resolve("pom.xml");
         if (!Files.exists(pomFile)) {
             String errorMessage = "The selected project is not a valid Maven project. The 'Run' feature currently only supports standard Maven projects (must contain a pom.xml at the root).";
@@ -70,43 +82,29 @@ public class JavaCompilerRunnerService {
         }
     }
 
-    // ========================= 关键修改 START: 重构方法为同步验证 + 异步执行 =========================
-    /**
-     * 同步方法：验证环境配置，如果通过，则异步启动构建和运行过程。
-     * @param projectPath 项目路径
-     * @throws EnvironmentConfigurationException 如果环境配置无效
-     */
     public void initiateBuildAndRun(String projectPath) {
         notificationService.sendBuildLog("Build command received for: " + projectPath);
 
-        // 1. 获取最新设置 (同步)
         Settings settings = settingsService.getSettings();
 
-        // 2. 环境检查 (同步, 可能抛出 EnvironmentConfigurationException)
         final String mvnExecutable = validateMavenHome(settings.getMavenHome());
+        // 使用动态路径获取
         final String jdkVersion = mavenHelper.getJavaVersionFromPom(
-                workspaceRoot.resolve(projectPath).toFile(),
+                getWorkspaceRoot().resolve(projectPath).toFile(),
                 (logLine) -> notificationService.sendBuildLog(logLine)
         );
         final String javaExecutable = validateJdkPath(settings.getJdkPaths(), jdkVersion);
 
-        // 3. 验证通过后，将耗时任务提交到线程池 (异步)
         taskExecutor.submit(() -> {
             executeBuildAndRunAsync(projectPath, mvnExecutable, javaExecutable);
         });
     }
 
-    /**
-     * 私有方法：实际执行耗时的构建和运行任务。
-     * 这个方法在背景线程中执行。
-     */
     private void executeBuildAndRunAsync(String projectPath, String mvnExecutable, String javaExecutable) {
         try {
-            // 执行构建
             int buildExitCode = runMavenBuild(projectPath, mvnExecutable);
             notificationService.sendBuildLog("Build finished with exit code: " + buildExitCode);
 
-            // 如果构建成功，则运行
             if (buildExitCode == 0) {
                 notificationService.sendRunLog("Build successful. Initiating run for main class: " + MAIN_CLASS);
                 runJavaApplication(projectPath, MAIN_CLASS, javaExecutable);
@@ -118,7 +116,6 @@ public class JavaCompilerRunnerService {
             notificationService.sendBuildLog("[FATAL] Build failed with exception: " + e.getMessage());
         }
     }
-    // ========================= 关键修改 END ====================================================
 
     private String validateMavenHome(String mavenHome) {
         if (!StringUtils.hasText(mavenHome)) {
@@ -154,7 +151,8 @@ public class JavaCompilerRunnerService {
     }
 
     public void runJavaApplication(String projectPath, String mainClass, String javaExecutable) {
-        var projectDir = workspaceRoot.resolve(projectPath).toFile();
+        // 使用动态路径获取
+        var projectDir = getWorkspaceRoot().resolve(projectPath).toFile();
         List<String> commandList = buildJavaCommandList(projectDir, mainClass, "", javaExecutable);
 
         if (commandList == null) {
@@ -202,7 +200,8 @@ public class JavaCompilerRunnerService {
     }
 
     public int runMavenBuild(String projectPath, String mvnExecutable) throws IOException, InterruptedException {
-        var projectDir = workspaceRoot.resolve(projectPath).toFile();
+        // 使用动态路径获取
+        var projectDir = getWorkspaceRoot().resolve(projectPath).toFile();
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             String errorMessage = "Error: Project directory not found: " + projectDir.getAbsolutePath();
             notificationService.sendBuildLog(errorMessage);

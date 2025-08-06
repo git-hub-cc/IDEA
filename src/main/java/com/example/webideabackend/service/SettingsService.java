@@ -1,4 +1,3 @@
-
 /**
  * SettingsService.java
  *
@@ -14,12 +13,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+// ========================= 关键修改 START =========================
+import java.util.Map;
+// ========================= 关键修改 END ===========================
 
 @Service
 public class SettingsService {
@@ -32,8 +35,18 @@ public class SettingsService {
     private final ObjectMapper objectMapper;
     private Settings currentSettings;
 
-    public SettingsService(@Value("${app.workspace-root}") String workspaceRootPath) {
+    // ========================= 关键修改 START: 注入 Maven 和 JDK 的初始配置 =========================
+    private final String initialMavenHome;
+    private final Map<String, String> initialJdkPaths;
+
+    public SettingsService(@Value("${app.workspace-root}") String workspaceRootPath,
+                           @Value("${app.maven.home:}") String initialMavenHome,
+                           @Value("#{${app.jdk.paths}}") Map<String, String> initialJdkPaths) {
         this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+        this.initialMavenHome = initialMavenHome;
+        this.initialJdkPaths = initialJdkPaths;
+        // ========================= 关键修改 END =================================================
+
         Path ideDir = this.workspaceRoot.resolve(".ide");
         this.settingsFilePath = ideDir.resolve(SETTINGS_FILE_NAME);
         this.objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
@@ -51,9 +64,20 @@ public class SettingsService {
             if (Files.exists(settingsFilePath)) {
                 loadSettings();
             } else {
+                // ========================= 关键修改 START: 创建时填充初始配置 =========================
                 this.currentSettings = new Settings(); // 使用默认设置
+
+                // 如果 application.properties 中有配置，则用它们填充初始的 settings.json
+                if (StringUtils.hasText(this.initialMavenHome)) {
+                    this.currentSettings.setMavenHome(this.initialMavenHome);
+                }
+                if (this.initialJdkPaths != null && !this.initialJdkPaths.isEmpty()) {
+                    this.currentSettings.setJdkPaths(this.initialJdkPaths);
+                }
+
                 saveSettings();
-                LOGGER.info("No settings file found. Created a new one with default values at: {}", settingsFilePath);
+                LOGGER.info("No settings file found. Created a new one with initial values from application.properties at: {}", settingsFilePath);
+                // ========================= 关键修改 END ========================================
             }
         } catch (IOException e) {
             LOGGER.error("Failed to initialize settings. Using default settings.", e);

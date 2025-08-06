@@ -4,17 +4,21 @@ import EventBus from '../utils/event-emitter.js';
 import { ResizableLayout } from '../utils/resizable-layout.js';
 
 const UIManager = {
-    // ========================= 关键修改 START =========================
-    // 从单个布局管理器改为两个，以支持嵌套布局
     mainLayout: null,
     topLayout: null,
-    // ========================= 关键修改 END ===========================
     panelTabButtons: null,
     panelContents: null,
+    // ========================= 关键优化 START =========================
+    busyOverlay: null,
+    requestCounter: 0, // 用于处理并发请求
+    // ========================= 关键优化 END ===========================
 
     init: function() {
         this.panelTabButtons = document.querySelectorAll('.panel-tab');
         this.panelContents = document.querySelectorAll('.panel-content');
+        // ========================= 关键优化 START =========================
+        this.busyOverlay = document.getElementById('busy-overlay');
+        // ========================= 关键优化 END ===========================
 
         this.setupPanelResizing();
         this.setupPanelTabs();
@@ -23,47 +27,70 @@ const UIManager = {
 
     bindEvents: function() {
         EventBus.on('ui:layoutChanged', this.handlePanelLayoutChange.bind(this));
-        // 监听其他模块发出的激活面板的请求
         EventBus.on('ui:activateBottomPanelTab', this.activateBottomPanelTab.bind(this));
+        // ========================= 关键优化 START =========================
+        EventBus.on('network:request-start', this.showBusy.bind(this));
+        EventBus.on('network:request-end', this.hideBusy.bind(this));
+        // ========================= 关键优化 END ===========================
     },
 
-    // ========================= 关键修改 START =========================
-    // 重写此方法以创建垂直和水平两个布局，修复错误
+    // ========================= 关键优化 START =========================
+    /**
+     * 显示繁忙状态指示器。
+     * 使用计数器来处理并发请求，只有第一个请求会显示遮罩。
+     */
+    showBusy: function() {
+        this.requestCounter++;
+        if (this.busyOverlay && this.requestCounter === 1) {
+            this.busyOverlay.classList.add('visible');
+        }
+    },
+
+    /**
+     * 隐藏繁忙状态指示器。
+     * 仅当所有并发请求都完成时才隐藏遮罩。
+     */
+    hideBusy: function() {
+        if (this.requestCounter > 0) {
+            this.requestCounter--;
+        }
+
+        if (this.busyOverlay && this.requestCounter === 0) {
+            this.busyOverlay.classList.remove('visible');
+        }
+    },
+    // ========================= 关键优化 END ===========================
+
     setupPanelResizing: function() {
-        // 主垂直布局：将屏幕分为上下两部分（顶部面板区和底部面板）
         this.mainLayout = new ResizableLayout(
             '#main-panels',
             ['#top-panels-wrapper', '#bottom-panel'],
             {
                 direction: 'vertical',
-                minSizes: [100, 100], // 顶部区域最小高度100px, 底部面板最小高度100px
+                minSizes: [100, 100],
                 initialSizes: [70, 30],
                 storageKey: 'web-idea-layout-vertical'
             }
         );
         this.mainLayout.init();
 
-        // 嵌套的水平布局：将顶部区域分为左右两部分（文件树和编辑器）
         this.topLayout = new ResizableLayout(
             '#top-panels-wrapper',
             ['#left-panel', '#center-panel'],
             {
                 direction: 'horizontal',
-                minSizes: [200, 350], // 保持原始的最小宽度设置
+                minSizes: [200, 350],
                 initialSizes: [25, 75],
                 storageKey: 'web-idea-layout-horizontal'
             }
         );
         this.topLayout.init();
     },
-    // ========================= 关键修改 END ===========================
 
     setupPanelTabs: function() {
         this.panelTabButtons.forEach((button) => {
             button.addEventListener('click', () => {
                 const panelId = button.dataset.panelId;
-                // 通过发出全局事件来处理Tab切换，实现模块解耦。
-                // UIManager自身和TerminalManager等其他模块都会监听到这个事件。
                 EventBus.emit('ui:activateBottomPanelTab', panelId);
             });
         });
@@ -71,9 +98,7 @@ const UIManager = {
 
     activateBottomPanelTab: function(panelId) {
         const targetButton = document.querySelector(`.panel-tab[data-panel-id="${panelId}"]`);
-        // 确保目标按钮存在且当前不是激活状态，避免不必要的重渲染
         if (targetButton && !targetButton.classList.contains('active')) {
-            // 切换UI显示
             this.panelTabButtons.forEach(btn => btn.classList.remove('active'));
             this.panelContents.forEach(content => content.classList.remove('active'));
 
@@ -81,13 +106,11 @@ const UIManager = {
             const panelElement = document.getElementById(panelId);
             if(panelElement) panelElement.classList.add('active');
 
-            // 触发布局变化事件，通知内部组件（如编辑器、终端）调整大小
             EventBus.emit('ui:layoutChanged');
         }
     },
 
     handlePanelLayoutChange: function() {
-        // 使用事件驱动的方法通知其他模块，而不是直接调用它们。
         EventBus.emit('editor:resize');
         EventBus.emit('terminal:resize');
     }

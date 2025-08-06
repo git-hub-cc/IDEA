@@ -1,5 +1,6 @@
 // src/js/managers/TourManager.js
 import EventBus from '../utils/event-emitter.js';
+import TemplateLoader from '../utils/TemplateLoader.js'; // 引入模板加载器
 
 const TourManager = {
     steps: [],
@@ -39,14 +40,12 @@ const TourManager = {
     bindEvents() {
         EventBus.on('action:start-tour', () => this.start(true));
 
-        // Listen to popover button clicks
         this.tourPopover.addEventListener('click', (e) => {
             if (e.target.dataset.action === 'next') this.nextStep();
             if (e.target.dataset.action === 'prev') this.prevStep();
             if (e.target.dataset.action === 'end') this.end();
         });
 
-        // Also end tour on Esc key
         document.addEventListener('keydown', (e) => {
             if (this.isActive && e.key === 'Escape') {
                 this.end();
@@ -59,11 +58,11 @@ const TourManager = {
 
         const tourCompleted = localStorage.getItem('tourCompleted');
         if (tourCompleted && !force) {
-            return; // Don't start if already completed, unless forced
+            return;
         }
 
         this.isActive = true;
-        this.currentStepIndex = -1; // Start from the beginning
+        this.currentStepIndex = -1;
         this.tourOverlay.classList.add('visible');
         this.nextStep();
         EventBus.emit('log:info', '功能引导已开始。');
@@ -122,21 +121,39 @@ const TourManager = {
     },
 
     renderPopover(step) {
+        // ========================= 关键修改 START: 使用模板 =========================
+        const popoverFragment = TemplateLoader.get('tour-popover-template');
+        if (!popoverFragment) return;
+
+        popoverFragment.querySelector('h4').textContent = step.title;
+        popoverFragment.querySelector('p').textContent = step.content;
+        popoverFragment.querySelector('.tour-popover-steps').textContent = `${this.currentStepIndex + 1} / ${this.steps.length}`;
+
+        const navContainer = popoverFragment.querySelector('.tour-popover-nav');
         const isFirstStep = this.currentStepIndex === 0;
         const isLastStep = this.currentStepIndex === this.steps.length - 1;
 
-        this.tourPopover.innerHTML = `
-            <h4>${step.title}</h4>
-            <p>${step.content}</p>
-            <div class="tour-popover-footer">
-                <span class="tour-popover-steps">${this.currentStepIndex + 1} / ${this.steps.length}</span>
-                <div class="tour-popover-nav">
-                    ${!isFirstStep ? '<button data-action="prev">上一步</button>' : ''}
-                    <button data-action="end">结束</button>
-                    <button data-action="next" class="primary">${isLastStep ? '完成' : '下一步'}</button>
-                </div>
-            </div>
-        `;
+        if (!isFirstStep) {
+            const prevButton = document.createElement('button');
+            prevButton.dataset.action = 'prev';
+            prevButton.textContent = '上一步';
+            navContainer.appendChild(prevButton);
+        }
+
+        const endButton = document.createElement('button');
+        endButton.dataset.action = 'end';
+        endButton.textContent = '结束';
+        navContainer.appendChild(endButton);
+
+        const nextButton = document.createElement('button');
+        nextButton.dataset.action = 'next';
+        nextButton.className = 'primary';
+        nextButton.textContent = isLastStep ? '完成' : '下一步';
+        navContainer.appendChild(nextButton);
+
+        this.tourPopover.innerHTML = ''; // Clear previous content
+        this.tourPopover.appendChild(popoverFragment);
+        // ========================= 关键修改 END ======================================
     },
 
     positionPopover(targetElement, position) {
@@ -144,7 +161,7 @@ const TourManager = {
         const popoverRect = this.tourPopover.getBoundingClientRect();
 
         let top = 0, left = 0;
-        const offset = 15; // Space between element and popover
+        const offset = 15;
 
         switch (position) {
             case 'top':
@@ -166,7 +183,6 @@ const TourManager = {
                 break;
         }
 
-        // Boundary checks to keep popover on screen
         if (left < 0) left = offset;
         if (left + popoverRect.width > window.innerWidth) left = window.innerWidth - popoverRect.width - offset;
         if (top < 0) top = offset;

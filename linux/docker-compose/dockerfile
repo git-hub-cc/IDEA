@@ -39,7 +39,3 @@ RUN for jdk_dir in /opt/jdks/jdk*/; do \
 
 # 5. 设置工作目录为 /app，这是项目代码和应用的根目录
 WORKDIR /app
-
-# 6. 将你的工作区挂载到容器的 /app/workspace
-#    这一步也可以在 docker-compose.yml 中通过 volumes 完成，那里更灵活
-VOLUME /app/workspace

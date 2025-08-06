@@ -4,12 +4,13 @@ import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
 import Config from '../config.js';
 import { FileNode } from '../models/file-node.js';
+import TemplateLoader from '../utils/TemplateLoader.js'; // 引入模板加载器
 
 const FileTreeManager = {
     container: null,
     treeData: [],
     focusedElement: null,
-    hoveredElement: null, // 跟踪当前悬浮的元素
+    hoveredElement: null,
 
     init: function() {
         this.container = document.getElementById('file-tree');
@@ -33,8 +34,6 @@ const FileTreeManager = {
         });
 
         document.addEventListener('paste', this._handlePaste.bind(this));
-
-        // 精细化拖拽事件处理
         this.container.addEventListener('dragenter', this._handleDragEnter.bind(this));
         this.container.addEventListener('dragover', this._handleDragOver.bind(this));
         this.container.addEventListener('dragleave', this._handleDragLeave.bind(this));
@@ -116,14 +115,12 @@ const FileTreeManager = {
         });
     },
 
-
     bindAppEvents: function() {
         EventBus.on('project:activated', () => this.loadProjectTree());
         EventBus.on('filesystem:changed', () => this.loadProjectTree());
         EventBus.on('filetree:focus', (element) => this.setFocus(element));
     },
 
-    // 新增拖拽事件处理器
     _handleDragEnter: function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -308,17 +305,13 @@ const FileTreeManager = {
 
     showWelcomeView: function() {
         document.querySelector('#left-panel .panel-header h3').textContent = '项目';
-        this.container.innerHTML = `
-            <div style="padding: 20px; color: var(--text-secondary); font-size: 0.9em;">
-                <p style="margin-bottom: 15px;">开始一个新项目:</p>
-                <ul style="list-style-type: none; padding-left: 10px;">
-                    <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="open-folder" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">1. 从本地目录打开项目</button></li>
-                    <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="clone-from-url" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">2. 通过远程仓库 URL 克隆项目</button></li>
-                    <li style="margin-bottom: 8px;"><button class="welcome-action-btn" data-action="vcs-clone" style="all: unset; cursor: pointer; color: var(--accent-color); text-decoration: underline;">3. 选择当前用户的代码仓库进行导入</button></li>
-                </ul>
-                <p style="margin-top: 20px;">或者直接将文件夹拖拽到此处。</p>
-            </div>
-        `;
+        // ========================= 关键修改 START: 使用模板 =========================
+        const welcomeFragment = TemplateLoader.get('file-tree-welcome-template');
+        this.container.innerHTML = '';
+        if (welcomeFragment) {
+            this.container.appendChild(welcomeFragment);
+        }
+        // ========================= 关键修改 END ======================================
     },
 
     render: function(expansionState, previouslyFocusedPath) {
@@ -422,19 +415,16 @@ const FileTreeManager = {
     getFileIcon: function(fileName) {
         const ext = fileName.split('.').pop().toLowerCase();
         switch (ext) {
-            // Programming Languages
             case 'java': return 'fab fa-java';
             case 'js': case 'jsx': return 'fab fa-js-square';
-            case 'ts': case 'tsx': return 'fab fa-js-square'; // No official TS icon in FA, use JS
+            case 'ts': case 'tsx': return 'fab fa-js-square';
             case 'py': return 'fab fa-python';
-            case 'rb': return 'fas fa-gem'; // Ruby gem icon
+            case 'rb': return 'fas fa-gem';
             case 'php': return 'fab fa-php';
             case 'go': return 'fab fa-golang';
             case 'rs': return 'fab fa-rust';
-            case 'kt': return 'fab fa-java'; // Kotlin is JVM, Java icon is a good proxy
+            case 'kt': return 'fab fa-java';
             case 'c': case 'h': case 'cpp': case 'cs': return 'fas fa-file-code';
-
-            // Web & Markup
             case 'html': return 'fab fa-html5';
             case 'css': return 'fab fa-css3-alt';
             case 'scss': return 'fab fa-sass';
@@ -442,35 +432,24 @@ const FileTreeManager = {
             case 'vue': return 'fab fa-vuejs';
             case 'md': case 'adoc': case 'asciidoc': return 'fab fa-markdown';
             case 'xml': case 'pom': case 'svg': return 'fas fa-code';
-
-            // Config & Data
             case 'json': case 'gltf': return 'fas fa-file-alt';
             case 'yml': case 'yaml': return 'fas fa-file-contract';
             case 'toml': case 'ini': case 'properties': case 'conf': case 'env': return 'fas fa-cog';
-
-            // Build & Version Control
             case 'gradle': return 'fas fa-cogs';
             case 'makefile': return 'fas fa-cogs';
             case 'dockerfile': case 'docker': return 'fab fa-docker';
             case 'gitignore': case 'ignore': return 'fab fa-git-alt';
-
-            // Scripts & Database
             case 'sh': case 'bat': case 'cmd': return 'fas fa-terminal';
             case 'sql': return 'fas fa-database';
-
-            // Text & Docs
             case 'txt': return 'fas fa-file-alt';
             case 'log': return 'fas fa-file-lines';
             case 'csv': case 'tsv': return 'fas fa-file-csv';
             case 'rtf': case 'tex': case 'odt': case 'mhtml': case 'pages': return 'fas fa-file-word';
             case 'ods': return 'fas fa-file-excel';
             case 'epub': case 'fb2': return 'fas fa-book-open';
-
-            // Media (for completeness)
             case 'png': case 'jpg': case 'jpeg': case 'gif': case 'bmp': case 'webp': case 'ico': case 'avif': return 'fas fa-file-image';
             case 'mp4': case 'webm': case 'mov': return 'fas fa-file-video';
             case 'mp3': case 'wav': case 'flac': case 'ogg': return 'fas fa-file-audio';
-
             default: return 'fas fa-file';
         }
     },

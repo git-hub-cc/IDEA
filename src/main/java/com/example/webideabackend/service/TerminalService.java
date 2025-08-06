@@ -3,7 +3,6 @@ package com.example.webideabackend.service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -11,6 +10,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -21,26 +21,38 @@ import java.util.concurrent.Executors;
 public class TerminalService implements DisposableBean {
 
     private final WebSocketNotificationService notificationService;
-    private final Path workspaceRoot;
+    private final SettingsService settingsService; // 新增 SettingsService 依赖
     private final ExecutorService executorService = Executors.newCachedThreadPool();
     private final Map<String, TerminalSession> sessions = new ConcurrentHashMap<>();
 
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
 
+    // ========================= 关键修改 START: 移除 @Value 注入并添加 SettingsService =========================
     @Autowired
-    public TerminalService(WebSocketNotificationService notificationService, @Value("${app.workspace-root}") String workspaceRootPath) {
+    public TerminalService(WebSocketNotificationService notificationService, SettingsService settingsService) {
+        // 移除了 @Value("${app.workspace-root}") String workspaceRootPath 参数
         this.notificationService = notificationService;
-        this.workspaceRoot = Path.of(workspaceRootPath);
+        this.settingsService = settingsService;
     }
 
-    // ========================= 关键修改 START =========================
+    /**
+     * 动态获取最新的工作区根目录。
+     * @return 当前配置的工作区根目录的 Path 对象。
+     */
+    private Path getWorkspaceRoot() {
+        String workspaceRootPath = settingsService.getSettings().getWorkspaceRoot();
+        if (workspaceRootPath == null || workspaceRootPath.isBlank()) {
+            workspaceRootPath = "./workspace"; // 安全回退
+        }
+        return Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+    }
+    // ========================= 关键修改 END =======================================================
+
     public void startSession(String sessionId, String relativePath) {
-        // 如果此会话已有终端在运行，先结束它
         if (sessions.containsKey(sessionId)) {
             log.info("Terminal session {} already exists. Ending it before starting a new one.", sessionId);
             endSession(sessionId);
         }
-        // ========================= 关键修改 END ===========================
 
         try {
             ProcessBuilder processBuilder;
@@ -53,9 +65,10 @@ public class TerminalService implements DisposableBean {
                 env.put("LC_ALL", "en_US.UTF-8");
             }
 
+            // 使用动态路径获取
+            Path workspaceRoot = getWorkspaceRoot();
             Path workingDirectory;
-            // ========================= 关键修改 START =========================
-            // 使用传入的相对路径，如果为空，则默认为工作区根目录
+
             if (StringUtils.hasText(relativePath)) {
                 workingDirectory = workspaceRoot.resolve(relativePath).normalize();
                 if (!Files.exists(workingDirectory) || !Files.isDirectory(workingDirectory)) {
@@ -66,7 +79,7 @@ public class TerminalService implements DisposableBean {
             } else {
                 workingDirectory = workspaceRoot;
             }
-            // ========================= 关键修改 END ===========================
+
             processBuilder.directory(workingDirectory.toFile());
             processBuilder.redirectErrorStream(true);
 

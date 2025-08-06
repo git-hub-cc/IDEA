@@ -2,7 +2,7 @@
 
 package com.example.webideabackend.service;
 
-import com.example.webideabackend.model.RemoteRepoInfo; // 关键修改：重命名
+import com.example.webideabackend.model.RemoteRepoInfo;
 import com.example.webideabackend.model.GitStatusResponse;
 import com.example.webideabackend.model.Settings;
 import com.example.webideabackend.util.SystemCommandExecutor;
@@ -41,29 +41,40 @@ public class GitService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GitService.class);
 
-    // ========================= 关键修改 START: API URL 模板化 =========================
     private static final String GITEE_API_URL_TEMPLATE = "https://gitee.com/api/v5/user/repos?access_token=%s";
     private static final String GITHUB_API_URL = "https://api.github.com/user/repos";
-    // ========================= 关键修改 END ========================================
 
     @Value("${gitee.api.access-token}")
     private String giteeAccessTokenFromProps;
 
     private final SettingsService settingsService;
-    private final Path workspaceRoot;
     private final RestTemplate restTemplate;
     private final SystemCommandExecutor commandExecutor;
 
+    // ========================= 关键修改 START: 移除 @Value 注入 =========================
     @Autowired
-    public GitService(@Value("${app.workspace-root}") String workspaceRootPath,
-                      RestTemplate restTemplate,
+    public GitService(RestTemplate restTemplate,
                       SystemCommandExecutor commandExecutor,
                       SettingsService settingsService) {
-        this.workspaceRoot = Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+        // 移除了 @Value("${app.workspace-root}") String workspaceRootPath 参数
+        // 移除了 this.workspaceRoot = ... 的初始化代码
         this.restTemplate = restTemplate;
         this.commandExecutor = commandExecutor;
         this.settingsService = settingsService;
     }
+
+    /**
+     * 动态获取最新的工作区根目录。
+     * @return 当前配置的工作区根目录的 Path 对象。
+     */
+    private Path getWorkspaceRoot() {
+        String workspaceRootPath = settingsService.getSettings().getWorkspaceRoot();
+        if (workspaceRootPath == null || workspaceRootPath.isBlank()) {
+            workspaceRootPath = "./workspace"; // 安全回退
+        }
+        return Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+    }
+    // ========================= 关键修改 END ========================================
 
     // --- DTOs for different Git providers ---
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -72,11 +83,11 @@ public class GitService {
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubApiRepo(String name, String description, @JsonProperty("clone_url") String cloneUrl) {}
 
-    // ========================= 关键修改 START: 实现多平台仓库获取 =========================
+
     public List<RemoteRepoInfo> getRemoteRepositories() {
         Settings settings = settingsService.getSettings();
         String platform = settings.getGitPlatform() != null ? settings.getGitPlatform() : "gitee";
-        String accessToken = settings.getGiteeAccessToken(); // 字段名保持不变
+        String accessToken = settings.getGiteeAccessToken();
 
         if (!StringUtils.hasText(accessToken)) {
             accessToken = this.giteeAccessTokenFromProps;
@@ -125,7 +136,6 @@ public class GitService {
             return Collections.emptyList();
         }
     }
-    // ========================= 关键修改 END ========================================
 
 
     public String cloneSpecificRepository(String repoHttpsUrl) throws GitAPIException, IOException {
@@ -145,7 +155,10 @@ public class GitService {
             accessToken = this.giteeAccessTokenFromProps;
         }
 
-        Path projectDir = workspaceRoot.resolve(projectName);
+        // ========================= 关键修改 START: 使用动态路径 =========================
+        Path projectDir = getWorkspaceRoot().resolve(projectName);
+        // ========================= 关键修改 END ========================================
+
         if (Files.exists(projectDir)) {
             LOGGER.warn("Project directory {} already exists. Deleting it before clone.", projectDir);
             FileUtils.deleteDirectory(projectDir.toFile());
@@ -180,7 +193,9 @@ public class GitService {
     }
 
     private Git openRepository(String projectPath) throws IOException {
-        Path repoDir = workspaceRoot.resolve(projectPath);
+        // ========================= 关键修改 START: 使用动态路径 =========================
+        Path repoDir = getWorkspaceRoot().resolve(projectPath);
+        // ========================= 关键修改 END ========================================
         if (!Files.exists(repoDir.resolve(".git"))) {
             throw new IllegalStateException("Git repository not found in project path: " + projectPath);
         }
@@ -188,7 +203,9 @@ public class GitService {
     }
 
     public GitStatusResponse getStatus(String projectPath) throws GitAPIException, IOException {
-        Path repoDir = workspaceRoot.resolve(projectPath);
+        // ========================= 关键修改 START: 使用动态路径 =========================
+        Path repoDir = getWorkspaceRoot().resolve(projectPath);
+        // ========================= 关键修改 END ========================================
         if (!Files.exists(repoDir) || !Files.isDirectory(repoDir) || !Files.exists(repoDir.resolve(".git"))) {
             return GitStatusResponse.builder().currentBranch("not-a-repo").isClean(true).added(Collections.emptySet()).modified(Collections.emptySet()).deleted(Collections.emptySet()).untracked(Collections.emptySet()).conflicting(Collections.emptySet()).build();
         }
@@ -210,7 +227,9 @@ public class GitService {
         if (!StringUtils.hasText(projectPath)) {
             throw new IllegalArgumentException("Project path cannot be empty.");
         }
-        File projectDir = workspaceRoot.resolve(projectPath).toFile();
+        // ========================= 关键修改 START: 使用动态路径 =========================
+        File projectDir = getWorkspaceRoot().resolve(projectPath).toFile();
+        // ========================= 关键修改 END ========================================
         if (!projectDir.exists() || !new File(projectDir, ".git").exists()) {
             throw new IllegalStateException("Project is not a valid Git repository.");
         }
@@ -252,7 +271,9 @@ public class GitService {
             throw new IllegalArgumentException("Project path cannot be empty.");
         }
 
-        File projectDir = workspaceRoot.resolve(projectPath).toFile();
+        // ========================= 关键修改 START: 使用动态路径 =========================
+        File projectDir = getWorkspaceRoot().resolve(projectPath).toFile();
+        // ========================= 关键修改 END ========================================
         if (!projectDir.exists() || !new File(projectDir, ".git").exists()) {
             throw new IllegalStateException("Project is not a valid Git repository.");
         }
@@ -282,9 +303,7 @@ public class GitService {
             if (exitCode == 0) {
                 LOGGER.info("Native git push completed successfully for project '{}'.", projectPath);
 
-                // ========================= 关键修改 START =========================
                 String browseableUrl = convertGitUrlToBrowsableHttps(remoteUrl);
-                // ========================= 关键修改 END ===========================
 
                 Map<String, Object> result = new HashMap<>();
                 result.put("message", "Push successful.\n" + commandOutput);
@@ -302,16 +321,6 @@ public class GitService {
         }
     }
 
-    // ========================= 关键修改 START =========================
-    /**
-     * 将一个Git仓库的URL（SSH或HTTPS格式）转换为可在浏览器中打开的HTTPS URL。
-     * 例如：
-     * - "git@gitee.com:user/repo.git" -> "https://gitee.com/user/repo"
-     * - "https://gitee.com/user/repo.git" -> "https://gitee.com/user/repo"
-     *
-     * @param gitUrl 从.git/config中读取的原始URL。
-     * @return 可浏览的HTTPS链接，如果无法转换则返回原始URL。
-     */
     private String convertGitUrlToBrowsableHttps(String gitUrl) {
         if (gitUrl == null || gitUrl.trim().isEmpty()) {
             return gitUrl;
@@ -331,5 +340,4 @@ public class GitService {
 
         return browsableUrl;
     }
-    // ========================= 关键修改 END ===========================
 }

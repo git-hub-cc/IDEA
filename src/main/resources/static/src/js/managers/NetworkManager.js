@@ -83,111 +83,94 @@ const NetworkManager = {
         }
     },
 
-    // ========================= 关键修改 START: 重构 fetchApi 以处理结构化错误 =========================
+    // ========================= 关键优化 START =========================
     /**
-     * 底层的 fetch API 包装器。
+     * 底层的 fetch API 包装器，管理繁忙状态。
      * @param {string} endpoint - API 端点路径。
      * @param {object} options - fetch 选项。
      * @param {string} responseType - 期望的响应类型 ('json', 'text', 'blob')。
+     * @param {boolean} showBusy - 是否在此请求期间显示全局繁忙指示器。
      * @returns {Promise<any>}
      * @private
      */
-    _rawFetchApi: async function(endpoint, options = {}, responseType = 'json') {
-        const url = this.baseUrl + endpoint;
+    _rawFetchApi: async function(endpoint, options = {}, responseType = 'json', showBusy = true) {
+        if (showBusy) {
+            EventBus.emit('network:request-start'); // 在请求开始时触发事件
+        }
+
         try {
+            const url = this.baseUrl + endpoint;
             const response = await fetch(url, {
                 headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json', ...options.headers },
                 ...options,
             });
 
             if (!response.ok) {
-                // 如果响应状态码不是 2xx，则尝试解析错误体
-                let errorData;
                 const errorText = await response.text();
+                let errorData;
                 try {
-                    // 尝试解析为 JSON
                     errorData = JSON.parse(errorText);
                 } catch (e) {
-                    // 如果不是 JSON，则使用原始文本
                     errorData = { message: errorText || response.statusText };
                 }
-
-                // 抛出一个包含 HTTP 状态和解析后数据的错误
-                const error = new Error(`API错误 ${response.status}`);
+                const error = new Error(`API错误 ${response.status}: ${JSON.stringify(errorData)}`);
                 error.status = response.status;
                 error.data = errorData;
                 throw error;
             }
 
-            // 处理成功响应
             switch (responseType) {
                 case 'json':
                     const contentType = response.headers.get('content-type');
-                    if (contentType && contentType.includes('application/json')) return response.json();
-                    return response.text(); // 如果后端返回的不是JSON，则返回文本以避免解析错误
+                    if (contentType && contentType.includes('application/json')) {
+                        return await response.json();
+                    }
+                    return await response.text();
                 case 'text':
-                    return response.text();
+                    return await response.text();
                 case 'blob':
-                    return response.blob();
+                    return await response.blob(); // await 确保在返回前数据已完全下载
                 default:
                     return response;
             }
         } catch (error) {
-            // 如果是我们自己构造的 API 错误，重新抛出
-            if (error.data) {
-                // 为了向后兼容，将 data 附加到 message 中
-                error.message = `${error.message}: ${JSON.stringify(error.data)}`;
-                throw error;
-            }
-            // 如果是网络层面的错误（如 fetch 失败）
             EventBus.emit('log:error', `[网络错误] ${error.message}`);
-            throw new Error(`网络请求失败: ${error.message}`);
+            throw error; // 重新抛出，让调用者处理
+        } finally {
+            if (showBusy) {
+                EventBus.emit('network:request-end'); // 在请求结束时（无论成功或失败）触发事件
+            }
         }
     },
-    // ========================= 关键修改 END ====================================================
+    // ========================= 关键优化 END ===========================
 
-    uploadFilesToPath: function(files, destinationPath) {
-        if (!Config.currentProject) {
-            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
-        }
-
-        const formData = new FormData();
-        formData.append('projectPath', Config.currentProject);
-        formData.append('destinationPath', destinationPath);
-        files.forEach(file => {
-            formData.append('files', file, file.name);
-        });
-
-        return this._uploadWithXHR('api/files/upload-to-path', formData);
-    },
-
-    fetchApi: async function(endpoint, options = {}, responseType = 'json') {
+    fetchApi: async function(endpoint, options = {}, responseType = 'json', showBusy = true) {
         let finalEndpoint = endpoint;
         let finalOptions = { ...options };
 
         if (Config.currentProject) {
             const method = (finalOptions.method || 'GET').toUpperCase();
-            const bodyJson = finalOptions.body && typeof finalOptions.body === 'string' ? JSON.parse(finalOptions.body) : null;
-
-            if (['POST', 'PUT'].includes(method) && bodyJson && !('projectPath' in bodyJson)) {
-                bodyJson.projectPath = Config.currentProject;
-                finalOptions.body = JSON.stringify(bodyJson);
+            if (['POST', 'PUT'].includes(method) && finalOptions.body) {
+                const bodyJson = JSON.parse(finalOptions.body);
+                if (!('projectPath' in bodyJson)) {
+                    bodyJson.projectPath = Config.currentProject;
+                    finalOptions.body = JSON.stringify(bodyJson);
+                }
             } else if (!finalEndpoint.includes('projectPath=')) {
                 const separator = finalEndpoint.includes('?') ? '&' : '?';
                 finalEndpoint += `${separator}projectPath=${encodeURIComponent(Config.currentProject)}`;
             }
         }
-        return this._rawFetchApi(finalEndpoint, finalOptions, responseType);
+        return this._rawFetchApi(finalEndpoint, finalOptions, responseType, showBusy);
     },
 
-    // --- API wrapper methods (大部分保持不变) ---
     getProjects: () => NetworkManager._rawFetchApi('api/projects'),
     getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
     getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
     downloadFileAsBlob: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'),
     saveFileContent: (relativePath, content) => NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }),
     buildProject: () => NetworkManager.fetchApi(`api/java/build`, { method: 'POST' }),
-    getGitStatus: () => NetworkManager.fetchApi(`api/git/status`),
+    getGitStatus: () => NetworkManager.fetchApi(`api/git/status`, {}, 'json', false), // 后台任务，不显示繁忙状态
     gitCommit: (message) => NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) }),
     gitPull: () => NetworkManager.fetchApi(`api/git/pull`, { method: 'POST' }),
     gitPush: () => NetworkManager.fetchApi(`api/git/push`, { method: 'POST' }),
@@ -207,6 +190,7 @@ const NetworkManager = {
     saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
     getProjectClassNames: (projectName) => NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`),
     stopRun: () => NetworkManager._rawFetchApi('api/run/stop', { method: 'POST' }),
+    getSessionStatus: () => NetworkManager._rawFetchApi('api/session/status', {}, 'json', false),
 
     startTerminal: (path) => {
         if (NetworkManager.stompClient && NetworkManager.isConnected) {
@@ -221,36 +205,31 @@ const NetworkManager = {
     },
 
     _uploadWithXHR: function(endpoint, formData) {
+        EventBus.emit('network:request-start'); // 上传开始时也触发
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', this.baseUrl + endpoint, true);
-
             xhr.upload.onprogress = (event) => EventBus.emit('progress:update', { value: event.loaded, total: event.total, message: `上传中... ${Math.round((event.loaded / event.total) * 100)}%` });
             xhr.onloadstart = () => EventBus.emit('progress:start', { message: '开始上传...', total: 1 });
             xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve(xhr.responseText);
-                } else {
-                    reject(new Error(`上传失败: ${xhr.status} ${xhr.responseText}`));
-                }
+                if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
+                else reject(new Error(`上传失败: ${xhr.status} ${xhr.responseText}`));
             };
             xhr.onerror = () => reject(new Error('网络错误，无法完成上传。'));
-            xhr.onloadend = () => EventBus.emit('progress:finish');
-
+            xhr.onloadend = () => {
+                EventBus.emit('progress:finish');
+                EventBus.emit('network:request-end'); // 上传结束时也触发
+            };
             xhr.send(formData);
         });
     },
 
     uploadDirectoryStructure: function(items, destinationPath) {
-        if (!Config.currentProject) {
-            return Promise.reject(new Error("没有活动项目以上传文件。"));
-        }
+        if (!Config.currentProject) return Promise.reject(new Error("没有活动项目以上传文件。"));
         const formData = new FormData();
         formData.append('projectPath', Config.currentProject);
         formData.append('destinationPath', destinationPath);
-        items.forEach(({ file, path }) => {
-            formData.append('files', file, path);
-        });
+        items.forEach(({ file, path }) => formData.append('files', file, path));
         return this._uploadWithXHR('api/files/upload-to-path', formData);
     },
 
@@ -261,11 +240,9 @@ const NetworkManager = {
             EventBus.emit('log:warn', "选择的文件夹为空。");
             return;
         }
-
         const formData = new FormData();
         formData.append('projectPath', projectName);
         filesToUpload.forEach(({ file, path }) => formData.append('files', file, path));
-
         return this._uploadWithXHR('api/files/replace-project', formData);
     },
 

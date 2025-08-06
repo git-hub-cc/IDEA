@@ -2,6 +2,7 @@
 
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
+import TemplateLoader from '../utils/TemplateLoader.js'; // 引入模板加载器
 
 const ConsoleManager = {
     container: null,
@@ -16,10 +17,13 @@ const ConsoleManager = {
     init: function() {
         this.container = document.getElementById('console-output');
 
-        this.container.innerHTML = `
-            <div class="console-viewport">
-                <div class="console-content"></div>
-            </div>`;
+        // ========================= 关键修改 START: 使用模板 =========================
+        const viewportFragment = TemplateLoader.get('console-viewport-template');
+        if (viewportFragment) {
+            this.container.appendChild(viewportFragment);
+        }
+        // ========================= 关键修改 END ======================================
+
         this.viewportElement = this.container.querySelector('.console-viewport');
         this.contentElement = this.container.querySelector('.console-content');
 
@@ -30,19 +34,15 @@ const ConsoleManager = {
         EventBus.on('ui:layoutChanged', () => this.requestRender());
         window.addEventListener('resize', () => this.requestRender());
 
-        // ========================= 关键修改 START: 确保在 app:ready 后加载设置 =========================
         EventBus.on('app:ready', async () => {
             try {
-                // 等待app ready确保settings可以被获取
                 const settings = await NetworkManager.getSettings();
                 this.applySettings(settings);
             } catch (e) {
                 console.warn("无法为控制台加载初始设置，使用默认值。", e);
-                // 即使加载失败，也应用一个默认值
                 this.applySettings({ wordWrap: true });
             }
         });
-        // ========================= 关键修改 END ===================================================
 
         this.clear();
         this.log('欢迎使用Web IDEA控制台。');

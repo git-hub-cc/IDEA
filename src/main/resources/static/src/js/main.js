@@ -20,11 +20,17 @@ import CommandPaletteManager from './managers/CommandPaletteManager.js';
 import ProjectAnalysisService from './services/ProjectAnalysisService.js';
 import RunManager from './managers/RunManager.js';
 import TourManager from './managers/TourManager.js';
+import TemplateLoader from './utils/TemplateLoader.js'; // 引入模板加载器
 
 // 应用核心初始化逻辑
 const App = {
     init: async function() {
         console.log("应用初始化开始...");
+
+        // ========================= 关键修改 START: 首先加载模板 =========================
+        await TemplateLoader.init();
+        // ========================= 关键修改 END ======================================
+
         NetworkManager.init();
         ThemeManager.init();
         ModalManager.init();
@@ -36,10 +42,8 @@ const App = {
         ProjectAnalysisService.init();
         RunManager.init();
         TourManager.init();
-        // ========================= 关键修改 START: 等待 CodeEditorManager 初始化后再初始化依赖它的模块 =========================
         await CodeEditorManager.init();
-        ConsoleManager.init(); // ConsoleManager 依赖 CodeEditorManager 应用设置
-        // ========================= 关键修改 END =======================================================
+        ConsoleManager.init();
         ProblemsManager.init();
         TerminalManager.init();
         DebuggerManager.init();

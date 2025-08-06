@@ -47,7 +47,9 @@ const SessionLockManager = {
      */
     async checkLockStatus() {
         try {
-            const status = await fetch('api/session/status').then(res => res.json());
+            // ========================= 关键修改 START: 使用 NetworkManager =========================
+            const status = await NetworkManager.getSessionStatus();
+            // ========================= 关键修改 END ============================================
             if (status.isLocked) {
                 this.showLockScreen();
                 if (!this.pollingInterval) {

@@ -5,27 +5,25 @@ services:
     build: .
     container_name: my-app-8082
     ports:
+      - "8080:8080"
       - "8082:8082"
     volumes:
       # 1. 将当前目录挂载到容器的 /app 目录 (保持不变)
-      - ./:/app
+      - ./app.jar:/app/app.jar
+      - ./application.properties:/app/application.properties
 
-      # 2. 【核心修改】将本地的 settings.xml 挂载到容器内 Maven 的配置目录
-      #    这会覆盖镜像中原有的 settings.xml 文件。
-      #    源路径: ./settings.xml (当前目录下的 settings.xml)
-      #    目标路径: /root/.m2/settings.xml (容器内 Maven 的标准配置路径)
+      # 2. 挂载 Maven 配置文件
       - ./settings.xml:/root/.m2/settings.xml
 
-    working_dir: /app # 明确设置工作目录是个好习惯
+      # ✅ 修改点：挂载 Maven 本地仓库目录
+      - ./repository/:/root/.m2/repository
+
+      # SSH 配置挂载（如用于访问私有仓库）
+      - ./.ssh:/root/.ssh
+
+    working_dir: /app
 
     environment:
       - GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY=${GITEE_PACKAGE_PEM_RSA_PRIVATE_KEY}
 
-    # 【推荐修改】优化启动命令，实现在容器内编译和运行
-    # 这样可以充分利用我们刚刚挂载的 settings.xml 来下载依赖。
-    # sh -c "..." 允许我们执行一连串的命令。
-    # mvn clean package: 使用容器内的 maven 和 settings.xml 进行编译打包。
-    # -DskipTests: 跳过测试，加快构建速度。
-    # &&: 只有在编译成功后，才执行后面的 java 命令。
-    # target/*.jar: 使用通配符，无需关心 jar 包的具体版本号。
     command: java -Duser.timezone=Asia/Shanghai -jar app.jar

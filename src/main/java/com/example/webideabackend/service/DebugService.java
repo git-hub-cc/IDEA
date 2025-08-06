@@ -35,7 +35,7 @@ public class DebugService {
 
     private final WebSocketNotificationService webSocketService;
     private final MavenProjectHelper mavenHelper;
-    private final String workspaceRoot;
+    private final SettingsService settingsService; // 新增 SettingsService 依赖
 
     @Value("#{${app.jdk.paths}}")
     private Map<String, String> jdkPaths;
@@ -46,13 +46,29 @@ public class DebugService {
 
     private Thread eventThread;
 
+    // ========================= 关键修改 START: 移除 @Value 注入并添加 SettingsService =========================
     public DebugService(WebSocketNotificationService webSocketService,
                         MavenProjectHelper mavenHelper,
-                        @Value("${app.workspace-root}") String workspaceRoot) {
+                        SettingsService settingsService) {
+        // 移除了 @Value("${app.workspace-root}") String workspaceRoot 参数
         this.webSocketService = webSocketService;
         this.mavenHelper = mavenHelper;
-        this.workspaceRoot = workspaceRoot;
+        this.settingsService = settingsService;
     }
+
+    /**
+     * 动态获取最新的工作区根目录。
+     * @return 当前配置的工作区根目录的 Path 对象。
+     */
+    private Path getWorkspaceRoot() {
+        String workspaceRootPath = settingsService.getSettings().getWorkspaceRoot();
+        if (workspaceRootPath == null || workspaceRootPath.isBlank()) {
+            workspaceRootPath = "./workspace"; // 安全回退
+        }
+        return Paths.get(workspaceRootPath).toAbsolutePath().normalize();
+    }
+    // ========================= 关键修改 END =======================================================
+
 
     public synchronized void startDebug(String projectPath, String mainClass) {
         logger.info("请求启动调试会话，项目: {}, 主类: {}", projectPath, mainClass);
@@ -106,7 +122,8 @@ public class DebugService {
     private CompletableFuture<Process> launchDebugeeProcess(String projectPath, String mainClass) throws IOException {
         runMavenCompile(projectPath);
 
-        String jdkVersion = mavenHelper.getJavaVersionFromPom(Paths.get(workspaceRoot, projectPath).toFile(), null);
+        // 使用动态路径获取
+        String jdkVersion = mavenHelper.getJavaVersionFromPom(getWorkspaceRoot().resolve(projectPath).toFile(), null);
         String jdkPathKey = "jdk" + jdkVersion;
         String javaExecutable = jdkPaths.get(jdkPathKey);
         if (javaExecutable == null || !new File(javaExecutable).exists()) {
@@ -114,7 +131,8 @@ public class DebugService {
             javaExecutable = "java";
         }
 
-        Path projectDir = Paths.get(workspaceRoot, projectPath);
+        // 使用动态路径获取
+        Path projectDir = getWorkspaceRoot().resolve(projectPath);
         Path classesDir = projectDir.resolve("target/classes");
         if (!Files.exists(classesDir)) {
             throw new IOException("编译产物目录 'target/classes' 不存在。请检查编译是否成功。");
@@ -142,7 +160,8 @@ public class DebugService {
     }
 
     private void runMavenCompile(String projectPath) throws IOException {
-        Path projectDir = Paths.get(workspaceRoot, projectPath);
+        // 使用动态路径获取
+        Path projectDir = getWorkspaceRoot().resolve(projectPath);
         String mvnCommand = System.getProperty("os.name").toLowerCase().contains("win") ? "mvn.cmd" : "mvn";
         ProcessBuilder pb = new ProcessBuilder(mvnCommand, "compile");
         pb.directory(projectDir.toFile());
@@ -168,6 +187,8 @@ public class DebugService {
             throw new IOException("编译过程被中断。", e);
         }
     }
+
+    // ... (剩余代码保持不变) ...
 
     private void redirectStream(Process p, InputStream inputStream, String prefix, CompletableFuture<Process> readyFuture) {
         new Thread(() -> {
@@ -399,27 +420,21 @@ public class DebugService {
     private List<VariableInfo> getVariables(StackFrame frame) throws IncompatibleThreadStateException, AbsentInformationException {
         List<VariableInfo> vars = new ArrayList<>();
         for (LocalVariable variable : frame.visibleVariables()) {
-            // 这里使用 com.sun.jdi.Value
             com.sun.jdi.Value jdiValue = frame.getValue(variable);
             vars.add(new VariableInfo(variable.name(), variable.typeName(), valueToString(jdiValue)));
         }
         return vars;
     }
 
-    // ========================= 关键修正 START =========================
-    // 错误原因：`Value` 与 Spring 的 `@Value` 注解名称冲突。
-    // 解决方案：使用 JDI Value 的完全限定名称 `com.sun.jdi.Value` 来消除歧义。
     private String valueToString(com.sun.jdi.Value jdiValue) {
         if (jdiValue == null) return "null";
         if (jdiValue instanceof StringReference) return "\"" + ((StringReference) jdiValue).value() + "\"";
         if (jdiValue instanceof PrimitiveValue) return jdiValue.toString();
         if (jdiValue instanceof ObjectReference) {
-            // 修正后，这里的 jdiValue.type() 就能被正确解析了
             return jdiValue.type().name() + " (id=" + ((ObjectReference) jdiValue).uniqueID() + ")";
         }
         return "N/A";
     }
-    // ========================= 关键修正 END ===========================
 
     private List<StackFrameInfo> getCallStack(ThreadReference thread) throws IncompatibleThreadStateException {
         List<StackFrameInfo> stack = new ArrayList<>();

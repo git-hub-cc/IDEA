@@ -2,79 +2,36 @@
 
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
-
-const JDK_PATHS_STORAGE_KEY = 'web-ide-jdk-paths';
+import Config from '../config.js';
+import TemplateLoader from '../utils/TemplateLoader.js'; // 引入模板加载器
 
 const ModalManager = {
     resolvePromise: null,
     rejectPromise: null,
     currentSettings: null,
 
-    /**
-     * 从 localStorage 安全地读取 JDK 路径配置
-     * @returns {Object} JDK 路径对象，如果不存在或格式错误则返回空对象
-     */
-    _getJdkPathsFromStorage: function() {
-        try {
-            const stored = localStorage.getItem(JDK_PATHS_STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                    return parsed;
-                }
-            }
-        } catch (e) {
-            console.error('从 localStorage 加载 JDK 路径配置失败:', e);
-        }
-        return {};
-    },
-
-    /**
-     * 将 JDK 路径对象安全地保存到 localStorage
-     * @param {Object} jdkPaths 要保存的 JDK 路径对象
-     */
-    _saveJdkPathsToStorage: function(jdkPaths) {
-        try {
-            localStorage.setItem(JDK_PATHS_STORAGE_KEY, JSON.stringify(jdkPaths));
-        } catch (e) {
-            console.error('保存 JDK 路径配置到 localStorage 失败:', e);
-        }
-    },
-
-    /**
-     * 收集所有当前设置（包括表单和localStorage中的jdkPaths）并调用API保存。
-     * @returns {Promise<void>}
-     * @private
-     */
     _collectAndSaveAllSettings: async function() {
-        // 确保模态框的DOM元素存在，否则无法收集数据
-        if (!document.getElementById('settings-theme')) {
+        const modalBody = document.getElementById('modal-body');
+        if (!modalBody.querySelector('#settings-theme')) {
             console.warn('_collectAndSaveAllSettings 无法执行，因为设置模态框未渲染。');
             return Promise.reject(new Error("设置UI未加载。"));
         }
 
-        const newSettings = {
-            // App
-            theme: document.getElementById('settings-theme').value,
-            fontSize: parseInt(document.getElementById('settings-font-size').value, 10),
-            wordWrap: document.getElementById('settings-word-wrap').value === 'true',
-            // Git
-            gitPlatform: document.getElementById('settings-git-platform').value,
-            giteeAccessToken: document.getElementById('settings-gitee-token').value,
-            giteeSshPrivateKeyPath: document.getElementById('settings-ssh-key-path').value,
-            giteeSshPassphrase: document.getElementById('settings-ssh-passphrase').value,
-            // Env
-            workspaceRoot: document.getElementById('settings-workspace-root').value,
-            mavenHome: document.getElementById('settings-maven-home').value,
-            // 直接从 localStorage 获取最终的 jdkPaths
-            jdkPaths: this._getJdkPathsFromStorage(),
-        };
+        this.currentSettings.theme = modalBody.querySelector('#settings-theme').value;
+        this.currentSettings.fontSize = parseInt(modalBody.querySelector('#settings-font-size').value, 10);
+        this.currentSettings.editorFontFamily = modalBody.querySelector('#settings-editor-font').value;
+        this.currentSettings.wordWrap = modalBody.querySelector('#settings-word-wrap').value === 'true';
+        this.currentSettings.gitPlatform = modalBody.querySelector('#settings-git-platform').value;
+        this.currentSettings.giteeAccessToken = modalBody.querySelector('#settings-gitee-token').value;
+        this.currentSettings.giteeSshPrivateKeyPath = modalBody.querySelector('#settings-ssh-key-path').value;
+        this.currentSettings.giteeSshPassphrase = modalBody.querySelector('#settings-ssh-passphrase').value;
+        this.currentSettings.workspaceRoot = modalBody.querySelector('#settings-workspace-root').value;
+        this.currentSettings.mavenHome = modalBody.querySelector('#settings-maven-home').value;
 
         try {
-            await NetworkManager.saveSettings(newSettings);
-            // 使用更通用的消息，因为它可能在后台触发
+            await NetworkManager.saveSettings(this.currentSettings);
             EventBus.emit('log:info', '设置已更新并保存。');
-            EventBus.emit('settings:changed', newSettings);
+            EventBus.emit('settings:changed', { ...this.currentSettings });
             return Promise.resolve();
         } catch (error) {
             EventBus.emit('log:error', `保存设置失败: ${error.message}`);
@@ -128,31 +85,171 @@ const ModalManager = {
                 .then((value) => options.onConfirm && options.onConfirm(value))
                 .catch(() => options.onCancel && options.onCancel());
         });
-        EventBus.on('modal:showSettings', (settings) => this.showSettings(settings));
+        EventBus.on('modal:showSettings', (settings, openTab) => this.showSettings(settings, openTab));
         EventBus.on('modal:showListPrompt', this.showListPrompt.bind(this));
         EventBus.on('modal:showChoiceModal', this.showChoiceModal.bind(this));
         EventBus.on('modal:close', () => this._close(false));
     },
 
-    showAlert: function(title, message) {
-        return this._show(title, `<p>${message.replace(/\n/g, '<br>')}</p>`, { confirmText: '关闭', showCancel: false });
+    _handleSettingsConfirm: async function() {
+        const modalBody = document.getElementById('modal-body');
+        const oldWorkspaceRoot = this.currentSettings ? this.currentSettings.workspaceRoot : null;
+        const newWorkspaceRoot = modalBody.querySelector('#settings-workspace-root').value;
+
+        try {
+            await this._collectAndSaveAllSettings();
+            this._close(true);
+
+            if (oldWorkspaceRoot !== null && oldWorkspaceRoot !== newWorkspaceRoot) {
+                EventBus.emit('log:info', '工作区路径已更改，正在刷新项目列表...');
+                Config.setActiveProject(null);
+                try {
+                    const projects = await NetworkManager.getProjects();
+                    Config.setProjectList(projects);
+                    this.showAlert(
+                        '工作区已更新',
+                        '工作区路径已更改。请从项目下拉列表中选择一个新项目。'
+                    );
+                } catch (error) {
+                    EventBus.emit('log:error', `在工作区路径更改后刷新项目列表失败: ${error.message}`);
+                    this.showAlert('错误', '无法从新的工作区加载项目列表。');
+                }
+            }
+        } catch (error) {
+            console.error('设置保存失败，操作被中断。', error);
+        }
     },
 
-    showConfirm: function(title, message, options = {}) {
-        return this._show(title, `<p>${message}</p>`, options);
-    },
+    showSettings: function(settings, openTab = 'app-settings-pane') {
+        this.currentSettings = { ...settings };
+        if (!this.currentSettings.jdkPaths) {
+            this.currentSettings.jdkPaths = {};
+        }
 
-    showPrompt: function(title, message, defaultValue = '') {
-        const body = document.createElement('div');
-        const p = document.createElement('p');
-        p.style.marginBottom = '10px';
-        p.textContent = message;
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = defaultValue;
-        body.appendChild(p);
-        body.appendChild(input);
-        return this._show(title, body);
+        const bodyFragment = TemplateLoader.get('settings-modal-template');
+        if (!bodyFragment) return Promise.reject("Template not found");
+
+        this._populateAppSettings(bodyFragment, settings);
+        this._populateGitSettings(bodyFragment, settings);
+        bodyFragment.querySelector('#settings-workspace-root').value = settings.workspaceRoot || '';
+        bodyFragment.querySelector('#settings-maven-home').value = settings.mavenHome || '';
+
+        const jdkListContainer = bodyFragment.querySelector('#jdk-paths-list');
+        const addJdkBtn = bodyFragment.querySelector('#add-jdk-path-btn');
+
+        const renderJdkList = () => {
+            if (!this.currentSettings) return; // Guard against calls after modal is closed
+            const jdkPaths = this.currentSettings.jdkPaths;
+            jdkListContainer.innerHTML = '';
+            if (Object.keys(jdkPaths).length === 0) {
+                jdkListContainer.innerHTML = `<p class="settings-list-empty">尚未配置 JDK 路径。</p>`;
+                return;
+            }
+            for (const [key, value] of Object.entries(jdkPaths)) {
+                const item = document.createElement('div');
+                item.className = 'settings-list-item';
+                item.innerHTML = `
+                    <span class="jdk-key">${key}</span>
+                    <span class="jdk-path">${value}</span>
+                    <div class="jdk-actions">
+                        <button class="icon-btn" data-action="edit-jdk" data-key="${key}" title="编辑"><i class="fas fa-pen"></i></button>
+                        <button class="icon-btn" data-action="delete-jdk" data-key="${key}" title="删除"><i class="fas fa-trash"></i></button>
+                    </div>`;
+                jdkListContainer.appendChild(item);
+            }
+        };
+
+        // ========================= 关键修改 START: 修复JDK操作中的状态丢失问题 =========================
+        jdkListContainer.addEventListener('click', async (e) => {
+            const button = e.target.closest('button');
+            if (!button) return;
+
+            const settingsBeingEdited = this.currentSettings; // Capture reference before await
+            if (!settingsBeingEdited) return;
+
+            const action = button.dataset.action;
+            const key = button.dataset.key;
+            const oldJdkPaths = { ...settingsBeingEdited.jdkPaths };
+
+            if (action === 'delete-jdk') {
+                delete settingsBeingEdited.jdkPaths[key];
+                try {
+                    await NetworkManager.saveSettings(settingsBeingEdited);
+                    this.currentSettings = settingsBeingEdited; // Restore reference if it was nulled
+                    EventBus.emit('log:info', `JDK配置 '${key}' 已删除并保存。`);
+                    renderJdkList();
+                } catch (saveError) {
+                    settingsBeingEdited.jdkPaths = oldJdkPaths;
+                    this.currentSettings = settingsBeingEdited;
+                    EventBus.emit('log:error', `删除JDK配置失败: ${saveError.message}`);
+                    this.showAlert('保存失败', `无法删除JDK配置: ${saveError.message}`);
+                    renderJdkList();
+                }
+            } else if (action === 'edit-jdk') {
+                try {
+                    const currentValue = settingsBeingEdited.jdkPaths[key];
+                    const { newKey, newValue } = await this._showJdkPrompt('编辑 JDK', key, currentValue);
+
+                    if (newKey !== key) delete settingsBeingEdited.jdkPaths[key];
+                    settingsBeingEdited.jdkPaths[newKey] = newValue;
+
+                    await NetworkManager.saveSettings(settingsBeingEdited);
+                    this.currentSettings = settingsBeingEdited;
+                    EventBus.emit('log:info', `JDK配置 '${key}' 已更新为 '${newKey}' 并保存。`);
+                    renderJdkList();
+
+                } catch (error) {
+                    settingsBeingEdited.jdkPaths = oldJdkPaths;
+                    this.currentSettings = settingsBeingEdited;
+                    if (error.message !== '用户取消了操作。') {
+                        EventBus.emit('log:error', `编辑JDK配置失败: ${error.message}`);
+                        this.showAlert('保存失败', `无法编辑JDK配置: ${error.message}`);
+                    }
+                    renderJdkList();
+                }
+            }
+        });
+
+        addJdkBtn.addEventListener('click', async () => {
+            const settingsBeingEdited = this.currentSettings;
+            if (!settingsBeingEdited) return;
+            const oldJdkPaths = { ...settingsBeingEdited.jdkPaths };
+
+            try {
+                const { newKey, newValue } = await this._showJdkPrompt('添加 JDK');
+                settingsBeingEdited.jdkPaths[newKey] = newValue;
+
+                await NetworkManager.saveSettings(settingsBeingEdited);
+                this.currentSettings = settingsBeingEdited;
+                EventBus.emit('log:info', `新的JDK配置 '${newKey}' 已添加并保存。`);
+                renderJdkList();
+            } catch (error) {
+                settingsBeingEdited.jdkPaths = oldJdkPaths;
+                this.currentSettings = settingsBeingEdited;
+                if (error.message !== '用户取消了操作。') {
+                    EventBus.emit('log:error', `添加JDK配置失败: ${error.message}`);
+                    this.showAlert('保存失败', `无法添加JDK配置: ${error.message}`);
+                }
+                renderJdkList();
+            }
+        });
+        // ========================= 关键修改 END ============================================
+
+        renderJdkList();
+
+        const tabs = bodyFragment.querySelectorAll('.modal-tab');
+        const panes = bodyFragment.querySelectorAll('.tab-pane');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                const targetPaneId = tab.dataset.tab;
+                panes.forEach(pane => pane.classList.toggle('active', pane.id === targetPaneId));
+            });
+        });
+        bodyFragment.querySelector(`.modal-tab[data-tab="${openTab}"]`).click();
+
+        return this._show('设置', bodyFragment, { confirmText: '保存', type: 'settings' }); // Changed text to 'Close' as save is instant
     },
 
     _show: function(title, bodyContent, options = {}) {
@@ -179,38 +276,34 @@ const ModalManager = {
         modal.dataset.isRepoSelection = options.isRepoSelection ? 'true' : 'false';
 
         if (options.showFooter !== false) {
-            if (options.type !== 'choice') {
-                footerEl.innerHTML = `
-                    <button class="modal-action-btn primary-btn" data-action="confirm-modal">确认</button>
-                    <button class="modal-action-btn secondary-btn" data-action="cancel-modal">取消</button>
-                `;
-            }
-            const newConfirmBtn = footerEl.querySelector('[data-action="confirm-modal"]');
-            const newCancelBtn = footerEl.querySelector('[data-action="cancel-modal"]');
+            const confirmBtnText = options.confirmText || '确认';
+            const cancelBtnText = options.cancelText || '取消';
+            const confirmAction = 'confirm-modal';
+            const cancelAction = 'cancel-modal';
+
+            // Simplified footer setup
+            footerEl.innerHTML = `
+                ${options.type !== 'choice' && options.showCancel !== false ? `<button class="modal-action-btn secondary-btn" data-action="${cancelAction}">${cancelBtnText}</button>` : ''}
+                ${options.type !== 'choice' ? `<button class="modal-action-btn primary-btn" data-action="${confirmAction}">${confirmBtnText}</button>` : ''}
+            `;
+
+            const newConfirmBtn = footerEl.querySelector(`[data-action="${confirmAction}"]`);
 
             if (newConfirmBtn) {
-                newConfirmBtn.textContent = options.confirmText || '确认';
                 newConfirmBtn.dataset.type = options.type || 'default';
-                newConfirmBtn.disabled = false;
-            }
-            if(newCancelBtn) {
-                newCancelBtn.textContent = options.cancelText || '取消';
-                newCancelBtn.style.display = options.showCancel === false ? 'none' : 'inline-block';
-            }
-
-            if (options.isRepoSelection && newConfirmBtn) {
-                const repoList = bodyEl.querySelector('#repo-selection-list');
-                newConfirmBtn.disabled = true;
-
-                if (repoList) {
-                    repoList.addEventListener('click', (e) => {
-                        const selectedItem = e.target.closest('.repo-item-label');
-                        if (selectedItem) {
-                            newConfirmBtn.disabled = false;
-                            repoList.querySelectorAll('.repo-item-label').forEach(label => label.classList.remove('selected'));
-                            selectedItem.classList.add('selected');
-                        }
-                    });
+                if (options.isRepoSelection) {
+                    newConfirmBtn.disabled = true;
+                    const repoList = bodyEl.querySelector('#repo-selection-list');
+                    if (repoList) {
+                        repoList.addEventListener('click', (e) => {
+                            const selectedItem = e.target.closest('.repo-item-label');
+                            if (selectedItem) {
+                                newConfirmBtn.disabled = false;
+                                repoList.querySelectorAll('.repo-item-label').forEach(label => label.classList.remove('selected'));
+                                selectedItem.classList.add('selected');
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -236,11 +329,13 @@ const ModalManager = {
         const bodyEl = document.getElementById('modal-body');
         if (!overlay || !this.resolvePromise) return;
 
+        const currentModalType = modal.dataset.type;
+
         if (confirmed) {
             if (modal.dataset.isRepoSelection === 'true') {
                 const selectedItem = bodyEl.querySelector('.repo-item-label.selected');
                 this.resolvePromise(selectedItem ? selectedItem.dataset.cloneUrl : null);
-            } else if (modal.dataset.type === 'choice') {
+            } else if (currentModalType === 'choice') {
                 this.resolvePromise(value);
             } else {
                 const input = bodyEl.querySelector('input[type="text"], textarea');
@@ -253,7 +348,32 @@ const ModalManager = {
         overlay.classList.remove('visible');
         this.resolvePromise = null;
         this.rejectPromise = null;
-        this.currentSettings = null;
+
+        // Only nullify settings if the main settings modal is being closed.
+        if (currentModalType === 'settings') {
+            this.currentSettings = null;
+        }
+    },
+
+    showAlert: function(title, message) {
+        return this._show(title, `<p>${message.replace(/\n/g, '<br>')}</p>`, { confirmText: '关闭', showCancel: false });
+    },
+
+    showConfirm: function(title, message, options = {}) {
+        return this._show(title, `<p>${message}</p>`, options);
+    },
+
+    showPrompt: function(title, message, defaultValue = '') {
+        const body = document.createElement('div');
+        const p = document.createElement('p');
+        p.style.marginBottom = '10px';
+        p.textContent = message;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = defaultValue;
+        body.appendChild(p);
+        body.appendChild(input);
+        return this._show(title, body);
     },
 
     showRepoSelectionModal: function(repos) {
@@ -261,44 +381,38 @@ const ModalManager = {
             return this.showAlert('没有可用的仓库', '未能从远程平台获取任何公开仓库。');
         }
 
+        const bodyFragment = TemplateLoader.get('repo-selection-modal-template');
+        if(!bodyFragment) return Promise.reject("Template not found");
+
+        const repoListContainer = bodyFragment.querySelector('#repo-selection-list');
         let ownerName = '该用户';
         const firstValidRepo = repos.find(repo => repo.cloneUrl && repo.cloneUrl.includes('/'));
         if (firstValidRepo) {
             ownerName = firstValidRepo.cloneUrl.split('/')[3];
         }
+        bodyFragment.querySelector('.repo-owner-name').textContent = ownerName;
 
-        const bodyHtml = `
-            <p>请从 ${ownerName} 的公开仓库中选择一个进行克隆:</p>
-            <div id="repo-selection-list" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); margin-top: 10px; border-radius: 4px;">
-                ${repos.map((repo) => {
-            const cloneUrl = repo.cloneUrl || '';
+        repos.forEach(repo => {
+            const itemFragment = TemplateLoader.get('repo-item-template');
             const description = repo.description ? (repo.description.length > 100 ? repo.description.substring(0, 97) + '...' : repo.description) : '没有描述';
-            return `
-                        <div class="repo-item-label" data-clone-url="${cloneUrl}">
-                            <div class="repo-item-details">
-                                <strong>${repo.name || '无名仓库'}</strong>
-                                <p>${description}</p>
-                            </div>
-                        </div>
-                    `;
-        }).join('')}
-            </div>
-        `;
 
-        return this._show('选择要克隆的仓库', bodyHtml, { confirmText: '克隆', isRepoSelection: true });
+            itemFragment.querySelector('.repo-item-label').dataset.cloneUrl = repo.cloneUrl || '';
+            itemFragment.querySelector('.repo-name').textContent = repo.name || '无名仓库';
+            itemFragment.querySelector('.repo-description').textContent = description;
+
+            repoListContainer.appendChild(itemFragment);
+        });
+
+        return this._show('选择要克隆的仓库', bodyFragment, { confirmText: '克隆', isRepoSelection: true });
     },
 
     showListPrompt: function({ title, items, onConfirm }) {
-        const modalBody = document.createElement('div');
-        modalBody.className = 'command-palette';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.placeholder = '搜索指令...';
-        input.className = 'modal-search-input';
-        const listContainer = document.createElement('ul');
-        listContainer.className = 'modal-list';
-        modalBody.appendChild(input);
-        modalBody.appendChild(listContainer);
+        const modalBody = TemplateLoader.get('list-prompt-template');
+        if(!modalBody) return;
+
+        const input = modalBody.querySelector('.modal-search-input');
+        const listContainer = modalBody.querySelector('.modal-list');
+
         let activeIndex = 0;
         const renderList = (filter = '') => {
             listContainer.innerHTML = '';
@@ -331,7 +445,7 @@ const ModalManager = {
             if (onConfirm) onConfirm(id);
         };
         input.addEventListener('input', () => { activeIndex = 0; renderList(input.value); });
-        modalBody.addEventListener('click', (e) => {
+        listContainer.addEventListener('click', (e) => {
             const itemElement = e.target.closest('.modal-list-item');
             if (itemElement && !itemElement.classList.contains('disabled')) selectItem(itemElement.dataset.id);
         });
@@ -348,195 +462,48 @@ const ModalManager = {
         });
         renderList('');
         this._show(title, modalBody, { showFooter: false, type: 'list-prompt' }).catch(() => {});
-        setTimeout(() => input.focus(), 50);
     },
 
-    showSettings: function(settings, openTab = 'app-settings-pane') {
-        this.currentSettings = { ...settings };
-        delete this.currentSettings.jdkPaths;
-
-        const body = document.createElement('div');
-        body.className = 'settings-modal-body';
-        body.innerHTML = `
-            <div class="modal-tabs">
-                <button class="modal-tab" data-tab="app-settings-pane">主题设置</button>
-                <button class="modal-tab" data-tab="git-settings-pane">Git设置</button>
-                <button class="modal-tab" data-tab="env-settings-pane">环境设置</button>
-            </div>
-            <div class="modal-tab-content">
-                <div id="app-settings-pane" class="tab-pane"></div>
-                <div id="git-settings-pane" class="tab-pane"></div>
-                <div id="env-settings-pane" class="tab-pane">
-                    <div class="settings-item">
-                        <label for="settings-workspace-root">工作区根目录</label>
-                        <input type="text" id="settings-workspace-root" placeholder="例如: C:/Users/YourName/web-ide-workspace">
-                    </div>
-                    <div class="settings-item">
-                        <label for="settings-maven-home">Maven 主目录 (MAVEN_HOME)</label>
-                        <input type="text" id="settings-maven-home" placeholder="例如: C:/tools/apache-maven-3.9.6">
-                    </div>
-                    <div class="settings-item">
-                        <label>JDK 路径配置 (修改后自动保存到服务器)</label>
-                        <div id="jdk-paths-list" class="settings-list"></div>
-                        <button id="add-jdk-path-btn" class="modal-action-btn secondary-btn" style="margin-top: 10px; align-self: flex-start;">
-                            <i class="fas fa-plus"></i> 添加 JDK
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        this._populateAppSettings(body, settings);
-        this._populateGitSettings(body, settings);
-
-        body.querySelector('#settings-workspace-root').value = settings.workspaceRoot || '';
-        body.querySelector('#settings-maven-home').value = settings.mavenHome || '';
-
-        const jdkListContainer = body.querySelector('#jdk-paths-list');
-        const addJdkBtn = body.querySelector('#add-jdk-path-btn');
-
-        const renderJdkList = () => {
-            const jdkPaths = this._getJdkPathsFromStorage();
-            jdkListContainer.innerHTML = '';
-            if (Object.keys(jdkPaths).length === 0) {
-                jdkListContainer.innerHTML = `<p class="settings-list-empty">尚未配置 JDK 路径。</p>`;
-                return;
-            }
-            for (const [key, value] of Object.entries(jdkPaths)) {
-                const item = document.createElement('div');
-                item.className = 'settings-list-item';
-                item.innerHTML = `
-                    <span class="jdk-key">${key}</span>
-                    <span class="jdk-path">${value}</span>
-                    <div class="jdk-actions">
-                        <button class="icon-btn" data-action="edit-jdk" data-key="${key}" title="编辑"><i class="fas fa-pen"></i></button>
-                        <button class="icon-btn" data-action="delete-jdk" data-key="${key}" title="删除"><i class="fas fa-trash"></i></button>
-                    </div>`;
-                jdkListContainer.appendChild(item);
-            }
-        };
-
-        jdkListContainer.addEventListener('click', e => {
-            const button = e.target.closest('button');
-            if (!button) return;
-            const action = button.dataset.action;
-            const key = button.dataset.key;
-            let currentJdkPaths = this._getJdkPathsFromStorage();
-
-            if (action === 'delete-jdk') {
-                delete currentJdkPaths[key];
-                this._saveJdkPathsToStorage(currentJdkPaths);
-                renderJdkList();
-                this._collectAndSaveAllSettings().catch(() => {});
-            } else if (action === 'edit-jdk') {
-                const currentValue = currentJdkPaths[key];
-                this._showJdkPrompt('编辑 JDK', key, currentValue).then(({ newKey, newValue }) => {
-                    currentJdkPaths = this._getJdkPathsFromStorage();
-                    if (newKey !== key) delete currentJdkPaths[key];
-                    currentJdkPaths[newKey] = newValue;
-                    this._saveJdkPathsToStorage(currentJdkPaths);
-                    renderJdkList();
-                    this._collectAndSaveAllSettings().catch(() => {});
-                }).catch(()=>{});
-            }
-        });
-
-        addJdkBtn.addEventListener('click', () => {
-            this._showJdkPrompt('添加 JDK').then(({ newKey, newValue }) => {
-                const currentJdkPaths = this._getJdkPathsFromStorage();
-                currentJdkPaths[newKey] = newValue;
-                this._saveJdkPathsToStorage(currentJdkPaths);
-                renderJdkList();
-                this._collectAndSaveAllSettings().catch(() => {});
-            }).catch(()=>{});
-        });
-
-        renderJdkList();
-
-        const tabs = body.querySelectorAll('.modal-tab');
-        const panes = body.querySelectorAll('.tab-pane');
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                tabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                const targetPaneId = tab.dataset.tab;
-                panes.forEach(pane => pane.classList.toggle('active', pane.id === targetPaneId));
-            });
-        });
-        body.querySelector(`.modal-tab[data-tab="${openTab}"]`).click();
-
-        return this._show('设置', body, { confirmText: '保存到服务器', type: 'settings' });
-    },
-
-    _populateAppSettings(container, settings) {
+    _populateAppSettings: function(container, settings) {
         const pane = container.querySelector('#app-settings-pane');
-        pane.innerHTML = `
-            <div class="settings-item">
-                <label for="settings-theme">主题</label>
-                <select id="settings-theme">
-                    <option value="dark-theme">深色主题 (Darcula)</option>
-                    <option value="light-theme">浅色主题 (Light)</option>
-                </select>
-            </div>
-            <div class="settings-item">
-                <label for="settings-font-size">编辑器字号</label>
-                <input type="number" id="settings-font-size" min="10" max="24" step="1">
-            </div>
-            <div class="settings-item">
-                <label for="settings-word-wrap">自动换行</label>
-                <select id="settings-word-wrap">
-                    <option value="true">开启</option>
-                    <option value="false">关闭</option>
-                </select>
-            </div>`;
-        pane.querySelector('#settings-theme').value = settings.theme;
-        pane.querySelector('#settings-font-size').value = settings.fontSize;
-        pane.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
+        const template = TemplateLoader.get('app-settings-pane-template');
+        if(!template) return;
+
+        template.querySelector('#settings-theme').value = settings.theme;
+        template.querySelector('#settings-font-size').value = settings.fontSize;
+        template.querySelector('#settings-editor-font').value = settings.editorFontFamily || 'JetBrains Mono';
+        template.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
+
+        pane.appendChild(template);
     },
 
-    _populateGitSettings(container, settings) {
+    _populateGitSettings: function(container, settings) {
         const pane = container.querySelector('#git-settings-pane');
-        pane.innerHTML = `
-            <div class="settings-item">
-                <label for="settings-git-platform">代码托管平台</label>
-                <select id="settings-git-platform">
-                    <option value="gitee">Gitee</option>
-                    <option value="github">GitHub</option>
-                </select>
-            </div>
-            <div class="settings-item">
-                <label for="settings-gitee-token">访问令牌 (Access Token)</label>
-                <input type="password" id="settings-gitee-token" placeholder="用于 API 访问和 HTTPS 克隆">
-            </div>
-            <div class="settings-item">
-                <label for="settings-ssh-key-path">SSH 私钥绝对路径</label>
-                <input type="text" id="settings-ssh-key-path" placeholder="例如 C:/Users/YourName/.ssh/id_ed25519">
-            </div>
-            <div class="settings-item">
-                <label for="settings-ssh-passphrase">SSH 私钥密码</label>
-                <input type="password" id="settings-ssh-passphrase" placeholder="如果私钥有密码，在此输入">
-            </div>`;
-        pane.querySelector('#settings-git-platform').value = settings.gitPlatform || 'gitee';
-        pane.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
-        pane.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
-        pane.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
+        const template = TemplateLoader.get('git-settings-pane-template');
+        if(!template) return;
+
+        template.querySelector('#settings-git-platform').value = settings.gitPlatform || 'gitee';
+        template.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
+        template.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
+        template.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
+
+        pane.appendChild(template);
     },
 
-    _showJdkPrompt(title, initialKey = 'jdk', initialValue = '') {
-        const body = document.createElement('div');
-        body.innerHTML = `
-            <div class="settings-item">
-                <label for="jdk-prompt-key">JDK 标识符 (例如: jdk8, jdk11, jdk17)</label>
-                <input type="text" id="jdk-prompt-key" value="${initialKey}">
-            </div>
-            <div class="settings-item">
-                <label for="jdk-prompt-value">JDK 可执行文件路径 (java.exe)</label>
-                <input type="text" id="jdk-prompt-value" value="${initialValue}" placeholder="例如: C:/Program Files/Java/jdk-17/bin/java.exe">
-            </div>`;
-        return this._show(title, body).then(() => {
-            const newKey = body.querySelector('#jdk-prompt-key').value.trim();
-            const newValue = body.querySelector('#jdk-prompt-value').value.trim();
+    _showJdkPrompt: function(title, initialKey = 'jdk', initialValue = '') {
+        const bodyFragment = TemplateLoader.get('jdk-prompt-template');
+        if(!bodyFragment) return Promise.reject("Template not found");
+
+        const keyInput = bodyFragment.querySelector('#jdk-prompt-key');
+        const valueInput = bodyFragment.querySelector('#jdk-prompt-value');
+        keyInput.value = initialKey;
+        valueInput.value = initialValue;
+
+        return this._show(title, bodyFragment, {type: 'sub-prompt'}).then(() => {
+            const newKey = keyInput.value.trim();
+            const newValue = valueInput.value.trim();
             if (!newKey || !newValue) {
+                this.showAlert('输入无效', '标识符和路径都不能为空。');
                 return Promise.reject(new Error('标识符和路径不能为空。'));
             }
             return { newKey, newValue };
@@ -562,16 +529,7 @@ const ModalManager = {
         choiceButtons.forEach(btn => footerEl.appendChild(btn));
         footerEl.appendChild(cancelBtn);
         return this._show(title, body, { type: 'choice' });
-    },
-
-    _handleSettingsConfirm: async function() {
-        try {
-            await this._collectAndSaveAllSettings();
-            this._close(true);
-        } catch (error) {
-            // 错误已由 _collectAndSaveAllSettings 处理，保持模态框打开
-        }
-    },
+    }
 };
 
 export default ModalManager;
