@@ -4,12 +4,18 @@ import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 import NetworkManager from './NetworkManager.js';
 
+/**
+ * @description 管理顶部工具栏和调试器控制面板中的所有按钮的事件和状态。
+ */
 const ToolbarManager = {
     projectSelector: null,
     projectDependentButtons: null,
-    runButton: null,     // 缓存运行按钮
-    debugButton: null,   // 缓存调试按钮
+    runButton: null,
+    debugButton: null,
 
+    /**
+     * @description 初始化工具栏管理器。
+     */
     init: function() {
         const toolbar = document.getElementById('toolbar');
         const debuggerControls = document.querySelector('#debugger-panel .debugger-controls');
@@ -33,20 +39,21 @@ const ToolbarManager = {
         this.updateButtonStates(); // 初始状态检查
     },
 
+    /**
+     * @description 绑定应用级事件监听器。
+     */
     bindAppEvents: function() {
         EventBus.on('project:list-updated', this.populateProjectSelector.bind(this));
-        // 监听项目激活事件来更新按钮状态
         EventBus.on('project:activated', this.updateButtonStates.bind(this));
-        // 监听来自 RunManager 的运行状态更新事件
         EventBus.on('run:stateUpdated', this.updateRunButtonState.bind(this));
     },
 
     /**
-     * 根据当前是否有活动项目来更新按钮的启用/禁用状态
+     * @description 根据当前是否有活动项目来更新按钮的启用/禁用状态。
      */
     updateButtonStates: function() {
         const hasActiveProject = !!Config.currentProject;
-        this.projectDependentButtons.forEach(button => {
+        this.projectDependentButtons.forEach(function(button) {
             button.disabled = !hasActiveProject;
             button.style.opacity = hasActiveProject ? '1' : '0.5';
             button.style.cursor = hasActiveProject ? 'pointer' : 'not-allowed';
@@ -58,23 +65,23 @@ const ToolbarManager = {
     },
 
     /**
-     * 根据程序是否正在运行来更新运行/停止按钮的UI和行为。
+     * @description 根据程序是否正在运行来更新运行/停止按钮的UI和行为。
      * @param {boolean} isRunning - 程序是否正在运行。
      */
     updateRunButtonState: function(isRunning) {
-        if (!this.runButton || !this.debugButton) return;
+        if (!this.runButton || !this.debugButton) {
+            return;
+        }
 
         this.runButton.classList.toggle('is-running', isRunning);
 
         if (isRunning) {
             this.runButton.title = '停止运行 (Ctrl+F2)';
-
             // 当程序运行时，禁用调试按钮
             this.debugButton.disabled = true;
-            this.debugButton.classList.add('is-running'); // 应用禁用样式
+            this.debugButton.classList.add('is-running');
         } else {
             this.runButton.title = '运行代码 (Shift+F10)';
-
             // 只有当有活动项目时才重新启用调试按钮
             const hasActiveProject = !!Config.currentProject;
             this.debugButton.disabled = !hasActiveProject;
@@ -82,8 +89,11 @@ const ToolbarManager = {
         }
     },
 
+    /**
+     * @description 初始化项目选择器，包括加载项目列表和绑定change事件。
+     */
     initProjectSelector: async function() {
-        this.projectSelector.addEventListener('change', (e) => {
+        this.projectSelector.addEventListener('change', function(e) {
             Config.setActiveProject(e.target.value || null);
         });
 
@@ -99,23 +109,31 @@ const ToolbarManager = {
         }
     },
 
+    /**
+     * @description 使用项目列表填充项目选择器的选项。
+     * @param {string[]} projects - 项目名称数组。
+     */
     populateProjectSelector: function(projects) {
         this.projectSelector.innerHTML = '<option value="">-- 选择项目 --</option>';
-        projects.forEach(project => {
+        projects.forEach(function(project) {
             const option = document.createElement('option');
             option.value = project;
             option.textContent = project;
             this.projectSelector.appendChild(option);
-        });
+        }, this);
         this.projectSelector.value = Config.currentProject || "";
     },
 
+    /**
+     * @description 为一组按钮绑定点击事件，触发对应的全局action。
+     * @param {NodeListOf<Element>} buttons - 要绑定的按钮集合。
+     */
     bindButtons: function(buttons) {
-        buttons.forEach((button) => {
-            button.addEventListener('click', () => {
-                // 如果按钮被禁用，则不执行任何操作
-                if (button.disabled) return;
-
+        buttons.forEach(function(button) {
+            button.addEventListener('click', function() {
+                if (button.disabled) {
+                    return;
+                }
                 const action = button.dataset.action;
                 if (action) {
                     EventBus.emit(`action:${action}`);

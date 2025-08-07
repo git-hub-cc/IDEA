@@ -1,4 +1,4 @@
-// src/js/managers/ActionManager.js
+// src/js/managers/ActionManager.js - 应用全局动作管理器
 
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
@@ -10,11 +10,21 @@ import RunManager from './RunManager.js';
 import DebuggerManager from './DebuggerManager.js';
 import TourManager from './TourManager.js';
 
+/**
+ * @description ActionManager 是一个中央分发器，它监听所有用户发起的动作事件
+ * （如按钮点击、快捷键），并调用相应的管理器来执行具体的操作。
+ */
 const ActionManager = {
+    /**
+     * @description 初始化动作管理器，绑定所有应用级动作事件。
+     */
     init: function() {
         this.bindAppEvents();
     },
 
+    /**
+     * @description 将所有 'action:' 和 'context-action:' 事件绑定到对应的处理函数。
+     */
     bindAppEvents: function() {
         EventBus.on('action:new-file', ({ path } = {}) => this.handleNewFile(path));
         EventBus.on('action:open-folder', this.handleOpenFolder.bind(this));
@@ -22,13 +32,13 @@ const ActionManager = {
         EventBus.on('action:format-code', () => EventBus.emit('editor:formatDocument'));
         EventBus.on('action:find-in-file', () => EventBus.emit('editor:find'));
         EventBus.on('action:run-code', this.handleRunCode.bind(this));
-        EventBus.on('action:stop-run', this.handleStopRun.bind(this)); // For shortcut (Ctrl+F2)
+        EventBus.on('action:stop-run', this.handleStopRun.bind(this));
         EventBus.on('action:debug-code', this.handleDebugCode.bind(this));
         EventBus.on('action:step-over', this.handleStepOver.bind(this));
         EventBus.on('action:step-into', this.handleStepInto.bind(this));
         EventBus.on('action:step-out', this.handleStepOut.bind(this));
         EventBus.on('action:resume-debug', this.handleResumeDebug.bind(this));
-        EventBus.on('action:stop-debug', this.handleStopDebug.bind(this)); // For debug panel button
+        EventBus.on('action:stop-debug', this.handleStopDebug.bind(this));
         EventBus.on('action:vcs-clone', this.handleVCSClone.bind(this));
         EventBus.on('action:clone-from-url', this.handleCloneFromUrl.bind(this));
         EventBus.on('action:vcs-commit', this.handleVCSCommit.bind(this));
@@ -38,7 +48,7 @@ const ActionManager = {
         EventBus.on('action:start-tour', () => TourManager.start(true));
         EventBus.on('action:rename-active-file', this.handleRenameActiveFile.bind(this));
 
-        // Context Menu Actions
+        // 上下文菜单动作
         EventBus.on('context-action:new-file', ({ path }) => this.handleNewFile(path, 'folder'));
         EventBus.on('context-action:new-folder', ({ path }) => this.handleNewFolder(path));
         EventBus.on('context-action:rename', ({ path, type }) => this.handleRenamePath(path, type));
@@ -51,6 +61,11 @@ const ActionManager = {
         EventBus.on('context-action:close-tabs-to-the-left', this.handleCloseTabsToLeft.bind(this));
     },
 
+    /**
+     * @description 获取用于创建新文件或文件夹的上下文路径。
+     * @returns {string} 父目录的路径。
+     * @private
+     */
     _getCreationContextPath: function() {
         const focusedItem = FileTreeManager.getFocusedItem();
         if (!focusedItem) return '';
@@ -60,6 +75,11 @@ const ActionManager = {
         return pathParts.join('/');
     },
 
+    /**
+     * @description 处理新建文件的动作。
+     * @param {string} contextPath - 上下文路径。
+     * @param {string} contextType - 上下文类型 ('file' 或 'folder')。
+     */
     handleNewFile: function(contextPath, contextType) {
         const parentPath = (contextType === 'folder' && contextPath) ? contextPath : this._getCreationContextPath();
         const displayPath = parentPath || '项目根目录';
@@ -83,6 +103,10 @@ const ActionManager = {
         });
     },
 
+    /**
+     * @description 处理新建文件夹的动作。
+     * @param {string} contextPath - 上下文路径。
+     */
     handleNewFolder: function(contextPath) {
         const parentPath = contextPath || this._getCreationContextPath();
         const displayPath = parentPath || '项目根目录';
@@ -104,6 +128,9 @@ const ActionManager = {
         });
     },
 
+    /**
+     * @description 处理从本地打开文件夹（项目）的动作。
+     */
     handleOpenFolder: async function() {
         if (!('showDirectoryPicker' in window)) {
             EventBus.emit('modal:showAlert', { title: '浏览器不支持', message: '您的浏览器不支持文件夹选择功能。' });
@@ -117,11 +144,8 @@ const ActionManager = {
                 try {
                     const directoryHandle = await window.showDirectoryPicker();
                     const projectName = directoryHandle.name;
-
                     await NetworkManager.uploadProject(directoryHandle, projectName);
-
                     Config.setActiveProject(projectName);
-
                     EventBus.emit('modal:showAlert', { title: '成功', message: `项目 '${projectName}' 已成功加载！` });
                     EventBus.emit('filesystem:changed');
                 } catch (error) {
@@ -134,6 +158,11 @@ const ActionManager = {
         });
     },
 
+    /**
+     * @description 处理重命名文件或文件夹的动作。
+     * @param {string} path - 要重命名的路径。
+     * @param {string} type - 路径类型 ('file' 或 'folder')。
+     */
     handleRenamePath: function(path, type) {
         const oldName = path.split('/').pop();
         EventBus.emit('modal:showPrompt', {
@@ -156,10 +185,16 @@ const ActionManager = {
         });
     },
 
+    /**
+     * @description 处理保存文件的动作。
+     */
     handleSaveFile: function() {
         EventBus.emit('file:saveRequest');
     },
 
+    /**
+     * @description 处理运行/停止代码的动作。
+     */
     handleRunCode: async function() {
         if (RunManager.isProgramRunning()) {
             this.handleStopRun();
@@ -167,7 +202,7 @@ const ActionManager = {
         }
 
         if (!Config.currentProject) {
-            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
             return;
         }
 
@@ -178,22 +213,18 @@ const ActionManager = {
         try {
             await NetworkManager.buildProject();
             EventBus.emit('log:info', '构建与运行请求已发送。');
-            // ========================= 关键修改 START: 捕获并处理环境配置错误 =========================
         } catch (error) {
             EventBus.emit('log:error', `构建请求失败: ${error.message}`);
             let errorPayload = {};
             try {
-                // 尝试从错误消息中解析出JSON体
                 const jsonString = error.message.substring(error.message.indexOf('{'));
                 errorPayload = JSON.parse(jsonString);
             } catch (e) {
-                // 如果解析失败，说明不是我们期望的结构化错误
                 EventBus.emit('modal:showAlert', { title: '无法运行', message: '构建失败。请查看控制台日志。' });
                 EventBus.emit('statusbar:updateStatus', '构建失败', 2000);
                 return;
             }
 
-            // 检查是否是环境错误
             if (errorPayload.type === 'ENVIRONMENT_ERROR') {
                 EventBus.emit('modal:showConfirm', {
                     title: '环境配置错误',
@@ -201,49 +232,46 @@ const ActionManager = {
                     confirmText: '前往设置',
                     cancelText: '关闭',
                     onConfirm: () => {
-                        // 打开设置并默认定位到环境面板
                         this.handleSettings('env-settings-pane');
                     }
                 });
             } else {
-                // 其他类型的后端错误
                 EventBus.emit('modal:showAlert', { title: '无法运行', message: errorPayload.message || '未知构建错误' });
             }
             EventBus.emit('statusbar:updateStatus', '构建失败', 2000);
         }
-        // ========================= 关键修改 END ============================================
     },
 
+    /**
+     * @description 处理调试代码的动作。
+     */
     handleDebugCode: async function() {
         if (!Config.currentProject) {
-            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
             return;
         }
         if (DebuggerManager.isDebugging || RunManager.isProgramRunning()) {
-            EventBus.emit('modal:showAlert', { title: '操作冲突', message: '已有程序在运行或调试中。请先停止当前会话。'});
+            EventBus.emit('modal:showAlert', { title: '操作冲突', message: '已有程序在运行或调试中。请先停止当前会话。' });
             return;
         }
 
         const storageKey = `lastDebugMainClass_${Config.currentProject}`;
-        const lastMainClass = localStorage.getItem(storageKey) || 'com.example.Main';
+        const lastMainClass = localStorage.getItem(storageKey) || 'club.ppmc.Main';
 
         EventBus.emit('modal:showPrompt', {
             title: '启动调试会话',
-            message: '请输入要调试的完整类名 (e.g., com.example.Application):',
+            message: '请输入要调试的完整类名 (例如: com.example.Application):',
             defaultValue: lastMainClass,
             onConfirm: async (mainClass) => {
                 if (!mainClass) {
-                    EventBus.emit('modal:showAlert', { title: '输入无效', message: '必须提供一个类名才能开始调试。'});
+                    EventBus.emit('modal:showAlert', { title: '输入无效', message: '必须提供一个类名才能开始调试。' });
                     return;
                 }
-
                 localStorage.setItem(storageKey, mainClass);
-
                 EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
                 EventBus.emit('debugger:clear');
                 EventBus.emit('console:clear');
                 EventBus.emit('statusbar:updateStatus', '启动调试器...');
-
                 try {
                     await NetworkManager.startDebug(mainClass);
                     EventBus.emit('log:info', '调试会话启动请求已发送。');
@@ -252,13 +280,13 @@ const ActionManager = {
                     EventBus.emit('modal:showAlert', { title: '调试失败', message: error.message });
                     EventBus.emit('statusbar:updateStatus', '调试失败', 2000);
                 }
-            },
-            onCancel: () => {
-                EventBus.emit('log:info', '用户取消了调试操作。');
             }
         });
     },
 
+    /**
+     * @description 处理停止正在运行的程序的动作。
+     */
     handleStopRun: async function() {
         if (DebuggerManager.isDebugging) {
             this.handleStopDebug();
@@ -269,7 +297,7 @@ const ActionManager = {
             try {
                 await NetworkManager.stopRun();
                 EventBus.emit('log:info', '停止信号已发送。');
-            } catch(error) {
+            } catch (error) {
                 EventBus.emit('log:error', `发送停止信号失败: ${error.message}`);
                 EventBus.emit('modal:showAlert', { title: '错误', message: '无法停止程序，请稍后再试。' });
                 EventBus.emit('statusbar:updateStatus', '停止失败', 2000);
@@ -277,30 +305,33 @@ const ActionManager = {
         }
     },
 
-    handleStopDebug: () => NetworkManager.stopDebug(),
-    handleStepOver: () => NetworkManager.stepOver(),
-    handleStepInto: () => NetworkManager.stepInto(),
-    handleStepOut: () => NetworkManager.stepOut(),
-    handleResumeDebug: () => NetworkManager.resumeDebug(),
+    /** @description 停止调试会话 */
+    handleStopDebug: function() { NetworkManager.stopDebug(); },
+    /** @description 调试：步过 */
+    handleStepOver: function() { NetworkManager.stepOver(); },
+    /** @description 调试：步入 */
+    handleStepInto: function() { NetworkManager.stepInto(); },
+    /** @description 调试：步出 */
+    handleStepOut: function() { NetworkManager.stepOut(); },
+    /** @description 调试：恢复程序 */
+    handleResumeDebug: function() { NetworkManager.resumeDebug(); },
 
+    /**
+     * @description 处理从Git平台克隆仓库的动作。
+     */
     handleVCSClone: async function() {
         EventBus.emit('statusbar:updateStatus', '正在获取远程仓库列表...');
         try {
             const repos = await NetworkManager.getRemoteRepos();
             EventBus.emit('statusbar:updateStatus', '就绪');
-
             if (repos.length === 0) {
                 EventBus.emit('modal:showAlert', { title: '无仓库', message: '在所选平台上找不到任何公开仓库，或令牌无效/限流。' });
                 return;
             }
-
             const selectedCloneUrl = await ModalManager.showRepoSelectionModal(repos);
             await this._cloneRepository(selectedCloneUrl);
-
         } catch (error) {
-            if (error.message === '用户取消了操作。') {
-                EventBus.emit('log:info', '用户取消了仓库选择。');
-            } else {
+            if (error.message !== '用户取消了操作。') {
                 EventBus.emit('log:error', `获取或克隆仓库失败: ${error.message}`);
                 EventBus.emit('modal:showAlert', { title: 'API错误', message: '无法连接到Git平台或克隆失败。请检查设置中的令牌是否正确。' });
                 EventBus.emit('statusbar:updateStatus', '获取仓库失败', 3000);
@@ -308,6 +339,9 @@ const ActionManager = {
         }
     },
 
+    /**
+     * @description 处理从URL克隆仓库的动作。
+     */
     handleCloneFromUrl: async function() {
         EventBus.emit('modal:showPrompt', {
             title: '从 URL 克隆',
@@ -319,27 +353,25 @@ const ActionManager = {
                     return;
                 }
                 await this._cloneRepository(repoUrl);
-            },
-            onCancel: () => {
-                EventBus.emit('log:info', '用户取消了从 URL 克隆操作。');
             }
         });
     },
 
+    /**
+     * @description 执行克隆仓库的通用逻辑。
+     * @param {string} cloneUrl - 要克隆的仓库URL。
+     * @private
+     */
     _cloneRepository: async function(cloneUrl) {
-        if (!cloneUrl) return; // User canceled selection
-
+        if (!cloneUrl) return;
         EventBus.emit('statusbar:updateStatus', '正在克隆选择的仓库...', 0);
         EventBus.emit('progress:start', { message: '正在克隆...' });
-
         try {
             const response = await NetworkManager.cloneSpecificRepo(cloneUrl);
             const newProjectName = response.projectName;
-
             const updatedProjects = await NetworkManager.getProjects();
             Config.setProjectList(updatedProjects);
             Config.setActiveProject(newProjectName);
-
             EventBus.emit('log:info', `项目 '${newProjectName}' 克隆成功!`);
             EventBus.emit('statusbar:updateStatus', '克隆成功!', 3000);
             EventBus.emit('filesystem:changed');
@@ -352,9 +384,12 @@ const ActionManager = {
         }
     },
 
+    /**
+     * @description 处理Git提交的动作。
+     */
     handleVCSCommit: function() {
         if (!Config.currentProject) {
-            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
             return;
         }
         EventBus.emit('modal:showPrompt', {
@@ -377,9 +412,12 @@ const ActionManager = {
         });
     },
 
+    /**
+     * @description 处理Git拉取的动作。
+     */
     handleVCSPull: async function() {
         if (!Config.currentProject) {
-            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
             return;
         }
         EventBus.emit('statusbar:updateStatus', '正在拉取...');
@@ -397,9 +435,12 @@ const ActionManager = {
         }
     },
 
+    /**
+     * @description 处理Git推送的动作。
+     */
     handleVCSPush: async function() {
         if (!Config.currentProject) {
-            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。'});
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
             return;
         }
         EventBus.emit('statusbar:updateStatus', '正在推送...');
@@ -407,7 +448,6 @@ const ActionManager = {
             const result = await NetworkManager.gitPush();
             EventBus.emit('log:info', `推送操作: ${result.message}`);
             EventBus.emit('statusbar:updateStatus', '推送成功!', 2000);
-
             EventBus.emit('modal:showConfirm', {
                 title: 'Git 推送成功',
                 message: '代码已成功推送到远程仓库。是否在新标签页中打开仓库页面？',
@@ -416,30 +456,26 @@ const ActionManager = {
                 onConfirm: () => {
                     if (result.repoUrl) {
                         window.open(result.repoUrl, '_blank');
-                    } else {
-                        EventBus.emit('log:warn', '推送成功，但未收到可浏览的仓库URL。');
                     }
                 }
             });
-
         } catch (error) {
-            EventBus.emit('log:error', `推送失败: ${error.message}`);
             let displayMessage = error.message;
             try {
                 const jsonString = displayMessage.substring(displayMessage.indexOf('{'));
                 const errorPayload = JSON.parse(jsonString);
-                if (errorPayload && errorPayload.message) {
-                    displayMessage = errorPayload.message;
-                }
-            } catch (e) {
-                // Not a JSON error, use as is.
-            }
+                if (errorPayload && errorPayload.message) displayMessage = errorPayload.message;
+            } catch (e) { /* 不是JSON错误，直接使用 */ }
+            EventBus.emit('log:error', `推送失败: ${displayMessage}`);
             EventBus.emit('modal:showAlert', { title: 'Git 推送失败', message: displayMessage });
             EventBus.emit('statusbar:updateStatus', '推送失败', 2000);
         }
     },
 
-    // ========================= 关键修改 START: 接收一个可选参数来指定打开的标签页 =========================
+    /**
+     * @description 处理打开设置的动作。
+     * @param {string} [defaultTab='app-settings-pane'] - 默认打开的设置标签页ID。
+     */
     handleSettings: async function(defaultTab = 'app-settings-pane') {
         try {
             const currentSettings = await NetworkManager.getSettings();
@@ -449,8 +485,12 @@ const ActionManager = {
             EventBus.emit('modal:showAlert', { title: '错误', message: '无法加载设置。' });
         }
     },
-    // ========================= 关键修改 END ============================================
 
+    /**
+     * @description 处理删除文件或文件夹的动作。
+     * @param {object} payload - 动作的载荷。
+     * @param {string} payload.path - 要删除的路径。
+     */
     handleDeletePath: function({ path }) {
         EventBus.emit('modal:showConfirm', {
             title: '确认删除',
@@ -461,7 +501,7 @@ const ActionManager = {
                     EventBus.emit('log:info', `路径 '${path}' 已被删除。`);
                     EventBus.emit('filesystem:changed');
                     EventBus.emit('file:closeRequest', path);
-                } catch(error) {
+                } catch (error) {
                     EventBus.emit('log:error', `删除失败: ${error.message}`);
                     EventBus.emit('modal:showAlert', { title: '删除失败', message: error.message });
                 }
@@ -469,6 +509,11 @@ const ActionManager = {
         });
     },
 
+    /**
+     * @description 处理下载文件的动作。
+     * @param {object} payload - 动作的载荷。
+     * @param {string} payload.path - 要下载的文件路径。
+     */
     handleDownloadFile: async function({ path }) {
         const filename = path.split('/').pop();
         EventBus.emit('statusbar:updateStatus', `正在下载 ${filename}...`);
@@ -477,13 +522,19 @@ const ActionManager = {
             this._downloadBlob(blob, filename);
             EventBus.emit('log:info', `文件 '${filename}' 已开始下载。`);
             EventBus.emit('statusbar:updateStatus', '下载成功', 2000);
-        } catch(error) {
+        } catch (error) {
             EventBus.emit('log:error', `下载文件 ${filename} 失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '下载失败', message: error.message });
             EventBus.emit('statusbar:updateStatus', '下载失败', 3000);
         }
     },
 
+    /**
+     * @description 创建一个链接并模拟点击来触发浏览器下载。
+     * @param {Blob} blob - 要下载的Blob对象。
+     * @param {string} filename - 下载时使用的文件名。
+     * @private
+     */
     _downloadBlob: function(blob, filename) {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -496,48 +547,43 @@ const ActionManager = {
         a.remove();
     },
 
-    handleCloseTab: function({ filePath }) {
-        EventBus.emit('file:closeRequest', filePath);
-    },
+    /** @description 关闭标签页 */
+    handleCloseTab: function({ filePath }) { EventBus.emit('file:closeRequest', filePath); },
+    /** @description 关闭其他标签页 */
+    handleCloseOtherTabs: function({ filePath }) { EventBus.emit('editor:closeOtherTabs', filePath); },
+    /** @description 关闭右侧标签页 */
+    handleCloseTabsToRight: function({ filePath }) { EventBus.emit('editor:closeTabsToTheRight', filePath); },
+    /** @description 关闭左侧标签页 */
+    handleCloseTabsToLeft: function({ filePath }) { EventBus.emit('editor:closeTabsToTheLeft', filePath); },
 
-    handleCloseOtherTabs: function({ filePath }) {
-        EventBus.emit('editor:closeOtherTabs', filePath);
-    },
-
-    handleCloseTabsToRight: function({ filePath }) {
-        EventBus.emit('editor:closeTabsToTheRight', filePath);
-    },
-
-    handleCloseTabsToLeft: function({ filePath }) {
-        EventBus.emit('editor:closeTabsToTheLeft', filePath);
-    },
-
+    /**
+     * @description 处理重命名当前活动文件的动作。
+     */
     handleRenameActiveFile: function() {
         const activePath = CodeEditorManager.activeFilePath;
         if (activePath) {
             this.handleRenamePath(activePath, 'file');
         } else {
-            EventBus.emit('log:warn', '没有激活的文件可以重命名。');
             EventBus.emit('modal:showAlert', { title: '操作无效', message: '请先打开一个文件。' });
         }
     },
 
+    /**
+     * @description 处理在终端中打开文件夹的动作。
+     * @param {object} payload - 动作载荷。
+     * @param {string} payload.path - 路径。
+     * @param {string} payload.type - 路径类型 ('file' 或 'folder')。
+     */
     handleOpenInTerminal: function({ path, type }) {
-        if (!Config.currentProject) {
-            EventBus.emit('log:warn', '无法打开终端，因为没有活动的项。');
-            return;
-        }
-
+        if (!Config.currentProject) return;
         let folderPathInProject = path;
         if (type === 'file') {
             const lastSlash = path.lastIndexOf('/');
             folderPathInProject = lastSlash > -1 ? path.substring(0, lastSlash) : '';
         }
-
-        const fullPath = folderPathInProject
-            ? `${Config.currentProject}/${folderPathInProject}`
-            : Config.currentProject;
-
+        const fullPath = folderPathInProject ?
+            `${Config.currentProject}/${folderPathInProject}` :
+            Config.currentProject;
         EventBus.emit('ui:activateBottomPanelTab', 'terminal-panel');
         NetworkManager.startTerminal(fullPath);
     },

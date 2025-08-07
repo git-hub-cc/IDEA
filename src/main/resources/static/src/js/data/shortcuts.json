@@ -56,8 +56,8 @@
   },
   {
     "keys": "Ctrl+F2",
-    "event": "action:stop-debug",
-    "description": "调试: 停止"
+    "event": "action:stop-run",
+    "description": "停止运行/调试"
   },
   {
     "keys": "Ctrl+K",
@@ -86,7 +86,7 @@
   },
   {
     "keys": "Ctrl+Alt+L",
-    "event": "editor:format-code",
+    "event": "editor:formatDocument",
     "description": "格式化代码 (IDEA 风格)"
   },
   {

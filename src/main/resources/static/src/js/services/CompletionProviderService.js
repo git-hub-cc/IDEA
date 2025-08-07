@@ -1,35 +1,36 @@
-// src/js/services/CompletionProviderService.js
+// src/js/services/CompletionProviderService.js - Monaco自动补全提供者服务
 
-import ProjectAnalysisService from './ProjectAnalysisService.js'; // 导入新服务
+import ProjectAnalysisService from './ProjectAnalysisService.js';
 
 /**
- * 此服务负责从 commands.json 加载代码片段，
- * 并将它们注册为 Monaco Editor 的自动补全提供者。
+ * @description 此服务负责向 Monaco Editor 注册自动补全提供者。
+ * 它结合了静态的代码片段（来自commands.json）和动态的分析数据
+ * （如来自ProjectAnalysisService的Java类名）来提供丰富的代码补全建议。
  */
 const CompletionProviderService = {
     allCommands: [],
     isInitialized: false,
 
     /**
-     * 初始化服务，加载指令并注册提供者。
+     * @description 初始化服务，加载指令并注册提供者。
+     * @returns {Promise<void>}
      */
-    async init() {
+    init: async function() {
         if (this.isInitialized) return;
-
         try {
             await this.loadCommands();
             this.registerCompletionProvider();
             this.isInitialized = true;
-            console.log('自定义代码片段补全服务已注册。');
+            console.log('自定义代码补全服务已注册。');
         } catch (error) {
-            console.error('初始化自定义代码片段补全服务失败:', error);
+            console.error('初始化自定义代码补全服务失败:', error);
         }
     },
 
     /**
-     * 从 JSON 文件加载所有指令/片段。
+     * @description 从 JSON 文件加载所有指令/片段。
      */
-    async loadCommands() {
+    loadCommands: async function() {
         const response = await fetch('src/js/data/commands.json');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -38,9 +39,9 @@ const CompletionProviderService = {
     },
 
     /**
-     * 向 Monaco Editor 注册一个全局的补全项提供者。
+     * @description 向 Monaco Editor 注册一个全局的补全项提供者。
      */
-    registerCompletionProvider() {
+    registerCompletionProvider: function() {
         if (typeof window.monaco === 'undefined') {
             console.error('Monaco Editor 未加载，无法注册补全提供者。');
             return;
@@ -51,39 +52,34 @@ const CompletionProviderService = {
                 const language = model.getLanguageId();
                 const word = model.getWordUntilPosition(position);
                 const range = new monaco.Range(
-                    position.lineNumber,
-                    word.startColumn,
-                    position.lineNumber,
-                    word.endColumn
+                    position.lineNumber, word.startColumn,
+                    position.lineNumber, word.endColumn
                 );
 
-                // ========================= 关键修改 START =========================
-                // 1. 获取所有建议，初始化为空数组
                 let allSuggestions = [];
 
-                // 2. 如果是Java语言，则添加类名建议
+                // 为Java语言添加动态类名建议
                 if (language === 'java') {
                     const classNames = ProjectAnalysisService.getClassNames();
-                    const classSuggestions = classNames.map(fqn => {
+                    const classSuggestions = classNames.map(function(fqn) {
                         const simpleName = fqn.substring(fqn.lastIndexOf('.') + 1);
                         const packageName = fqn.substring(0, fqn.lastIndexOf('.'));
                         return {
-                            label: simpleName, // 提示列表里显示的是简单类名
-                            kind: monaco.languages.CompletionItemKind.Class, // 图标是"类"
-                            documentation: `Class from package: ${packageName}`, // 悬浮提示
-                            detail: packageName, // 在提示项右侧显示包名
-                            insertText: simpleName, // 插入的文本是简单类名
+                            label: simpleName,
+                            kind: monaco.languages.CompletionItemKind.Class,
+                            documentation: `来自包: ${packageName}`,
+                            detail: packageName,
+                            insertText: simpleName,
                             range: range
                         };
                     });
                     allSuggestions = allSuggestions.concat(classSuggestions);
                 }
 
-                // 3. 添加静态代码片段建议
+                // 添加静态代码片段建议
                 const languageSnippets = this.allCommands.filter(cmd =>
                     cmd.type === 'snippet' && cmd.language === language
                 );
-
                 const snippetSuggestions = languageSnippets.map(snippet => ({
                     label: snippet.label,
                     kind: monaco.languages.CompletionItemKind.Snippet,
@@ -93,13 +89,11 @@ const CompletionProviderService = {
                     range: range
                 }));
 
-                // 4. 合并所有建议
                 allSuggestions = allSuggestions.concat(snippetSuggestions);
 
                 return {
                     suggestions: allSuggestions
                 };
-                // ========================= 关键修改 END ===========================
             }
         });
     }

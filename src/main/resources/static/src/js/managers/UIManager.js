@@ -3,40 +3,43 @@
 import EventBus from '../utils/event-emitter.js';
 import { ResizableLayout } from '../utils/resizable-layout.js';
 
+/**
+ * @description UI管理器，负责应用的整体布局（可拖拽面板）、
+ * 底部面板的标签页切换，以及全局的“繁忙”状态指示器。
+ */
 const UIManager = {
     mainLayout: null,
     topLayout: null,
     panelTabButtons: null,
     panelContents: null,
-    // ========================= 关键优化 START =========================
     busyOverlay: null,
-    requestCounter: 0, // 用于处理并发请求
-    // ========================= 关键优化 END ===========================
+    requestCounter: 0, // 用于处理并发的网络请求
 
+    /**
+     * @description 初始化UI管理器。
+     */
     init: function() {
         this.panelTabButtons = document.querySelectorAll('.panel-tab');
         this.panelContents = document.querySelectorAll('.panel-content');
-        // ========================= 关键优化 START =========================
         this.busyOverlay = document.getElementById('busy-overlay');
-        // ========================= 关键优化 END ===========================
 
         this.setupPanelResizing();
         this.setupPanelTabs();
         this.bindEvents();
     },
 
+    /**
+     * @description 绑定应用事件。
+     */
     bindEvents: function() {
         EventBus.on('ui:layoutChanged', this.handlePanelLayoutChange.bind(this));
         EventBus.on('ui:activateBottomPanelTab', this.activateBottomPanelTab.bind(this));
-        // ========================= 关键优化 START =========================
         EventBus.on('network:request-start', this.showBusy.bind(this));
         EventBus.on('network:request-end', this.hideBusy.bind(this));
-        // ========================= 关键优化 END ===========================
     },
 
-    // ========================= 关键优化 START =========================
     /**
-     * 显示繁忙状态指示器。
+     * @description 显示繁忙状态指示器（等待光标和遮罩层）。
      * 使用计数器来处理并发请求，只有第一个请求会显示遮罩。
      */
     showBusy: function() {
@@ -47,7 +50,7 @@ const UIManager = {
     },
 
     /**
-     * 隐藏繁忙状态指示器。
+     * @description 隐藏繁忙状态指示器。
      * 仅当所有并发请求都完成时才隐藏遮罩。
      */
     hideBusy: function() {
@@ -59,8 +62,10 @@ const UIManager = {
             this.busyOverlay.classList.remove('visible');
         }
     },
-    // ========================= 关键优化 END ===========================
 
+    /**
+     * @description 设置主界面的可拖拽面板布局。
+     */
     setupPanelResizing: function() {
         this.mainLayout = new ResizableLayout(
             '#main-panels',
@@ -87,15 +92,22 @@ const UIManager = {
         this.topLayout.init();
     },
 
+    /**
+     * @description 为底部面板的标签页按钮设置点击事件。
+     */
     setupPanelTabs: function() {
-        this.panelTabButtons.forEach((button) => {
-            button.addEventListener('click', () => {
+        this.panelTabButtons.forEach(function(button) {
+            button.addEventListener('click', function() {
                 const panelId = button.dataset.panelId;
                 EventBus.emit('ui:activateBottomPanelTab', panelId);
             });
         });
     },
 
+    /**
+     * @description 激活指定的底部面板标签页。
+     * @param {string} panelId - 要激活的面板的ID。
+     */
     activateBottomPanelTab: function(panelId) {
         const targetButton = document.querySelector(`.panel-tab[data-panel-id="${panelId}"]`);
         if (targetButton && !targetButton.classList.contains('active')) {
@@ -104,12 +116,17 @@ const UIManager = {
 
             targetButton.classList.add('active');
             const panelElement = document.getElementById(panelId);
-            if(panelElement) panelElement.classList.add('active');
+            if (panelElement) {
+                panelElement.classList.add('active');
+            }
 
             EventBus.emit('ui:layoutChanged');
         }
     },
 
+    /**
+     * @description 当面板布局改变时，触发相关组件的重绘事件。
+     */
     handlePanelLayoutChange: function() {
         EventBus.emit('editor:resize');
         EventBus.emit('terminal:resize');

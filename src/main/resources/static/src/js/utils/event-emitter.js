@@ -21,10 +21,10 @@ EventEmitter.prototype.on = function(eventName, listener) {
 };
 
 /**
- * @description 触发一个事件。
+ * @description 触发一个事件，并执行所有相关的监听器。
  * @param {string} eventName - 事件名称。
  * @param {...any} args - 传递给监听器的参数。
- * @returns {Array<any>} - 返回所有监听器执行后的返回值数组。
+ * @returns {Array<any>} 返回所有监听器执行后的返回值组成的数组。
  */
 EventEmitter.prototype.emit = function(eventName, ...args) {
     const results = [];
@@ -33,16 +33,13 @@ EventEmitter.prototype.emit = function(eventName, ...args) {
         const listeners = this.events[eventName].slice();
         listeners.forEach(function(listener) {
             try {
-                // ========================= 关键修改 START =========================
-                // 收集监听器的返回值
                 results.push(listener.apply(null, args));
-                // ========================= 关键修改 END ===========================
             } catch (e) {
                 console.error(`事件 '${eventName}' 的监听器执行出错:`, e);
             }
         });
     }
-    return results; // 返回结果数组
+    return results;
 };
 
 /**

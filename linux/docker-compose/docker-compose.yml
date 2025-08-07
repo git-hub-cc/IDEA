@@ -21,6 +21,8 @@ services:
       # SSH 配置挂载（如用于访问私有仓库）
       - ./.ssh:/root/.ssh
 
+      - ./app:/app
+
     working_dir: /app
 
     environment:

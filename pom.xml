@@ -8,25 +8,28 @@
         <version>3.2.5</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.example</groupId>
-    <artifactId>web-idea-backend</artifactId>
+    <groupId>club.ppmc</groupId>
+    <artifactId>idea</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>web-idea-backend</name>
-    <description>Backend for the Web IDE project</description>
+    <name>idea</name>
+    <description>The Web IDE project</description>
 
+    <!-- 统一管理项目属性和第三方依赖版本 -->
     <properties>
         <java.version>17</java.version>
-        <jgit.version>6.9.0.202403050737-r</jgit.version>
-        <lsp4j.version>0.22.0</lsp4j.version>
-        <gson.version>2.10.1</gson.version>
-        <lombok.version>1.18.32</lombok.version>
-        <!-- ========================= 关键修改 START ========================= -->
+
+        <!-- 非 Spring Boot BOM 管理的依赖版本 -->
         <javaparser.version>3.25.10</javaparser.version>
-        <!-- ========================= 关键修改 END =========================== -->
+        <jgit.version>6.9.0.202403050737-r</jgit.version>
+        <maven-model.version>3.9.6</maven-model.version>
     </properties>
 
     <dependencies>
-        <!-- Spring Boot 基础依赖 -->
+        <!-- Spring Boot 核心依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -35,18 +38,25 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
+
+        <!-- 代码分析与处理工具 -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>${javaparser.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-model</artifactId>
+            <version>${maven-model.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
+            <version>${jgit.version}</version>
         </dependency>
 
-        <!-- 工具库 -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>${lombok.version}</version>
-            <scope>provided</scope>
-        </dependency>
+        <!-- 常用工具库 (版本由 spring-boot-dependencies 管理) -->
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
@@ -55,42 +65,17 @@
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>${gson.version}</version>
         </dependency>
-
-        <!-- JGit: Java实现的Git库 -->
         <dependency>
-            <groupId>org.eclipse.jgit</groupId>
-            <artifactId>org.eclipse.jgit</artifactId>
-            <version>${jgit.version}</version>
-        </dependency>
-
-        <!-- Maven Model: 用于解析 pom.xml 文件 -->
-        <dependency>
-            <groupId>org.apache.maven</groupId>
-            <artifactId>maven-model</artifactId>
-            <version>3.9.6</version>
-        </dependency>
-
-        <!-- ========================= 关键修改 START ========================= -->
-        <!-- JavaParser: 用于解析Java源代码以提取类名 -->
-        <dependency>
-            <groupId>com.github.javaparser</groupId>
-            <artifactId>javaparser-core</artifactId>
-            <version>${javaparser.version}</version>
-        </dependency>
-        <!-- ========================= 关键修改 END =========================== -->
-
-        <!-- 测试依赖 -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!-- Spring Boot Maven 插件，用于打包和运行应用 -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -104,10 +89,11 @@
                 </configuration>
             </plugin>
 
+            <!-- Maven 编译器插件 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <!-- 版本由父 POM 管理，无需指定 -->
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
@@ -115,6 +101,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
+                            <!-- 版本由父 POM 的 ${lombok.version} 属性提供 -->
                             <version>${lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>

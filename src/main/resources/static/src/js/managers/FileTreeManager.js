@@ -4,34 +4,43 @@ import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
 import Config from '../config.js';
 import { FileNode } from '../models/file-node.js';
-import TemplateLoader from '../utils/TemplateLoader.js'; // 引入模板加载器
+import TemplateLoader from '../utils/TemplateLoader.js';
 
+/**
+ * @description 管理左侧文件树的显示、交互（点击、展开、折叠）
+ * 以及拖放和粘贴等文件上传功能。
+ */
 const FileTreeManager = {
     container: null,
     treeData: [],
     focusedElement: null,
     hoveredElement: null,
 
+    /**
+     * @description 初始化文件树管理器。
+     */
     init: function() {
         this.container = document.getElementById('file-tree');
         this.bindDOMEvents();
         this.bindAppEvents();
     },
 
+    /**
+     * @description 绑定文件树容器相关的DOM事件。
+     */
     bindDOMEvents: function() {
-        this.container.addEventListener('click', (e) => {
+        this.container.addEventListener('click', function(e) {
             const listItem = e.target.closest('li[data-path]');
             if (listItem) {
                 this.handleNodeClick(listItem);
                 return;
             }
-
             const actionBtn = e.target.closest('.welcome-action-btn');
-            if(actionBtn) {
+            if (actionBtn) {
                 const action = actionBtn.dataset.action;
                 EventBus.emit(`action:${action}`);
             }
-        });
+        }.bind(this));
 
         document.addEventListener('paste', this._handlePaste.bind(this));
         this.container.addEventListener('dragenter', this._handleDragEnter.bind(this));
@@ -40,35 +49,36 @@ const FileTreeManager = {
         this.container.addEventListener('drop', this._handleDrop.bind(this));
     },
 
+    /**
+     * @description 绑定应用级事件。
+     */
+    bindAppEvents: function() {
+        EventBus.on('project:activated', () => this.loadProjectTree());
+        EventBus.on('filesystem:changed', () => this.loadProjectTree());
+        EventBus.on('filetree:focus', (element) => this.setFocus(element));
+    },
+
+    /**
+     * @description 处理文件粘贴事件。
+     * @param {ClipboardEvent} e - 粘贴事件对象。
+     * @private
+     */
     _handlePaste: async function(e) {
         const activeElement = document.activeElement;
         const isEditorFocused = activeElement && activeElement.closest('#monaco-container');
         const isInputFocused = activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.isContentEditable;
 
         if (isEditorFocused || isInputFocused) {
-            return;
+            return; // 如果焦点在编辑器或输入框内，则不处理粘贴
         }
 
         const items = e.clipboardData.items;
-        if (!items || items.length === 0) {
-            return;
-        }
+        if (!items || items.length === 0) return;
 
-        let containsDirectory = false;
-        for (const item of items) {
-            if (item.kind === 'file' && item.getAsFile() === null) {
-                containsDirectory = true;
-                break;
-            }
-            if (typeof item.webkitGetAsEntry === 'function') {
-                const entry = item.webkitGetAsEntry();
-                if (entry && entry.isDirectory) {
-                    containsDirectory = true;
-                    break;
-                }
-            }
-        }
-
+        // 检查剪贴板中是否包含文件夹（目前不支持）
+        let containsDirectory = Array.from(items).some(item =>
+            (typeof item.webkitGetAsEntry === 'function' && item.webkitGetAsEntry()?.isDirectory)
+        );
         if (containsDirectory) {
             e.preventDefault();
             EventBus.emit('modal:showAlert', {
@@ -79,9 +89,7 @@ const FileTreeManager = {
         }
 
         const files = Array.from(e.clipboardData.files).filter(f => f);
-        if (files.length === 0) {
-            return;
-        }
+        if (files.length === 0) return;
 
         e.preventDefault();
 
@@ -93,9 +101,9 @@ const FileTreeManager = {
         const focusedItem = this.getFocusedItem();
         let destinationPath = '';
         if (focusedItem) {
-            destinationPath = (focusedItem.type === 'folder')
-                ? focusedItem.path
-                : focusedItem.path.substring(0, focusedItem.path.lastIndexOf('/'));
+            destinationPath = (focusedItem.type === 'folder') ?
+                focusedItem.path :
+                focusedItem.path.substring(0, focusedItem.path.lastIndexOf('/'));
         }
         const destinationName = destinationPath || '项目根目录';
 
@@ -115,44 +123,48 @@ const FileTreeManager = {
         });
     },
 
-    bindAppEvents: function() {
-        EventBus.on('project:activated', () => this.loadProjectTree());
-        EventBus.on('filesystem:changed', () => this.loadProjectTree());
-        EventBus.on('filetree:focus', (element) => this.setFocus(element));
-    },
-
+    /**
+     * @description 处理拖放事件：dragenter。
+     * @param {DragEvent} e
+     * @private
+     */
     _handleDragEnter: function(e) {
         e.preventDefault();
         e.stopPropagation();
         this.container.classList.add('drag-over');
     },
 
+    /**
+     * @description 处理拖放事件：dragover。
+     * @param {DragEvent} e
+     * @private
+     */
     _handleDragOver: function(e) {
         e.preventDefault();
         e.stopPropagation();
-
         const targetElement = e.target.closest('li[data-type="folder"]');
-
         if (this.hoveredElement && this.hoveredElement !== targetElement) {
             this.hoveredElement.classList.remove('drag-hover-target');
             this.hoveredElement = null;
         }
-
         if (targetElement && !targetElement.classList.contains('drag-hover-target')) {
             this.hoveredElement = targetElement;
             this.hoveredElement.classList.add('drag-hover-target');
         }
     },
 
+    /**
+     * @description 处理拖放事件：dragleave。
+     * @param {DragEvent} e
+     * @private
+     */
     _handleDragLeave: function(e) {
         e.preventDefault();
         e.stopPropagation();
-
         if (this.hoveredElement && e.target === this.hoveredElement) {
             this.hoveredElement.classList.remove('drag-hover-target');
             this.hoveredElement = null;
         }
-
         if (!this.container.contains(e.relatedTarget)) {
             this.container.classList.remove('drag-over');
             if (this.hoveredElement) {
@@ -162,6 +174,11 @@ const FileTreeManager = {
         }
     },
 
+    /**
+     * @description 处理拖放事件：drop。
+     * @param {DragEvent} e
+     * @private
+     */
     _handleDrop: async function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -181,7 +198,6 @@ const FileTreeManager = {
 
         const dropTarget = this.hoveredElement;
         this.hoveredElement = null;
-
         if (!dropTarget) {
             EventBus.emit('log:warn', '拖放操作未在有效目标上。请将文件拖放到一个文件夹上。');
             return;
@@ -197,6 +213,12 @@ const FileTreeManager = {
         await this._performUpload(dataTransferItems, targetPath);
     },
 
+    /**
+     * @description 执行实际的文件上传逻辑。
+     * @param {DataTransferItemList} dataTransferItems
+     * @param {string} destinationPath
+     * @private
+     */
     _performUpload: async function(dataTransferItems, destinationPath) {
         try {
             EventBus.emit('progress:start', { message: '正在分析文件...', total: 1 });
@@ -206,13 +228,11 @@ const FileTreeManager = {
                 EventBus.emit('progress:finish');
                 return;
             }
-
             const destinationName = destinationPath || '项目根目录';
             EventBus.emit('log:info', `准备将 ${itemsToUpload.length} 个项目上传至 ${destinationName}`);
             await NetworkManager.uploadDirectoryStructure(itemsToUpload, destinationPath);
             EventBus.emit('log:info', '上传成功。');
             EventBus.emit('filesystem:changed');
-
         } catch (error) {
             EventBus.emit('log:error', `上传失败: ${error.message}`);
             EventBus.emit('modal:showAlert', { title: '上传失败', message: error.message });
@@ -221,6 +241,12 @@ const FileTreeManager = {
         }
     },
 
+    /**
+     * @description 从 DataTransferItemList 递归地提取所有文件和文件夹。
+     * @param {DataTransferItemList} items
+     * @returns {Promise<Array<object>>}
+     * @private
+     */
     _getFilesFromDataTransfer: async function(items) {
         const fileEntries = [];
 
@@ -244,13 +270,10 @@ const FileTreeManager = {
         const processEntry = async (entry, pathPrefix = '') => {
             if (entry.isFile) {
                 await new Promise((resolve, reject) => {
-                    entry.file(
-                        (file) => {
-                            fileEntries.push({ file, path: `${pathPrefix}${file.name}` });
-                            resolve();
-                        },
-                        (err) => reject(err)
-                    );
+                    entry.file(file => {
+                        fileEntries.push({ file: file, path: `${pathPrefix}${file.name}` });
+                        resolve();
+                    }, err => reject(err));
                 });
             } else if (entry.isDirectory) {
                 const dirReader = entry.createReader();
@@ -261,19 +284,17 @@ const FileTreeManager = {
             }
         };
 
-        const promises = [];
-        for (const item of items) {
-            if (typeof item.webkitGetAsEntry === 'function') {
-                const entry = item.webkitGetAsEntry();
-                if (entry) {
-                    promises.push(processEntry(entry));
-                }
-            }
-        }
+        const promises = Array.from(items)
+            .map(item => item.webkitGetAsEntry())
+            .filter(entry => entry)
+            .map(entry => processEntry(entry));
         await Promise.all(promises);
         return fileEntries;
     },
 
+    /**
+     * @description 加载并渲染当前活动项目的文件树。
+     */
     loadProjectTree: async function() {
         if (!Config.currentProject) {
             this.showWelcomeView();
@@ -303,27 +324,33 @@ const FileTreeManager = {
         }
     },
 
+    /**
+     * @description 当没有活动项目时，显示欢迎界面。
+     */
     showWelcomeView: function() {
         document.querySelector('#left-panel .panel-header h3').textContent = '项目';
-        // ========================= 关键修改 START: 使用模板 =========================
         const welcomeFragment = TemplateLoader.get('file-tree-welcome-template');
         this.container.innerHTML = '';
         if (welcomeFragment) {
             this.container.appendChild(welcomeFragment);
         }
-        // ========================= 关键修改 END ======================================
     },
 
+    /**
+     * @description 渲染整个文件树。
+     * @param {object} expansionState - 包含需要保持展开状态的文件夹路径的对象。
+     * @param {string|null} previouslyFocusedPath - 之前拥有焦点的文件或文件夹的路径。
+     */
     render: function(expansionState, previouslyFocusedPath) {
         const fragment = document.createDocumentFragment();
         const rootUl = document.createElement('ul');
         rootUl.className = 'file-tree';
 
         if (this.treeData && this.treeData.length > 0) {
-            this.treeData.forEach(item => {
+            this.treeData.forEach(function(item) {
                 const nodeElement = this.renderNode(item, expansionState);
                 rootUl.appendChild(nodeElement);
-            });
+            }, this);
         }
 
         fragment.appendChild(rootUl);
@@ -338,6 +365,12 @@ const FileTreeManager = {
         }
     },
 
+    /**
+     * @description 递归渲染单个文件或文件夹节点。
+     * @param {FileNode} node - 要渲染的节点。
+     * @param {object} expansionState - 展开状态对象。
+     * @returns {HTMLElement} 渲染出的 `<li>` 元素。
+     */
     renderNode: function(node, expansionState) {
         if (expansionState[node.path]) {
             node.isExpanded = true;
@@ -357,16 +390,20 @@ const FileTreeManager = {
 
         if (node.isFolder() && node.children) {
             const nestedUl = document.createElement('ul');
-            node.children.forEach(child => {
+            node.children.forEach(function(child) {
                 const childElement = this.renderNode(child, expansionState);
                 nestedUl.appendChild(childElement);
-            });
+            }, this);
             li.appendChild(nestedUl);
         }
 
         return li;
     },
 
+    /**
+     * @description 处理文件树节点的点击事件。
+     * @param {HTMLElement} listItem - 被点击的 `<li>` 元素。
+     */
     handleNodeClick: function(listItem) {
         const path = listItem.dataset.path;
         const node = FileNode.findNodeByPath(this.treeData, path);
@@ -380,6 +417,10 @@ const FileTreeManager = {
         }
     },
 
+    /**
+     * @description 设置文件树中的焦点元素。
+     * @param {HTMLElement} element - 要设置焦点的元素。
+     */
     setFocus: function(element) {
         if (this.focusedElement) {
             this.focusedElement.classList.remove('focused');
@@ -388,6 +429,10 @@ const FileTreeManager = {
         this.focusedElement = element;
     },
 
+    /**
+     * @description 获取当前拥有焦点的项的信息。
+     * @returns {{path: string, type: string}|null}
+     */
     getFocusedItem: function() {
         if (this.focusedElement) {
             return {
@@ -398,6 +443,12 @@ const FileTreeManager = {
         return null;
     },
 
+    /**
+     * @description 获取并返回当前文件树的展开状态。
+     * @param {FileNode[]} nodes - 要遍历的节点数组。
+     * @param {object} [state={}] - 用于存储状态的对象。
+     * @returns {object}
+     */
     getExpansionState: function(nodes, state = {}) {
         for (const node of nodes) {
             if (node.isFolder()) {
@@ -412,6 +463,11 @@ const FileTreeManager = {
         return state;
     },
 
+    /**
+     * @description 根据文件名返回对应的 Font Awesome 图标类名。
+     * @param {string} fileName - 文件名。
+     * @returns {string} 图标类名。
+     */
     getFileIcon: function(fileName) {
         const ext = fileName.split('.').pop().toLowerCase();
         switch (ext) {
@@ -419,41 +475,28 @@ const FileTreeManager = {
             case 'js': case 'jsx': return 'fab fa-js-square';
             case 'ts': case 'tsx': return 'fab fa-js-square';
             case 'py': return 'fab fa-python';
-            case 'rb': return 'fas fa-gem';
-            case 'php': return 'fab fa-php';
-            case 'go': return 'fab fa-golang';
-            case 'rs': return 'fab fa-rust';
-            case 'kt': return 'fab fa-java';
-            case 'c': case 'h': case 'cpp': case 'cs': return 'fas fa-file-code';
             case 'html': return 'fab fa-html5';
             case 'css': return 'fab fa-css3-alt';
-            case 'scss': return 'fab fa-sass';
-            case 'less': return 'fab fa-less';
             case 'vue': return 'fab fa-vuejs';
-            case 'md': case 'adoc': case 'asciidoc': return 'fab fa-markdown';
-            case 'xml': case 'pom': case 'svg': return 'fas fa-code';
-            case 'json': case 'gltf': return 'fas fa-file-alt';
+            case 'md': return 'fab fa-markdown';
+            case 'xml': case 'pom': return 'fas fa-code';
+            case 'json': return 'fas fa-file-alt';
             case 'yml': case 'yaml': return 'fas fa-file-contract';
-            case 'toml': case 'ini': case 'properties': case 'conf': case 'env': return 'fas fa-cog';
+            case 'properties': case 'conf': case 'env': return 'fas fa-cog';
             case 'gradle': return 'fas fa-cogs';
-            case 'makefile': return 'fas fa-cogs';
-            case 'dockerfile': case 'docker': return 'fab fa-docker';
-            case 'gitignore': case 'ignore': return 'fab fa-git-alt';
-            case 'sh': case 'bat': case 'cmd': return 'fas fa-terminal';
+            case 'dockerfile': return 'fab fa-docker';
+            case 'gitignore': return 'fab fa-git-alt';
             case 'sql': return 'fas fa-database';
-            case 'txt': return 'fas fa-file-alt';
-            case 'log': return 'fas fa-file-lines';
-            case 'csv': case 'tsv': return 'fas fa-file-csv';
-            case 'rtf': case 'tex': case 'odt': case 'mhtml': case 'pages': return 'fas fa-file-word';
-            case 'ods': return 'fas fa-file-excel';
-            case 'epub': case 'fb2': return 'fas fa-book-open';
-            case 'png': case 'jpg': case 'jpeg': case 'gif': case 'bmp': case 'webp': case 'ico': case 'avif': return 'fas fa-file-image';
-            case 'mp4': case 'webm': case 'mov': return 'fas fa-file-video';
-            case 'mp3': case 'wav': case 'flac': case 'ogg': return 'fas fa-file-audio';
+            case 'png': case 'jpg': case 'jpeg': return 'fas fa-file-image';
+            case 'mp4': case 'mov': return 'fas fa-file-video';
+            case 'mp3': case 'wav': return 'fas fa-file-audio';
             default: return 'fas fa-file';
         }
     },
 
+    /**
+     * @description 尝试打开项目中的一个默认文件（例如，第一个.java文件）。
+     */
     openDefaultFile: function() {
         if (!this.treeData || this.treeData.length === 0) return;
         const findFirstJavaFile = (node) => {
@@ -476,6 +519,12 @@ const FileTreeManager = {
         }
     },
 
+    /**
+     * @description 将后端返回的普通对象转换为 FileNode 实例。
+     * @param {object} obj - 后端返回的文件树对象。
+     * @returns {FileNode|null}
+     * @private
+     */
     _transformObjectToFileNode: function(obj) {
         if (!obj) return null;
         const children = obj.children ? obj.children.map(child => this._transformObjectToFileNode(child)) : [];

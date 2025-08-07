@@ -2,16 +2,28 @@
 
 import EventBus from '../utils/event-emitter.js';
 
+/**
+ * @description 管理应用内所有上下文菜单（右键菜单）的显示和行为。
+ * 它通过一个全局监听器来捕获右键点击，并根据目标元素的类型动态构建菜单。
+ */
 const ContextMenuManager = {
     menuElement: null,
     currentItem: null,
 
+    /**
+     * @description 初始化上下文菜单管理器。
+     */
     init: function() {
         this.menuElement = document.getElementById('context-menu');
-        this.bindDOMEvents();
+        this.bindGlobalListener();
+        this.bindMenuListener();
+    },
 
-        // 使用一个全局的 contextmenu 监听器来处理所有右键点击事件
-        document.addEventListener('contextmenu', (e) => {
+    /**
+     * @description 绑定全局的 'contextmenu' 事件监听器来捕获所有右键点击。
+     */
+    bindGlobalListener: function() {
+        document.addEventListener('contextmenu', function(e) {
             const fileTreeItem = e.target.closest('#file-tree li[data-path]');
             const editorTabItem = e.target.closest('.editor-tab[data-file-path]');
 
@@ -25,38 +37,40 @@ const ContextMenuManager = {
             } else if (editorTabItem) {
                 e.preventDefault();
                 const filePath = editorTabItem.dataset.filePath;
-
                 // 确保右键点击的tab被激活
                 EventBus.emit('file:openRequest', filePath);
                 this.show({ x: e.clientX, y: e.clientY, item: { filePath }, type: 'editor-tab' });
             }
-        });
+        }.bind(this));
     },
 
-    bindDOMEvents: function() {
+    /**
+     * @description 为菜单本身绑定事件监听器，用于处理点击和关闭逻辑。
+     */
+    bindMenuListener: function() {
         // 使用事件委托处理菜单项点击
-        this.menuElement.addEventListener('click', (e) => {
+        this.menuElement.addEventListener('click', function(e) {
             const menuItem = e.target.closest('.context-menu-item');
             if (menuItem && menuItem.dataset.action) {
                 const action = menuItem.dataset.action;
-                // 'currentItem' 持有上下文信息 (如 { filePath })
                 EventBus.emit(`context-action:${action}`, this.currentItem);
                 this.hide();
             }
-        });
+        }.bind(this));
 
         // 点击页面其他任何地方都隐藏菜单
-        document.addEventListener('click', (e) => {
+        document.addEventListener('click', function(e) {
             if (!this.menuElement.contains(e.target)) {
                 this.hide();
             }
-        });
+        }.bind(this));
+
         // 按下 Escape 键隐藏菜单
-        document.addEventListener('keydown', (e) => {
+        document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 this.hide();
             }
-        });
+        }.bind(this));
     },
 
     /**
@@ -68,9 +82,11 @@ const ContextMenuManager = {
         this.menuElement.innerHTML = ''; // 清空旧菜单
 
         const menuItems = this.getMenuItemsForType(type);
-        if (!menuItems) return;
+        if (!menuItems) {
+            return;
+        }
 
-        menuItems.forEach(item => {
+        menuItems.forEach(function(item) {
             if (item.separator) {
                 const separator = document.createElement('div');
                 separator.className = 'context-menu-separator';
@@ -82,7 +98,7 @@ const ContextMenuManager = {
                 li.innerHTML = `<i class="${item.icon}"></i><span>${item.label}</span>`;
                 this.menuElement.appendChild(li);
             }
-        });
+        }, this);
 
         this.menuElement.style.left = `${x}px`;
         this.menuElement.style.top = `${y}px`;
@@ -113,7 +129,6 @@ const ContextMenuManager = {
         }
     },
 
-    // ========================= 关键修改 START =========================
     /**
      * @description 获取文件树的菜单项。
      * @param {string} itemType - 'file' 或 'folder'。
@@ -145,7 +160,6 @@ const ContextMenuManager = {
             ];
         }
     },
-    // ========================= 关键修改 END ===========================
 
     /**
      * @description 获取编辑器标签页的菜单项。

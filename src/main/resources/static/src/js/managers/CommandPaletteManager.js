@@ -1,20 +1,20 @@
-// src/js/managers/CommandPaletteManager.js
+// src/js/managers/CommandPaletteManager.js - 指令面板管理器
 
 import EventBus from '../utils/event-emitter.js';
 import CodeEditorManager from './CodeEditorManager.js';
-// ========================= 关键修改 START =========================
-import KeyboardManager from './KeyboardManager.js'; // 导入快捷键管理器
-// ========================= 关键修改 END ===========================
-
+import KeyboardManager from './KeyboardManager.js';
 
 /**
- * Manages the command palette functionality, allowing users to search for
- * and execute commands and snippets.
+ * @description 管理指令面板（Command Palette）的功能，允许用户搜索并执行指令和代码片段。
  */
 const CommandPaletteManager = {
     allCommands: [],
     isInitialized: false,
 
+    /**
+     * @description 初始化指令面板管理器。
+     * @returns {Promise<void>}
+     */
     init: async function() {
         await this.loadCommands();
         this.bindAppEvents();
@@ -23,7 +23,7 @@ const CommandPaletteManager = {
     },
 
     /**
-     * Loads the command definitions from the JSON file.
+     * @description 从JSON文件加载指令定义。
      */
     loadCommands: async function() {
         try {
@@ -33,54 +33,49 @@ const CommandPaletteManager = {
             }
             this.allCommands = await response.json();
         } catch (error) {
-            console.error('Failed to load commands:', error);
+            console.error('加载指令失败:', error);
             EventBus.emit('log:error', '加载指令失败。');
         }
     },
 
+    /**
+     * @description 绑定应用事件。
+     */
     bindAppEvents: function() {
         EventBus.on('command-palette:show', this.show.bind(this));
     },
 
     /**
-     * Shows the command palette modal.
+     * @description 显示指令面板模态框。
      */
     show: function() {
         if (!this.isInitialized || this.allCommands.length === 0) {
-            EventBus.emit('modal:showAlert', { title: '错误', message: '指令面板不可用或指令加载失败。'});
+            EventBus.emit('modal:showAlert', { title: '错误', message: '指令面板不可用或指令加载失败。' });
             return;
         }
 
         const activeLanguage = CodeEditorManager.getActiveLanguage();
 
-        // ========================= 关键修改 START =========================
         // 动态构建可用的指令列表，并附加上快捷键信息
         const availableCommands = this.allCommands
             .filter(cmd =>
                 cmd.type === 'action' || (cmd.type === 'snippet' && cmd.language === activeLanguage)
             )
-            .map(cmd => {
-                // 如果是动作类型，则查询其快捷键
+            .map(function(cmd) {
                 if (cmd.type === 'action') {
                     const eventName = `action:${cmd.action}`;
                     const shortcuts = KeyboardManager.getShortcutsForEvent(eventName);
-
-                    // 如果找到了快捷键，将其格式化并附加到描述中
                     if (shortcuts.length > 0) {
                         const shortcutText = `(${shortcuts.join(', ')})`;
                         return {
                             ...cmd,
-                            // 创建一个新的描述，包含指令描述和动态获取的快捷键
                             description: `${cmd.description} ${shortcutText}`.trim()
                         };
                     }
                 }
-                // 对于代码片段或其他没有快捷键的动作，直接返回原样
                 return cmd;
             });
-        // ========================= 关键修改 END ===========================
 
-        // Use the ModalManager to display a custom list prompt.
         EventBus.emit('modal:showListPrompt', {
             title: '指令面板',
             items: availableCommands,
@@ -94,15 +89,13 @@ const CommandPaletteManager = {
     },
 
     /**
-     * Executes a selected command.
-     * @param {object} command - The command object to execute.
+     * @description 执行选定的指令。
+     * @param {object} command - 要执行的指令对象。
      */
     execute: function(command) {
         if (command.type === 'snippet') {
-            // For snippets, we ask the CodeEditorManager to insert them.
             EventBus.emit('editor:insertSnippet', command.body);
         } else if (command.type === 'action') {
-            // For actions, we trigger the corresponding global action event.
             EventBus.emit(`action:${command.action}`);
         }
     }

@@ -1,14 +1,21 @@
-// src/js/managers/NetworkManager.js
+// src/js/managers/NetworkManager.js - 网络通信管理器
 
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 
+/**
+ * @description 封装了所有与后端服务器的通信，包括 RESTful API 和 WebSocket。
+ * 这是一个核心管理器，为其他模块提供统一的数据访问接口。
+ */
 const NetworkManager = {
     baseUrl: '',
     stompClient: null,
     isConnected: false,
     sessionId: null,
 
+    /**
+     * @description 初始化网络管理器，绑定事件并准备连接WebSocket。
+     */
     init: function() {
         this.onBuildLogReceived = this.onBuildLogReceived.bind(this);
         this.onRunLogReceived = this.onRunLogReceived.bind(this);
@@ -18,18 +25,20 @@ const NetworkManager = {
         EventBus.on('app:ready', () => this.connectWebSocket());
     },
 
+    /**
+     * @description 连接到后端的WebSocket服务。
+     * @returns {Promise<void>}
+     */
     connectWebSocket: function() {
         if (this.isConnected) return Promise.resolve();
         return new Promise((resolve, reject) => {
             const socket = new SockJS(this.baseUrl + 'ws');
             this.stompClient = Stomp.over(socket);
             this.stompClient.debug = null;
-
             this.stompClient.heartbeat.outgoing = 10000;
             this.stompClient.heartbeat.incoming = 10000;
 
             this.stompClient.connect({}, (frame) => {
-                console.log('WebSocket 已连接: ' + frame);
                 this.isConnected = true;
                 const urlParts = socket._transport.url.split('/');
                 this.sessionId = urlParts[urlParts.length - 2];
@@ -37,20 +46,19 @@ const NetworkManager = {
                 EventBus.emit('network:websocketConnected');
                 resolve();
             }, (error) => {
-                console.error('WebSocket 连接错误: ' + error);
                 this.isConnected = false;
                 this.sessionId = null;
                 EventBus.emit('network:websocketDisconnected', error);
-
-                setTimeout(() => {
-                    console.log("尝试重新连接 WebSocket...");
-                }, 5000);
-
+                console.error('WebSocket 连接错误: ' + error);
+                setTimeout(() => console.log("尝试重新连接 WebSocket..."), 5000);
                 reject(error);
             });
         });
     },
 
+    /**
+     * @description 订阅所有需要的WebSocket主题。
+     */
     subscribeToTopics: function() {
         if (!this.stompClient || !this.isConnected) return;
         this.stompClient.subscribe('/topic/build-log', this.onBuildLogReceived);
@@ -64,90 +72,66 @@ const NetworkManager = {
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
-    onBuildLogReceived: function(message) {
-        EventBus.emit('console:log', '[构建]\n' + message.body);
-    },
-    onRunLogReceived: function(message) {
-        EventBus.emit('console:log', message.body);
-    },
-    onDebugEventReceived: function(message) {
-        try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); }
-        catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); }
-    },
-    onRunStatusReceived: function(message) {
-        EventBus.emit('run:statusChanged', message.body);
-    },
-    onSessionStatusReceived: function(message) {
-        if (message.body === 'LOCKED') {
-            EventBus.emit('session:locked');
-        }
-    },
+    /** @description 处理构建日志消息 */
+    onBuildLogReceived: function(message) { EventBus.emit('console:log', '[构建]\n' + message.body); },
+    /** @description 处理运行日志消息 */
+    onRunLogReceived: function(message) { EventBus.emit('console:log', message.body); },
+    /** @description 处理调试事件消息 */
+    onDebugEventReceived: function(message) { try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); } catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); } },
+    /** @description 处理运行状态消息 */
+    onRunStatusReceived: function(message) { EventBus.emit('run:statusChanged', message.body); },
+    /** @description 处理会话锁定状态消息 */
+    onSessionStatusReceived: function(message) { if (message.body === 'LOCKED') EventBus.emit('session:locked'); },
 
-    // ========================= 关键优化 START =========================
     /**
-     * 底层的 fetch API 包装器，管理繁忙状态。
+     * @description 底层的 fetch API 包装器，统一处理全局繁忙状态和错误。
      * @param {string} endpoint - API 端点路径。
-     * @param {object} options - fetch 选项。
-     * @param {string} responseType - 期望的响应类型 ('json', 'text', 'blob')。
-     * @param {boolean} showBusy - 是否在此请求期间显示全局繁忙指示器。
+     * @param {object} [options={}] - fetch 选项。
+     * @param {string} [responseType='json'] - 期望的响应类型 ('json', 'text', 'blob')。
+     * @param {boolean} [showBusy=true] - 是否在此请求期间显示全局繁忙指示器。
      * @returns {Promise<any>}
      * @private
      */
     _rawFetchApi: async function(endpoint, options = {}, responseType = 'json', showBusy = true) {
-        if (showBusy) {
-            EventBus.emit('network:request-start'); // 在请求开始时触发事件
-        }
-
+        if (showBusy) EventBus.emit('network:request-start');
         try {
             const url = this.baseUrl + endpoint;
             const response = await fetch(url, {
                 headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json', ...options.headers },
                 ...options,
             });
-
             if (!response.ok) {
                 const errorText = await response.text();
-                let errorData;
-                try {
-                    errorData = JSON.parse(errorText);
-                } catch (e) {
-                    errorData = { message: errorText || response.statusText };
-                }
+                const errorData = { message: errorText || response.statusText };
+                try { Object.assign(errorData, JSON.parse(errorText)); } catch (e) { /* 忽略 */ }
                 const error = new Error(`API错误 ${response.status}: ${JSON.stringify(errorData)}`);
-                error.status = response.status;
-                error.data = errorData;
                 throw error;
             }
-
             switch (responseType) {
-                case 'json':
-                    const contentType = response.headers.get('content-type');
-                    if (contentType && contentType.includes('application/json')) {
-                        return await response.json();
-                    }
-                    return await response.text();
-                case 'text':
-                    return await response.text();
-                case 'blob':
-                    return await response.blob(); // await 确保在返回前数据已完全下载
-                default:
-                    return response;
+                case 'json': return response.headers.get('content-type')?.includes('application/json') ? await response.json() : await response.text();
+                case 'text': return await response.text();
+                case 'blob': return await response.blob();
+                default: return response;
             }
         } catch (error) {
             EventBus.emit('log:error', `[网络错误] ${error.message}`);
-            throw error; // 重新抛出，让调用者处理
+            throw error;
         } finally {
-            if (showBusy) {
-                EventBus.emit('network:request-end'); // 在请求结束时（无论成功或失败）触发事件
-            }
+            if (showBusy) EventBus.emit('network:request-end');
         }
     },
-    // ========================= 关键优化 END ===========================
 
+    /**
+     * @description 包装了 _rawFetchApi，自动为请求注入当前项目路径。
+     * @param {string} endpoint - API 端点路径。
+     * @param {object} [options={}] - fetch 选项。
+     * @param {string} [responseType='json'] - 期望的响应类型。
+     * @param {boolean} [showBusy=true] - 是否显示繁忙指示器。
+     * @returns {Promise<any>}
+     */
     fetchApi: async function(endpoint, options = {}, responseType = 'json', showBusy = true) {
         let finalEndpoint = endpoint;
         let finalOptions = { ...options };
-
         if (Config.currentProject) {
             const method = (finalOptions.method || 'GET').toUpperCase();
             if (['POST', 'PUT'].includes(method) && finalOptions.body) {
@@ -157,69 +141,56 @@ const NetworkManager = {
                     finalOptions.body = JSON.stringify(bodyJson);
                 }
             } else if (!finalEndpoint.includes('projectPath=')) {
-                const separator = finalEndpoint.includes('?') ? '&' : '?';
-                finalEndpoint += `${separator}projectPath=${encodeURIComponent(Config.currentProject)}`;
+                finalEndpoint += `${finalEndpoint.includes('?') ? '&' : '?'}projectPath=${encodeURIComponent(Config.currentProject)}`;
             }
         }
         return this._rawFetchApi(finalEndpoint, finalOptions, responseType, showBusy);
     },
 
-    getProjects: () => NetworkManager._rawFetchApi('api/projects'),
-    getFileTree: (relativePath = '') => NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`),
-    getFileContent: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'),
-    downloadFileAsBlob: (relativePath) => NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'),
-    saveFileContent: (relativePath, content) => NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }),
-    buildProject: () => NetworkManager.fetchApi(`api/java/build`, { method: 'POST' }),
-    getGitStatus: () => NetworkManager.fetchApi(`api/git/status`, {}, 'json', false), // 后台任务，不显示繁忙状态
-    gitCommit: (message) => NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) }),
-    gitPull: () => NetworkManager.fetchApi(`api/git/pull`, { method: 'POST' }),
-    gitPush: () => NetworkManager.fetchApi(`api/git/push`, { method: 'POST' }),
-    createFileOrDir: (parentPath, name, type) => NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }),
-    deletePath: (path) => NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
-    renamePath: (oldPath, newName) => NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }),
-    getRemoteRepos: () => NetworkManager._rawFetchApi('api/git/remote-repos'),
-    cloneSpecificRepo: (cloneUrl) => NetworkManager._rawFetchApi('api/git/clone-specific', { method: 'POST', body: JSON.stringify({ cloneUrl }) }),
-    startDebug: (mainClass) => NetworkManager.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }),
-    stopDebug: () => NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }),
-    stepOver: () => NetworkManager.fetchApi('api/debug/stepOver', { method: 'POST' }),
-    stepInto: () => NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }),
-    stepOut: () => NetworkManager.fetchApi('api/debug/stepOut', { method: 'POST' }),
-    resumeDebug: () => NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }),
-    toggleBreakpoint: (filePath, lineNumber, enabled) => NetworkManager._rawFetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify({ filePath, lineNumber, enabled }) }),
-    getSettings: () => NetworkManager._rawFetchApi('api/settings'),
-    saveSettings: (settings) => NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }),
-    getProjectClassNames: (projectName) => NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`),
-    stopRun: () => NetworkManager._rawFetchApi('api/run/stop', { method: 'POST' }),
-    getSessionStatus: () => NetworkManager._rawFetchApi('api/session/status', {}, 'json', false),
+    getProjects: function() { return NetworkManager._rawFetchApi('api/projects'); },
+    getFileTree: function(relativePath = '') { return NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`); },
+    getFileContent: function(relativePath) { return NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'); },
+    downloadFileAsBlob: function(relativePath) { return NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'); },
+    saveFileContent: function(relativePath, content) { return NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }); },
+    buildProject: function() { return NetworkManager.fetchApi(`api/java/build`, { method: 'POST' }); },
+    getGitStatus: function() { return NetworkManager.fetchApi(`api/git/status`, {}, 'json', false); },
+    gitCommit: function(message) { return NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) }); },
+    gitPull: function() { return NetworkManager.fetchApi(`api/git/pull`, { method: 'POST' }); },
+    gitPush: function() { return NetworkManager.fetchApi(`api/git/push`, { method: 'POST' }); },
+    createFileOrDir: function(parentPath, name, type) { return NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }); },
+    deletePath: function(path) { return NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }); },
+    renamePath: function(oldPath, newName) { return NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }); },
+    getRemoteRepos: function() { return NetworkManager._rawFetchApi('api/git/remote-repos'); },
+    cloneSpecificRepo: function(cloneUrl) { return NetworkManager._rawFetchApi('api/git/clone-specific', { method: 'POST', body: JSON.stringify({ cloneUrl }) }); },
+    startDebug: function(mainClass) { return NetworkManager.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }); },
+    stopDebug: function() { return NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }); },
+    stepOver: function() { return NetworkManager.fetchApi('api/debug/stepOver', { method: 'POST' }); },
+    stepInto: function() { return NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }); },
+    stepOut: function() { return NetworkManager.fetchApi('api/debug/stepOut', { method: 'POST' }); },
+    resumeDebug: function() { return NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }); },
+    toggleBreakpoint: function(filePath, lineNumber, enabled) { return NetworkManager._rawFetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify({ filePath, lineNumber, enabled }) }); },
+    getSettings: function() { return NetworkManager._rawFetchApi('api/settings'); },
+    saveSettings: function(settings) { return NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }); },
+    getProjectClassNames: function(projectName) { return NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`); },
+    stopRun: function() { return NetworkManager._rawFetchApi('api/run/stop', { method: 'POST' }); },
+    getSessionStatus: function() { return NetworkManager._rawFetchApi('api/session/status', {}, 'json', false); },
 
-    startTerminal: (path) => {
-        if (NetworkManager.stompClient && NetworkManager.isConnected) {
-            const targetPath = path || Config.currentProject || "";
-            NetworkManager.stompClient.send('/app/terminal/start', {}, targetPath);
-        }
-    },
-    sendTerminalInput: (data) => {
-        if (NetworkManager.stompClient && NetworkManager.isConnected) {
-            NetworkManager.stompClient.send('/app/terminal/input', {}, data);
-        }
-    },
+    startTerminal: function(path) { if (this.stompClient && this.isConnected) { this.stompClient.send('/app/terminal/start', {}, path || Config.currentProject || ""); } },
+    sendTerminalInput: function(data) { if (this.stompClient && this.isConnected) { this.stompClient.send('/app/terminal/input', {}, data); } },
 
     _uploadWithXHR: function(endpoint, formData) {
-        EventBus.emit('network:request-start'); // 上传开始时也触发
+        EventBus.emit('network:request-start');
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', this.baseUrl + endpoint, true);
-            xhr.upload.onprogress = (event) => EventBus.emit('progress:update', { value: event.loaded, total: event.total, message: `上传中... ${Math.round((event.loaded / event.total) * 100)}%` });
+            xhr.upload.onprogress = (e) => EventBus.emit('progress:update', { value: e.loaded, total: e.total });
             xhr.onloadstart = () => EventBus.emit('progress:start', { message: '开始上传...', total: 1 });
             xhr.onload = () => {
                 if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
                 else reject(new Error(`上传失败: ${xhr.status} ${xhr.responseText}`));
             };
             xhr.onerror = () => reject(new Error('网络错误，无法完成上传。'));
-            xhr.onloadend = () => {
-                EventBus.emit('progress:finish');
-                EventBus.emit('network:request-end'); // 上传结束时也触发
-            };
+            xhr.onloadend = () => { EventBus.emit('progress:finish'); EventBus.emit('network:request-end'); };
             xhr.send(formData);
         });
     },
@@ -253,7 +224,7 @@ const NetworkManager = {
             const newPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
             if (entry.kind === 'file') {
                 const file = await entry.getFile();
-                files.push({ file, path: newPath });
+                files.push({ file: file, path: newPath });
             } else if (entry.kind === 'directory') {
                 files.push(...await this._getFilesRecursively(entry, newPath));
             }

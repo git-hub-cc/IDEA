@@ -66,7 +66,7 @@ html, body {
 /* 主内容区 - 使用 CSS Flex 实现垂直布局 (上下结构) */
 #main-panels {
     display: flex;
-    flex-direction: column; /* 从水平改为垂直 */
+    flex-direction: column;
     overflow: hidden;
 }
 
@@ -76,7 +76,7 @@ html, body {
     flex-direction: row;
     flex-grow: 1;
     overflow: hidden;
-    min-height: 0; /* 关键属性，防止flex子项在收缩时溢出 */
+    min-height: 0;
 }
 
 /* 面板通用样式 */
@@ -87,7 +87,7 @@ html, body {
     flex-direction: column;
     flex-grow: 1;
     flex-shrink: 0;
-    flex-basis: 0; /* 让 flex-grow 控制初始大小 */
+    flex-basis: 0;
 }
 
 .panel-header {
@@ -164,7 +164,6 @@ html, body {
 /* 拖拽时禁用页面选择 */
 body.is-resizing {
     user-select: none !important;
-    /* 移除固定的光标样式，因为它现在由JS动态设置 */
 }
 
 body.is-resizing * {
@@ -199,10 +198,10 @@ body.is-resizing * {
     height: 100%;
     background-color: var(--bg-primary);
     color: var(--text-primary);
-    display: none; /* 默认隐藏 */
+    display: none;
     justify-content: center;
     align-items: center;
-    z-index: 10001; /* 比模态框更高 */
+    z-index: 10001;
     text-align: center;
     font-family: var(--font-family-main);
 }
@@ -253,7 +252,6 @@ body.is-resizing * {
     100% { transform: rotate(360deg); }
 }
 
-/* ========================= 关键优化 START ========================= */
 /* --- 繁忙状态遮罩层 --- */
 .busy-overlay {
     position: fixed;
@@ -261,17 +259,12 @@ body.is-resizing * {
     left: 0;
     width: 100%;
     height: 100%;
-    /* 使用一个非常淡的背景色来提供轻微的视觉反馈，但主要通过光标来指示状态 */
     background-color: rgba(0, 0, 0, 0.05);
-    /* 确保它在大多数UI元素之上，以拦截点击 */
     z-index: 10001;
-    /* 核心功能：将鼠标指针变为等待状态 */
     cursor: wait;
-    /* 默认隐藏 */
     display: none;
 }
 
 .busy-overlay.visible {
     display: block;
 }
-/* ========================= 关键优化 END =========================== */

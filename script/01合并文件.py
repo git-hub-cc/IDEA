@@ -5,13 +5,13 @@ import sys
 # 起始搜索目录（'.' 表示当前目录）
 START_DIRECTORY = '.'
 # 输出文件名
-OUTPUT_FILE = 'res.md'
+OUTPUT_FILE = 'res2.md'
 # 允许的文件扩展名 (请使用小写)
-ALLOWED_EXTENSIONS = ['.md', '.txt', '.java']
+ALLOWED_EXTENSIONS = ['.md', '.txt', '.java', '.html', '.css', '.js', '.json','.xml', '.properties', '.html', '.css', '.js', '.json']
 # 行数限制
 LINE_LIMIT = 1000
 # 要排除的目录名
-EXCLUDED_DIRS = ['node_modules', '.git', '__pycache__', '.venv', 'venv']
+EXCLUDED_DIRS = ['node_modules', '.git', '__pycache__', '.venv', 'venv', 'target', 'lib']
 # --- 配置结束 ---
 
 def find_files_recursively(start_dir: str) -> list[str]:

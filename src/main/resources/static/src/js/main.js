@@ -20,17 +20,23 @@ import CommandPaletteManager from './managers/CommandPaletteManager.js';
 import ProjectAnalysisService from './services/ProjectAnalysisService.js';
 import RunManager from './managers/RunManager.js';
 import TourManager from './managers/TourManager.js';
-import TemplateLoader from './utils/TemplateLoader.js'; // 引入模板加载器
+import TemplateLoader from './utils/TemplateLoader.js';
 
-// 应用核心初始化逻辑
+/**
+ * @description 应用核心初始化逻辑。
+ */
 const App = {
+    /**
+     * @description 初始化所有应用模块。
+     * 此函数是应用的入口点，它按照正确的依赖顺序加载和初始化所有管理器和服务。
+     */
     init: async function() {
         console.log("应用初始化开始...");
 
-        // ========================= 关键修改 START: 首先加载模板 =========================
+        // 步骤 1: 加载 HTML 模板，这是许多 UI 管理器的前置依赖。
         await TemplateLoader.init();
-        // ========================= 关键修改 END ======================================
 
+        // 步骤 2: 初始化核心管理器和服务。
         NetworkManager.init();
         ThemeManager.init();
         ModalManager.init();
@@ -50,19 +56,31 @@ const App = {
         await CommandPaletteManager.init();
         ActionManager.init();
         await KeyboardManager.init();
+
+        // 步骤 3: 所有模块准备就绪，广播 app:ready 事件。
         EventBus.emit('app:ready');
         console.log("应用已准备就绪。");
-        // 延迟启动 Tour，确保所有UI元素都已渲染完毕
-        setTimeout(() => TourManager.start(), 500);
+
+        // 步骤 4: 延迟启动功能引导，确保所有UI元素都已渲染完毕。
+        setTimeout(function() {
+            TourManager.start();
+        }, 500);
     }
 };
 
-const startApp = () => {
+/**
+ * @description 启动应用的包装函数。
+ * 检查 Monaco Editor 是否已加载，如果未加载，则等待 'monaco-ready' 事件。
+ */
+const startApp = function() {
     if (window.monaco) {
         App.init();
     } else {
-        document.addEventListener('monaco-ready', () => App.init(), { once: true });
+        document.addEventListener('monaco-ready', function() {
+            App.init();
+        }, { once: true });
     }
 };
 
+// 通过会话锁管理器启动应用，这是整个流程的起点。
 SessionLockManager.init(startApp);
