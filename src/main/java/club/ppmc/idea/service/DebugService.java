@@ -62,6 +62,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class DebugService {
@@ -159,12 +160,23 @@ public class DebugService {
 
     private CompletableFuture<Process> launchDebugeeProcess(String projectPath, String mainClass)
             throws IOException {
-        // 步骤 1: 编译项目
-        runMavenCompile(projectPath);
-
-        // 步骤 2: 获取环境配置
+        // ========================= 关键修改 START: 重构逻辑，确保在编译前获取并验证JDK和Maven路径 =========================
+        // 步骤 1: 获取环境配置
         Settings settings = settingsService.getSettings();
         Path projectDir = getWorkspaceRoot().resolve(projectPath);
+
+        // 步骤 1a: 获取并验证 Maven
+        String mavenHome = settings.getMavenHome();
+        if (!StringUtils.hasText(mavenHome)) {
+            throw new IOException("编译失败: Maven 主目录未在设置中配置。");
+        }
+        String mvnExecutableName = System.getProperty("os.name").toLowerCase().contains("win") ? "mvn.cmd" : "mvn";
+        Path mvnExecutablePath = Paths.get(mavenHome, "bin", mvnExecutableName);
+        if (!Files.isExecutable(mvnExecutablePath)) {
+            throw new IOException("编译失败: 在配置的Maven主目录中找不到或无法执行 mvn 命令: " + mvnExecutablePath);
+        }
+
+        // 步骤 1b: 获取并验证 JDK
         String jdkVersion =
                 mavenHelper.getJavaVersionFromPom(
                         projectDir.toFile(), notificationService::sendBuildLog);
@@ -177,6 +189,12 @@ public class DebugService {
                     String.format("[警告] 未在设置中找到JDK %s，将尝试使用系统默认'java'。", jdkVersion));
             javaExecutable = "java"; // 安全回退
         }
+        // 从java可执行文件路径推断JDK主目录
+        Path jdkHome = Paths.get(javaExecutable).getParent().getParent();
+
+        // 步骤 2: 使用指定的JDK编译项目
+        runMavenCompile(projectPath, mvnExecutablePath.toAbsolutePath().toString(), jdkHome.toString());
+        // ========================= 关键修改 END =======================================================================
 
         Path classesDir = projectDir.resolve("target/classes");
         if (!Files.exists(classesDir)) {
@@ -206,14 +224,21 @@ public class DebugService {
         return processReadyFuture.orTimeout(90, TimeUnit.SECONDS);
     }
 
-    private void runMavenCompile(String projectPath) throws IOException {
+    // ========================= 关键修改 START: 方法签名变更，并增加设置环境变量的逻辑 =========================
+    private void runMavenCompile(String projectPath, String mvnExecutable, String jdkHome) throws IOException {
         Path projectDir = getWorkspaceRoot().resolve(projectPath);
-        // 此处应使用 SettingsService 获取Maven路径，但为简化，暂用系统mvn
-        String mvnCommand = System.getProperty("os.name").toLowerCase().contains("win") ? "mvn.cmd" : "mvn";
-        var pb = new ProcessBuilder(mvnCommand, "compile").directory(projectDir.toFile());
-        pb.redirectErrorStream(true);
+        var pb = new ProcessBuilder(mvnExecutable, "compile").directory(projectDir.toFile());
 
-        LOGGER.info("正在为调试执行编译: {} compile", mvnCommand);
+        // 为 Maven 进程设置 JAVA_HOME 环境变量
+        Map<String, String> env = pb.environment();
+        env.put("JAVA_HOME", jdkHome);
+        LOGGER.info("正在为调试编译设置 JAVA_HOME: {}", jdkHome);
+        notificationService.sendBuildLog("[信息] 编译使用 JDK: " + jdkHome);
+
+        pb.redirectErrorStream(true);
+        // ========================= 关键修改 END =================================================================
+
+        LOGGER.info("正在为调试执行编译: {} compile", mvnExecutable);
         notificationService.sendBuildLog("[信息] 正在执行 Maven 编译...");
         Process compileProcess = pb.start();
 
@@ -323,8 +348,7 @@ public class DebugService {
         LOGGER.info("调试会话清理完成。");
     }
 
-    // ... 其他方法（step, resume, breakpoint等）和事件处理逻辑保持不变，但可以进行细微优化和注释添加 ...
-
+    // ... 其他方法（step, resume, breakpoint等）和事件处理逻辑保持不变 ...
     public void toggleBreakpoint(String filePath, int lineNumber, boolean enabled) {
         var fileBreakpoints = userBreakpoints.computeIfAbsent(filePath, k -> new ArrayList<>());
         fileBreakpoints.removeIf(bp -> bp.lineNumber() == lineNumber);

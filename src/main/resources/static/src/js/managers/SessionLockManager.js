@@ -10,10 +10,14 @@ import EventBus from '../utils/event-emitter.js';
  */
 const SessionLockManager = {
     overlay: null,
+    _overlayIcon: null,
+    _overlayTitle: null,
+    _overlayText: null,
+    _overlayTimer: null,
     countdownElement: null,
     pollingInterval: null,
     countdownInterval: null,
-    POLL_RATE_MS: 5000,
+    POLL_RATE_MS: 20000,
     onAppReadyCallback: null,
 
     /**
@@ -23,6 +27,11 @@ const SessionLockManager = {
     init: function(onAppReady) {
         this.overlay = document.getElementById('lock-screen-overlay');
         this.countdownElement = document.getElementById('lock-screen-countdown');
+        const content = this.overlay.querySelector('.lock-screen-content');
+        this._overlayIcon = content.querySelector('.lock-screen-icon');
+        this._overlayTitle = content.querySelector('h1');
+        this._overlayText = content.querySelector('p:first-of-type');
+        this._overlayTimer = content.querySelector('.lock-screen-timer');
         this.onAppReadyCallback = onAppReady;
 
         if (!this.overlay || !this.countdownElement) {
@@ -41,6 +50,7 @@ const SessionLockManager = {
      */
     bindEvents: function() {
         EventBus.on('session:locked', () => {
+            this._updateOverlayContent(true);
             this.showLockScreen();
             this.startPolling();
         });
@@ -53,6 +63,7 @@ const SessionLockManager = {
         try {
             const status = await NetworkManager.getSessionStatus();
             if (status.isLocked) {
+                this._updateOverlayContent(true);
                 this.showLockScreen();
                 if (!this.pollingInterval) {
                     this.startPolling();
@@ -67,10 +78,25 @@ const SessionLockManager = {
             }
         } catch (error) {
             console.error("无法检查会话状态:", error);
+            this._updateOverlayContent(true);
             this.showLockScreen();
             if (!this.pollingInterval) {
                 this.startPolling();
             }
+        }
+    },
+
+    /**
+     * @description 更新遮罩层的内容以反映锁定状态。
+     * @param {boolean} isLocked - 是否为锁定状态。
+     * @private
+     */
+    _updateOverlayContent(isLocked) {
+        if (isLocked) {
+            this._overlayIcon.style.display = 'block';
+            this._overlayTitle.textContent = '应用正在使用中';
+            this._overlayText.textContent = '当前有其他用户正在使用此 Web IDE。请稍后...';
+            this._overlayTimer.style.display = 'block';
         }
     },
 

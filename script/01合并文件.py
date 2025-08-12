@@ -5,9 +5,9 @@ import sys
 # 起始搜索目录（'.' 表示当前目录）
 START_DIRECTORY = '.'
 # 输出文件名
-OUTPUT_FILE = 'res2.md'
+OUTPUT_FILE = 'res.md'
 # 允许的文件扩展名 (请使用小写)
-ALLOWED_EXTENSIONS = ['.md', '.txt', '.java', '.html', '.css', '.js', '.json','.xml', '.properties', '.html', '.css', '.js', '.json']
+ALLOWED_EXTENSIONS = ['.md', '.txt', '.java', '.html', '.css', '.js', '.json','.xml', '.properties', '.json']
 # 行数限制
 LINE_LIMIT = 1000
 # 要排除的目录名
