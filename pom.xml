@@ -5,27 +5,21 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
+        <version>3.2.5</version> <!-- 请根据您的环境选择合适的Spring Boot版本 -->
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>club.ppmc</groupId>
-    <artifactId>idea</artifactId>
+    <groupId>club.ppmc.idea</groupId>
+    <artifactId>web-idea-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>idea</name>
-    <description>The Web IDE project</description>
+    <name>WebIdeaBackend</name>
+    <description>Backend for Web IDEA project</description>
 
-    <!-- 统一管理项目属性和第三方依赖版本 -->
     <properties>
         <java.version>17</java.version>
-
-        <!-- 非 Spring Boot BOM 管理的依赖版本 -->
-        <javaparser.version>3.25.10</javaparser.version>
-        <jgit.version>6.9.0.202403050737-r</jgit.version>
-        <maven-model.version>3.9.6</maven-model.version>
     </properties>
 
     <dependencies>
-        <!-- Spring Boot 核心依赖 -->
+        <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
@@ -39,43 +33,79 @@
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
-        <!-- 代码分析与处理工具 -->
-        <dependency>
-            <groupId>com.github.javaparser</groupId>
-            <artifactId>javaparser-core</artifactId>
-            <version>${javaparser.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.maven</groupId>
-            <artifactId>maven-model</artifactId>
-            <version>${maven-model.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.jgit</groupId>
-            <artifactId>org.eclipse.jgit</artifactId>
-            <version>${jgit.version}</version>
-        </dependency>
-
-        <!-- 常用工具库 (版本由 spring-boot-dependencies 管理) -->
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-            <version>2.15.1</version>
-        </dependency>
-        <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-        </dependency>
+        <!-- Lombok for cleaner code -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- JSON Processing -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+
+        <!-- JGit for Git operations -->
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
+            <version>6.9.0.202403050737-r</version>
+        </dependency>
+
+        <!-- Apache Commons IO for file utilities -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.16.1</version>
+        </dependency>
+
+        <!-- JavaParser for code analysis -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>3.25.10</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-symbol-solver-core</artifactId>
+            <version>3.25.10</version>
+        </dependency>
+
+        <!-- Maven Model Reader for pom.xml parsing -->
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-model</artifactId>
+            <version>3.9.6</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-model-builder</artifactId>
+            <version>3.9.6</version>
+        </dependency>
+
+
+        <!-- ========================= 新增依赖 START ========================= -->
+        <!-- Oshi for System Monitoring -->
+        <dependency>
+            <groupId>com.github.oshi</groupId>
+            <artifactId>oshi-core</artifactId>
+            <version>6.6.1</version>
+        </dependency>
+        <!-- ========================= 新增依赖 END =========================== -->
+
+
+        <!-- Spring Boot Test Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <!-- Spring Boot Maven 插件，用于打包和运行应用 -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -88,26 +118,6 @@
                     </excludes>
                 </configuration>
             </plugin>
-
-            <!-- Maven 编译器插件 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <!-- 版本由父 POM 管理，无需指定 -->
-                <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                            <!-- 版本由父 POM 的 ${lombok.version} 属性提供 -->
-                            <version>${lombok.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
-            </plugin>
         </plugins>
     </build>
-
 </project>

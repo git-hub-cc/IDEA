@@ -7,7 +7,13 @@
 
     <!-- 引入 CSS 样式 -->
     <link href="src/css/main.css" rel="stylesheet"/>
-    <link href="src/css/components.css" rel="stylesheet"/>
+    <!-- ========================= 修改 START ========================= -->
+    <!-- 拆分后的 CSS 文件 -->
+    <link href="src/css/chrome.css" rel="stylesheet"/>
+    <link href="src/css/panels.css" rel="stylesheet"/>
+    <link href="src/css/overlays.css" rel="stylesheet"/>
+    <link href="src/css/features.css" rel="stylesheet"/>
+    <!-- ========================= 修改 END =========================== -->
     <!-- ThemeManager 将会动态修改这个 link 的 href -->
     <link href="src/css/theme-dark.css" id="theme-link" rel="stylesheet"/>
     <!-- 引入 Font Awesome (本地化) -->
@@ -20,6 +26,9 @@
     </script>
     <script src="src/js/lib/libs/stomp.js/2.3.3/stomp.min.js">
     </script>
+    <!-- 引入 Chart.js 及其时间适配器 (CDN) -->
+    <script src="src/js/lib/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="src/js/lib/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <!-- 引入 Monaco Editor Loader (本地化) -->
     <script src="src/js/lib/libs/monaco-editor/0.46.0/min/vs/loader.min.js">
     </script>
@@ -120,6 +129,7 @@
                 <button class="panel-tab" data-panel-id="problems-list">问题</button>
                 <button class="panel-tab" data-panel-id="terminal-panel">终端</button>
                 <button class="panel-tab" data-panel-id="debugger-panel">调试</button>
+                <button class="panel-tab" data-panel-id="monitor-panel">监控</button>
             </div>
             <div class="panel-content-area">
                 <div id="console-output" class="panel-content active">
@@ -153,6 +163,19 @@
                         <div class="debugger-section">
                             <h4>调用栈</h4>
                             <ul id="debugger-call-stack"><li>无信息</li></ul>
+                        </div>
+                    </div>
+                </div>
+                <div id="monitor-panel" class="panel-content">
+                    <div class="monitor-grid">
+                        <div class="chart-container">
+                            <canvas id="cpu-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="mem-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="net-chart"></canvas>
                         </div>
                     </div>
                 </div>

@@ -21,6 +21,9 @@ import ProjectAnalysisService from './services/ProjectAnalysisService.js';
 import RunManager from './managers/RunManager.js';
 import TourManager from './managers/TourManager.js';
 import TemplateLoader from './utils/TemplateLoader.js';
+// ========================= 新增导入 START =========================
+import MonitorManager from './managers/MonitorManager.js';
+// ========================= 新增导入 END ===========================
 
 /**
  * @description 应用核心初始化逻辑。
@@ -53,6 +56,9 @@ const App = {
         ProblemsManager.init();
         TerminalManager.init();
         DebuggerManager.init();
+        // ========================= 新增初始化 START =========================
+        MonitorManager.init();
+        // ========================= 新增初始化 END ===========================
         await CommandPaletteManager.init();
         ActionManager.init();
         await KeyboardManager.init();

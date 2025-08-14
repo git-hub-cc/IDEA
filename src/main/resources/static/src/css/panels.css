@@ -1,0 +1,142 @@
+/* src/css/panels.css - 核心工作区面板样式 */
+
+/* --- 文件树 --- */
+.file-tree-container { flex-grow: 1; overflow: auto; padding: 5px; }
+.file-tree { list-style: none; padding: 0; margin: 0; }
+.file-tree li {
+    padding: 5px 8px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+.file-tree li.focused {
+    background-color: var(--selection-color);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-color);
+}
+.file-tree li.folder { flex-wrap: wrap; align-items: flex-start; }
+.file-tree li.folder > span {
+    position: relative;
+    padding-left: 20px;
+    flex-grow: 1;
+    min-width: 0;
+}
+.file-tree li.folder > span::before {
+    font-family: "Font Awesome 6 Free";
+    content: "\f0da";
+    font-weight: 900;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: transform 0.2s ease-in-out;
+}
+.file-tree li.folder.expanded > span::before { transform: translateY(-50%) rotate(90deg); }
+.file-tree li.folder > ul { width: 100%; display: none; margin-left: 15px; }
+.file-tree li.folder.expanded > ul { display: block; }
+.file-tree li i { margin-right: 8px; width: 14px; text-align: center; }
+.file-tree li.folder > i { color: var(--accent-color); }
+.file-tree li.drag-hover-target > span,
+.file-tree li.drag-hover-target > i {
+    background-color: var(--selection-color);
+    outline: 1px solid var(--accent-color);
+    border-radius: 2px;
+}
+
+/* --- 编辑器标签页 --- */
+#center-panel { display: flex; flex-direction: column; }
+.editor-tab-bar {
+    height: var(--panel-header-height);
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: flex-end;
+    flex-shrink: 0;
+    padding-left: 5px;
+    user-select: none;
+}
+.editor-tab {
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    padding: 6px 12px;
+    margin-left: 3px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    position: relative;
+    top: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+.editor-tab:hover { background-color: var(--border-color); color: var(--text-primary); }
+.editor-tab.active {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-bottom-color: var(--bg-primary);
+    font-weight: bold;
+}
+.editor-tab .close-tab-btn { margin-left: 5px; cursor: pointer; border-radius: 50%; padding: 2px; }
+.editor-tab .close-tab-btn:hover { background-color: var(--border-color); }
+.editor-tab .unsaved-indicator { color: var(--color-warning); display: none; }
+.editor-tab.modified .unsaved-indicator { display: inline; }
+
+/* --- 媒体预览样式 --- */
+#media-preview-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--bg-panel);
+    padding: 20px;
+    overflow: auto;
+}
+#media-preview-container .media-preview {
+    max-width: 95%;
+    max-height: 95%;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 15px var(--shadow-color);
+}
+
+/* --- 底部面板 (标签栏) --- */
+.panel-tab-bar {
+    height: var(--panel-header-height);
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+    flex-shrink: 0;
+    user-select: none;
+}
+.panel-tab {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+.panel-tab:hover { background-color: var(--border-color); color: var(--text-primary); }
+.panel-tab.active { color: var(--accent-color); font-weight: bold; border-bottom: 2px solid var(--accent-color); }
+
+/* --- 问题列表 --- */
+#problems-list ul { list-style: none; padding: 0; margin: 0; }
+#problems-list li { padding: 8px 10px; border-bottom: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+#problems-list li:hover { background-color: var(--border-color); }
+#problems-list li.error { color: var(--color-error); }
+#problems-list li.warning { color: var(--color-warning); }
+#problems-list li.info { color: var(--color-info); }
+#problems-list li i { width: 16px; text-align: center; }
+#problems-list .problem-file-header { background-color: var(--bg-header); font-size: 0.9em; padding: 6px 10px; border-bottom: 1px solid var(--border-color); cursor: default; display: flex; justify-content: space-between; align-items: center; }
+#problems-list .problem-file-header:hover { background-color: var(--bg-header); }
+#problems-list .problem-file-header .problem-count { color: var(--text-secondary); font-size: 0.9em; }
+#problems-list .problem-item { padding-left: 20px; }
+#problems-list .problem-item .problem-location { color: var(--text-secondary); margin-left: auto; font-family: var(--font-family-mono); font-size: 0.9em; }

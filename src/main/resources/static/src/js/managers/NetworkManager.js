@@ -22,6 +22,9 @@ const NetworkManager = {
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
         this.onRunStatusReceived = this.onRunStatusReceived.bind(this);
         this.onSessionStatusReceived = this.onSessionStatusReceived.bind(this);
+        // ========================= 新增绑定 START =========================
+        this.onSystemMetricsReceived = this.onSystemMetricsReceived.bind(this);
+        // ========================= 新增绑定 END ===========================
         EventBus.on('app:ready', () => this.connectWebSocket());
     },
 
@@ -69,6 +72,9 @@ const NetworkManager = {
             EventBus.emit('terminal:data', message.body);
         });
         this.stompClient.subscribe('/user/queue/session/status', this.onSessionStatusReceived);
+        // ========================= 新增订阅 START =========================
+        this.stompClient.subscribe('/topic/system-metrics', this.onSystemMetricsReceived);
+        // ========================= 新增订阅 END ===========================
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
@@ -82,6 +88,18 @@ const NetworkManager = {
     onRunStatusReceived: function(message) { EventBus.emit('run:statusChanged', message.body); },
     /** @description 处理会话锁定状态消息 */
     onSessionStatusReceived: function(message) { if (message.body === 'LOCKED') EventBus.emit('session:locked'); },
+
+    // ========================= 新增方法 START =========================
+    /** @description 处理系统监控数据消息 */
+    onSystemMetricsReceived: function(message) {
+        try {
+            const data = JSON.parse(message.body);
+            EventBus.emit('monitor:data-update', data);
+        } catch (e) {
+            console.error('解析系统监控数据失败:', e);
+        }
+    },
+    // ========================= 新增方法 END ===========================
 
     /**
      * @description 底层的 fetch API 包装器，统一处理全局繁忙状态和错误。

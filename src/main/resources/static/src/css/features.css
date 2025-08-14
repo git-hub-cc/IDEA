@@ -1,0 +1,141 @@
+/* src/css/features.css - 特定高级功能面板的专属样式 */
+
+/* --- 控制台虚拟滚动样式 --- */
+#console-output .console-viewport {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: auto;
+    font-size: 0.9rem;
+}
+#console-output .console-content {
+    position: relative;
+    overflow: hidden;
+    font-family: var(--font-family-mono);
+    color: var(--text-primary);
+}
+#console-output .console-line {
+    position: absolute;
+    left: 0;
+    padding: 0 10px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+#console-output.no-wrap .console-line {
+    white-space: pre;
+    word-break: normal;
+    width: fit-content;
+    width: -moz-fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+#console-output .console-line.error { color: var(--color-error); }
+#console-output .console-line.warn { color: var(--color-warning); }
+
+/* --- 终端样式 --- */
+#terminal-panel.panel-content.active {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+#terminal-output-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    font-family: var(--font-family-mono);
+    line-height: 1.4;
+    background-color: var(--terminal-bg);
+    color: var(--terminal-fg);
+    padding: 10px;
+}
+#terminal-output-container pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.ansi-black-fg { color: var(--terminal-black); }
+.ansi-red-fg { color: var(--terminal-red); }
+.ansi-green-fg { color: var(--terminal-green); }
+.ansi-yellow-fg { color: var(--terminal-yellow); }
+.ansi-blue-fg { color: var(--terminal-blue); }
+.ansi-magenta-fg { color: var(--terminal-magenta); }
+.ansi-cyan-fg { color: var(--terminal-cyan); }
+.ansi-white-fg { color: var(--terminal-white); }
+.ansi-bright-black-fg { color: var(--terminal-black); font-weight: bold; }
+.ansi-bright-red-fg { color: var(--terminal-red); font-weight: bold; }
+.ansi-bright-green-fg { color: var(--terminal-green); font-weight: bold; }
+.ansi-bright-yellow-fg { color: var(--terminal-yellow); font-weight: bold; }
+.ansi-bright-blue-fg { color: var(--terminal-blue); font-weight: bold; }
+.ansi-bright-magenta-fg { color: var(--terminal-magenta); font-weight: bold; }
+.ansi-bright-cyan-fg { color: var(--terminal-cyan); font-weight: bold; }
+.ansi-bright-white-fg { color: var(--terminal-white); font-weight: bold; }
+.ansi-black-bg { background-color: var(--terminal-black); }
+.ansi-red-bg { background-color: var(--terminal-red); }
+.ansi-green-bg { background-color: var(--terminal-green); }
+.ansi-yellow-bg { background-color: var(--terminal-yellow); }
+.ansi-blue-bg { background-color: var(--terminal-blue); }
+.ansi-magenta-bg { background-color: var(--terminal-magenta); }
+.ansi-cyan-bg { background-color: var(--terminal-cyan); }
+.ansi-white-bg { background-color: var(--terminal-white); }
+.terminal-input-container {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--bg-panel);
+}
+.terminal-prompt {
+    font-family: var(--font-family-mono);
+    color: var(--accent-color);
+    margin-right: 8px;
+    user-select: none;
+}
+#terminal-input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-family-mono);
+    font-size: 1em;
+}
+
+/* --- 调试器 --- */
+#debugger-panel.active { display: flex; flex-direction: column; }
+.debugger-controls { display: flex; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; flex-shrink: 0; }
+.debugger-controls button { background-color: var(--border-color); border: none; color: var(--text-primary); padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+.debugger-controls button:hover { background-color: var(--accent-color); color: white; }
+.debugger-info { flex-grow: 1; overflow: auto; }
+.debugger-section { margin-bottom: 15px; }
+.debugger-section h4 { font-size: 0.95rem; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px dashed var(--border-color); }
+.debugger-section ul { list-style: none; padding: 0; margin: 0; }
+.debugger-section li { font-family: var(--font-family-mono); font-size: 0.85rem; padding: 4px 0; }
+.debugger-section li.highlight { background-color: rgba(98, 163, 255, 0.2); border-radius: 4px; padding: 4px 5px; }
+
+/* --- Monaco/Debugger 特有样式 --- */
+.debug-line-highlight { background-color: rgba(98, 163, 255, 0.2); }
+.debug-line-decorator-gutter { width: 5px !important; background: var(--accent-color); margin-left: 3px; }
+.breakpoint-decorator { width: 10px !important; height: 10px !important; background: var(--color-error); border-radius: 50%; margin-left: 5px; margin-top: 5px; }
+
+/* --- 监控面板样式 --- */
+#monitor-panel.panel-content.active {
+    padding: 10px;
+    display: flex;
+}
+.monitor-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(3, 1fr);
+    gap: 15px;
+    width: 100%;
+    height: 100%;
+}
+.chart-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-primary);
+    border-radius: 4px;
+    padding: 10px;
+    box-shadow: inset 0 0 5px rgba(0,0,0,0.1);
+}

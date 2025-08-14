@@ -1,0 +1,81 @@
+/* src/css/chrome.css - 应用主框架和外壳样式 */
+
+/* --- 工具栏 --- */
+.toolbar {
+    background-color: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+    gap: 5px;
+    flex-shrink: 0;
+    user-select: none;
+}
+.toolbar-group {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    border-right: 1px solid var(--border-color);
+    padding: 0 5px;
+}
+.toolbar-group:last-child { border-right: none; }
+.toolbar-group.toolbar-right { margin-left: auto; }
+.toolbar-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+    font-size: 1rem;
+}
+.toolbar-btn:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+.toolbar-btn i { font-size: 1.1rem; }
+.toolbar-selector {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-right: 5px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    outline: none;
+}
+.toolbar-selector:hover {
+    border-color: var(--accent-color);
+}
+
+/* --- 状态栏 --- */
+.status-bar {
+    background-color: var(--bg-header);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    font-size: 0.8rem;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    user-select: none;
+    gap: 15px;
+}
+.status-bar .status-left { margin-right: auto; }
+.status-bar .status-right { margin-left: auto; display: flex; align-items: center; gap: 15px; }
+.status-bar .unsaved-indicator { color: var(--color-warning); font-size: 1.2em; margin-left: -10px; }
+
+/* --- 进度条 --- */
+.progress-indicator { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); }
+.progress-label { white-space: nowrap; }
+.progress-track { width: 150px; height: 10px; background-color: var(--progress-bg); border-radius: 5px; overflow: hidden; }
+.progress-bar { height: 100%; width: 0%; background-color: var(--progress-fill); border-radius: 5px; transition: width 0.2s ease-in-out; }
+
+/* --- 工具栏运行/停止按钮状态 --- */
+.toolbar-btn[data-action="run-code"] .stop-icon { display: none; color: var(--color-error); }
+.toolbar-btn[data-action="run-code"] .run-icon { display: inline-block; }
+.toolbar-btn[data-action="run-code"].is-running .run-icon { display: none; }
+.toolbar-btn[data-action="run-code"].is-running .stop-icon { display: inline-block; }
+.toolbar-btn[data-action="debug-code"].is-running { opacity: 0.5; cursor: not-allowed; }
