@@ -21,7 +21,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
@@ -108,12 +107,7 @@ public class JavaCompilerRunnerService {
             String jdkVersion = mavenHelper.getJavaVersionFromPom(projectDir.toFile(), notificationService::sendBuildLog);
             String javaExecutable = validateJdkPath(settings, jdkVersion);
 
-            // ========================= 关键修改 START: 获取JDK主目录并传递给构建方法 =========================
-            // 从 java.exe/java 路径 (e.g., /path/to/jdk/bin/java) 推断出 JDK 的主目录
-            Path jdkHome = Paths.get(javaExecutable).getParent().getParent();
-            int buildExitCode = runMavenBuild(projectPath, mvnExecutable, jdkHome.toString());
-            // ========================= 关键修改 END =======================================================
-
+            int buildExitCode = runMavenBuild(projectPath, mvnExecutable);
             notificationService.sendBuildLog("构建完成，退出码: " + buildExitCode);
 
             if (buildExitCode == 0) {
@@ -189,24 +183,16 @@ public class JavaCompilerRunnerService {
         runSessionService.start(commandList, projectDir);
     }
 
-    // ========================= 关键修改 START: 方法签名变更，并增加设置环境变量的逻辑 =========================
-    private int runMavenBuild(String projectPath, String mvnExecutable, String jdkHome) throws IOException, InterruptedException {
+    private int runMavenBuild(String projectPath, String mvnExecutable) throws IOException, InterruptedException {
         File projectDir = getWorkspaceRoot().resolve(projectPath).toFile();
 
+        // `clean install` 确保构建是干净的，并且JAR包被创建
         List<String> mavenCommand = Arrays.asList(mvnExecutable, "clean", "install", "-U", "-Dfile.encoding=UTF-8");
         notificationService.sendBuildLog(
                 "执行: " + String.join(" ", mavenCommand) + " 于 " + projectDir.getAbsolutePath());
 
         var pb = new ProcessBuilder(mavenCommand).directory(projectDir).redirectErrorStream(true);
-
-        // 为 Maven 进程设置 JAVA_HOME 环境变量
-        Map<String, String> env = pb.environment();
-        env.put("JAVA_HOME", jdkHome);
-        log.info("正在为 Maven 构建设置 JAVA_HOME: {}", jdkHome);
-        notificationService.sendBuildLog("[信息] 使用 JDK: " + jdkHome);
-
         Process process = pb.start();
-        // ========================= 关键修改 END =================================================================
 
         try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             reader.lines().forEach(notificationService::sendBuildLog);
