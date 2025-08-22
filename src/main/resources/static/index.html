@@ -12,6 +12,9 @@
     <link href="src/css/panels.css" rel="stylesheet"/>
     <link href="src/css/overlays.css" rel="stylesheet"/>
     <link href="src/css/features.css" rel="stylesheet"/>
+    <!-- ========================= 新增 START ========================= -->
+    <link href="src/css/ai-chat.css" rel="stylesheet"/>
+    <!-- ========================= 新增 END =========================== -->
     <!-- ThemeManager 将会动态修改这个 link 的 href -->
     <link href="src/css/theme-dark.css" id="theme-link" rel="stylesheet"/>
     <!-- 引入 Font Awesome (本地化) -->
@@ -91,6 +94,11 @@
             </button>
         </div>
         <div class="toolbar-group toolbar-right">
+            <!-- ========================= 新增 START ========================= -->
+            <button class="toolbar-btn" data-action="toggle-ai-chat" title="AI 聊天">
+                <i class="fas fa-robot"></i>
+            </button>
+            <!-- ========================= 新增 END =========================== -->
             <button class="toolbar-btn" data-action="settings" title="设置 (Ctrl+,)">
                 <i class="fas fa-cog"></i>
             </button>
@@ -121,6 +129,11 @@
                     <div id="media-preview-container" style="width: 100%; height: 100%; display: none;"></div>
                 </div>
             </div>
+            <!-- ========================= 新增 START ========================= -->
+            <div id="ai-chat-panel" class="panel resizable-panel" style="display: none;">
+                <!-- AI Chat Manager 将在此处填充内容 -->
+            </div>
+            <!-- ========================= 新增 END =========================== -->
         </div>
 
         <!-- 底部面板现在包含一个水平布局的包裹容器 -->
@@ -181,7 +194,6 @@
                                 <input type="text" id="terminal-input" autocomplete="off" spellcheck="false"/>
                             </div>
                         </div>
-                        <!-- ========================= 修改 START ========================= -->
                         <div id="debugger-panel" class="panel-content">
                             <div class="debugger-controls">
                                 <button data-action="resume-debug" title="恢复程序 (F9)"><i class="fas fa-play"></i></button>
@@ -207,7 +219,6 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- ========================= 修改 END =========================== -->
                     </div>
                 </div>
             </div>

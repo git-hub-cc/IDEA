@@ -41,10 +41,7 @@ const ModalManager = {
                 this._close(false);
             } else if (actionBtn && actionBtn.dataset.action === 'confirm-modal' && !actionBtn.disabled) {
                 if (actionBtn.dataset.type === 'settings') {
-                    // ========================= 核心修改 START =========================
-                    // 传递点击事件 e 以便获取坐标
                     this._handleSettingsConfirm(e);
-                    // ========================= 核心修改 END ===========================
                 } else {
                     if (modal && modal.dataset.type !== 'list-prompt') {
                         this._close(true, 'confirm');
@@ -78,7 +75,7 @@ const ModalManager = {
     },
 
     /**
-     * @description 收集应用级的设置项（非Git凭证）并调用API保存。
+     * @description 收集应用级的设置项（非Git/AI凭证）并调用API保存。
      * @param {MouseEvent} [clickEvent] - 触发保存的点击事件。
      * @returns {Promise<any>}
      * @private
@@ -90,7 +87,6 @@ const ModalManager = {
             return Promise.reject(new Error("设置UI未加载。"));
         }
 
-        // 只收集非敏感的应用和环境设置
         const appSettings = {
             theme: modalBody.querySelector('#settings-theme').value,
             fontSize: parseInt(modalBody.querySelector('#settings-font-size').value, 10),
@@ -98,17 +94,21 @@ const ModalManager = {
             wordWrap: modalBody.querySelector('#settings-word-wrap').value === 'true',
             workspaceRoot: modalBody.querySelector('#settings-workspace-root').value,
             mavenHome: modalBody.querySelector('#settings-maven-home').value
-            // JDK路径是即时保存的，这里不包含
         };
 
         try {
             await NetworkManager.saveSettings(appSettings);
             EventBus.emit('log:info', '应用设置已更新并保存。');
-            // ========================= 核心修改 START =========================
-            // 构造点击坐标对象并随事件一起发射
             const coordinates = clickEvent ? { x: clickEvent.clientX, y: clickEvent.clientY } : null;
-            EventBus.emit('settings:changed', { ...this.currentSettings, ...appSettings }, coordinates);
-            // ========================= 核心修改 END ===========================
+            // 将AI设置从localStorage读出，合并到事件对象中，以便其他模块（如CodeEditorManager）能响应
+            const fullSettings = {
+                ...this.currentSettings,
+                ...appSettings,
+                aiApiEndpoint: localStorage.getItem('ai_api_endpoint'),
+                aiApiKey: localStorage.getItem('ai_api_key'),
+                aiModel: localStorage.getItem('ai_model')
+            };
+            EventBus.emit('settings:changed', fullSettings, coordinates);
             return Promise.resolve();
         } catch (error) {
             EventBus.emit('log:error', `保存应用设置失败: ${error.message}`);
@@ -127,29 +127,29 @@ const ModalManager = {
         const oldWorkspaceRoot = this.currentSettings ? this.currentSettings.workspaceRoot : null;
         const newWorkspaceRoot = modalBody.querySelector('#settings-workspace-root').value;
 
-        // 步骤 1: 将Git凭证保存到localStorage
+        // 步骤 1: 将Git和AI凭证/配置保存到localStorage
         try {
-            const gitPlatform = modalBody.querySelector('#settings-git-platform').value;
-            const giteeToken = modalBody.querySelector('#settings-gitee-token').value;
-            const sshKeyPath = modalBody.querySelector('#settings-ssh-key-path').value;
-            const sshPassphrase = modalBody.querySelector('#settings-ssh-passphrase').value;
+            // Git
+            localStorage.setItem('git_platform', modalBody.querySelector('#settings-git-platform').value);
+            localStorage.setItem('git_access_token', modalBody.querySelector('#settings-gitee-token').value);
+            localStorage.setItem('git_ssh_key_path', modalBody.querySelector('#settings-ssh-key-path').value);
+            localStorage.setItem('git_ssh_passphrase', modalBody.querySelector('#settings-ssh-passphrase').value);
 
-            localStorage.setItem('git_platform', gitPlatform);
-            localStorage.setItem('git_access_token', giteeToken);
-            localStorage.setItem('git_ssh_key_path', sshKeyPath);
-            localStorage.setItem('git_ssh_passphrase', sshPassphrase);
-            EventBus.emit('log:info', 'Git 凭证已保存到浏览器本地存储。');
+            // AI
+            localStorage.setItem('ai_api_endpoint', modalBody.querySelector('#settings-ai-api-endpoint').value);
+            localStorage.setItem('ai_api_key', modalBody.querySelector('#settings-ai-api-key').value);
+            localStorage.setItem('ai_model', modalBody.querySelector('#settings-ai-model').value);
+
+            EventBus.emit('log:info', 'Git 和 AI 配置已保存到浏览器本地存储。');
         } catch (err) {
-            EventBus.emit('log:error', `保存Git凭证到localStorage失败: ${err.message}`);
-            this.showAlert('保存失败', '无法将Git凭证保存到浏览器，请检查浏览器设置。');
-            return; // 保存失败则不继续
+            EventBus.emit('log:error', `保存配置到localStorage失败: ${err.message}`);
+            this.showAlert('保存失败', '无法将配置保存到浏览器，请检查浏览器设置。');
+            return;
         }
 
         // 步骤 2: 保存应用级设置到后端
         try {
-            // ========================= 核心修改 START =========================
             await this._collectAndSaveAppSettings(e);
-            // ========================= 核心修改 END ===========================
             this._close(true);
 
             // 步骤 3: 处理工作区变更
@@ -173,16 +173,9 @@ const ModalManager = {
         }
     },
 
-    // ... 其余方法保持不变 ...
-    // =========================================================
-    // 省略 showSettings, _show, _close, showAlert, showConfirm,
-    // showPrompt, showRepoSelectionModal, showListPrompt,
-    // _populate... panes, _showJdkPrompt, showChoiceModal 方法
-    // 它们的代码与您提供的版本完全相同，无需修改。
-    // =========================================================
     /**
      * @description 显示设置模态框。
-     * @param {object} settings - 当前的设置对象。
+     * @param {object} settings - 当前的服务器端设置对象。
      * @param {string} [openTab='app-settings-pane'] - 默认打开的标签页ID。
      * @returns {Promise}
      */
@@ -196,7 +189,8 @@ const ModalManager = {
         if (!bodyFragment) return Promise.reject("Template not found");
 
         this._populateAppSettingsPane(bodyFragment, settings);
-        this._populateGitSettingsPane(bodyFragment); // 从localStorage加载
+        this._populateAiSettingsPane(bodyFragment);
+        this._populateGitSettingsPane(bodyFragment);
         bodyFragment.querySelector('#settings-workspace-root').value = settings.workspaceRoot || '';
         bodyFragment.querySelector('#settings-maven-home').value = settings.mavenHome || '';
 
@@ -299,6 +293,7 @@ const ModalManager = {
 
         return this._show('设置', bodyFragment, { confirmText: '保存', type: 'settings' });
     },
+
     _show: function(title, bodyContent, options = {}) {
         const overlay = document.getElementById('modal-overlay');
         const modal = document.getElementById('common-modal');
@@ -367,6 +362,7 @@ const ModalManager = {
             this.rejectPromise = reject;
         });
     },
+
     _close: function(confirmed, value) {
         const overlay = document.getElementById('modal-overlay');
         const modal = document.getElementById('common-modal');
@@ -397,12 +393,15 @@ const ModalManager = {
             this.currentSettings = null;
         }
     },
+
     showAlert: function(title, message) {
         return this._show(title, `<p>${message.replace(/\n/g, '<br>')}</p>`, { confirmText: '关闭', showCancel: false });
     },
+
     showConfirm: function(title, message, options = {}) {
         return this._show(title, `<p>${message}</p>`, options);
     },
+
     showPrompt: function(title, message, defaultValue = '') {
         const body = document.createElement('div');
         body.innerHTML = `<p style="margin-bottom: 10px;">${message}</p>`;
@@ -412,6 +411,7 @@ const ModalManager = {
         body.appendChild(input);
         return this._show(title, body);
     },
+
     showRepoSelectionModal: function(repos) {
         if (!repos || repos.length === 0) {
             return this.showAlert('没有可用的仓库', '未能从远程平台获取任何公开仓库。');
@@ -439,6 +439,7 @@ const ModalManager = {
 
         return this._show('选择要克隆的仓库', bodyFragment, { confirmText: '克隆', isRepoSelection: true });
     },
+
     showListPrompt: function({ title, items, onConfirm }) {
         const modalBody = TemplateLoader.get('list-prompt-template');
         if (!modalBody) return;
@@ -500,6 +501,7 @@ const ModalManager = {
         renderList('');
         this._show(title, modalBody, { showFooter: false, type: 'list-prompt' }).catch(() => {});
     },
+
     _populateAppSettingsPane: function(container, settings) {
         const pane = container.querySelector('#app-settings-pane');
         const template = TemplateLoader.get('app-settings-pane-template');
@@ -510,6 +512,17 @@ const ModalManager = {
         template.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
         pane.appendChild(template);
     },
+
+    _populateAiSettingsPane: function(container) {
+        const pane = container.querySelector('#ai-settings-pane');
+        const template = TemplateLoader.get('ai-settings-pane-template');
+        if (!template) return;
+        template.querySelector('#settings-ai-api-endpoint').value = localStorage.getItem('ai_api_endpoint') || '';
+        template.querySelector('#settings-ai-api-key').value = localStorage.getItem('ai_api_key') || '';
+        template.querySelector('#settings-ai-model').value = localStorage.getItem('ai_model') || '';
+        pane.appendChild(template);
+    },
+
     _populateGitSettingsPane: function(container) {
         const pane = container.querySelector('#git-settings-pane');
         const template = TemplateLoader.get('git-settings-pane-template');
@@ -520,6 +533,7 @@ const ModalManager = {
         template.querySelector('#settings-ssh-passphrase').value = localStorage.getItem('git_ssh_passphrase') || '';
         pane.appendChild(template);
     },
+
     _showJdkPrompt: function(title, initialKey = 'jdk', initialValue = '') {
         const bodyFragment = TemplateLoader.get('jdk-prompt-template');
         if (!bodyFragment) return Promise.reject("Template not found");
@@ -539,6 +553,7 @@ const ModalManager = {
             return { newKey, newValue };
         });
     },
+
     showChoiceModal: function({ title, message, choices = [] }) {
         const body = document.createElement('div');
         body.innerHTML = `<p style="margin-bottom: 15px;">${message}</p>`;

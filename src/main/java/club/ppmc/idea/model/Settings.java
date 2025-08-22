@@ -40,8 +40,10 @@ public class Settings {
     private String editorFontFamily = "JetBrains Mono";
     private boolean wordWrap = true;
 
-    // --- Git 平台配置 (已移除) ---
-    // giteeAccessToken, gitPlatform 等敏感信息和用户特定配置
-    // 已从服务器端全局设置中移除，现在由客户端管理。
-
+    // ========================= 删除 START =========================
+    // AI 功能配置已移至客户端本地存储，不再由服务器管理。
+    // private String aiApiEndpoint;
+    // private String aiApiKey;
+    // private String aiModel;
+    // ========================= 删除 END ===========================
 }

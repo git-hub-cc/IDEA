@@ -2,9 +2,7 @@
  * SettingsService.java
  *
  * 该服务是整个应用的配置中心，负责管理IDE的所有可配置项。
- * 它处理配置的加载、更新和持久化，将配置信息以JSON格式存储在工作区的一个隐藏目录 (.ide) 中。
- * 在首次启动时，它会使用 application.properties 中的值作为默认设置来创建配置文件。
- * 所有其他需要配置的服务都应依赖此服务，而不是直接使用 @Value 注解。
+ * 已修改，不再管理AI相关的配置。
  */
 package club.ppmc.idea.service;
 
@@ -38,25 +36,21 @@ public class SettingsService {
     private final String initialWorkspaceRoot;
     private final String initialMavenHome;
     private final Map<String, String> initialJdkPaths;
-    // ========================= 关键修正 START =========================
-    // 移除了 initialGiteeToken 字段的注入，因为它不再属于服务器配置
-    // ========================= 关键修正 END ===========================
+    // ========================= 删除 START =========================
+    // private final String initialAiApiEndpoint;
+    // private final String initialAiApiKey;
+    // private final String initialAiModel;
+    // ========================= 删除 END ===========================
 
     public SettingsService(
             @Value("${app.workspace-root}") String initialWorkspaceRoot,
             @Value("${app.maven.home:}") String initialMavenHome,
             @Value("#{${app.jdk.paths}}") Map<String, String> initialJdkPaths) {
-        // ========================= 关键修正 START =========================
-        // 移除了构造函数参数中的 Gitee Token
-        // ========================= 关键修正 END ===========================
 
         this.initialWorkspaceRoot = initialWorkspaceRoot;
         this.initialMavenHome = initialMavenHome;
         this.initialJdkPaths = initialJdkPaths;
 
-        // 设置文件的最终路径依赖于工作区路径，该路径本身也是可配置的。
-        // 所以在init()中加载配置后，才能确定最终的 settingsFilePath。
-        // 这里先用初始值确定一个临时路径。
         this.settingsFilePath =
                 Paths.get(initialWorkspaceRoot, SETTINGS_DIR, SETTINGS_FILE_NAME)
                         .toAbsolutePath()
@@ -87,7 +81,22 @@ public class SettingsService {
     }
 
     public synchronized void updateSettings(Settings newSettings) throws IOException {
-        this.currentSettings = newSettings;
+        // ========================= 修改 START =========================
+        // 确保从前端接收的设置对象中不会意外地包含AI字段，
+        // 或者如果包含，也确保它们不会被保存到服务器的settings.json中。
+        // （由于Settings类已修改，Jackson在反序列化时会自动忽略未知属性，
+        // 但这里保留逻辑以明确意图）
+        Settings settingsToSave = new Settings();
+        settingsToSave.setWorkspaceRoot(newSettings.getWorkspaceRoot());
+        settingsToSave.setMavenHome(newSettings.getMavenHome());
+        settingsToSave.setJdkPaths(newSettings.getJdkPaths());
+        settingsToSave.setTheme(newSettings.getTheme());
+        settingsToSave.setFontSize(newSettings.getFontSize());
+        settingsToSave.setEditorFontFamily(newSettings.getEditorFontFamily());
+        settingsToSave.setWordWrap(newSettings.isWordWrap());
+
+        this.currentSettings = settingsToSave;
+        // ========================= 修改 END ===========================
         saveSettings();
     }
 
@@ -104,7 +113,6 @@ public class SettingsService {
     }
 
     private void saveSettings() throws IOException {
-        // 获取最新的工作区路径来保存文件
         Path currentSettingsPath = Paths.get(currentSettings.getWorkspaceRoot(), SETTINGS_DIR, SETTINGS_FILE_NAME).toAbsolutePath().normalize();
         if (Files.notExists(currentSettingsPath.getParent())) {
             Files.createDirectories(currentSettingsPath.getParent());
@@ -135,9 +143,7 @@ public class SettingsService {
         if (this.initialJdkPaths != null && !this.initialJdkPaths.isEmpty()) {
             settings.setJdkPaths(this.initialJdkPaths);
         }
-        // ========================= 关键修正 START =========================
-        // 移除了尝试设置 Gitee Token 的代码块
-        // ========================= 关键修正 END ===========================
+        // AI相关默认值设置已移除
         return settings;
     }
 }

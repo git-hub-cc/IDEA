@@ -74,12 +74,10 @@ const NetworkManager = {
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
-    // ========================= 修改 START =========================
     /** @description 处理构建日志消息, 触发一个原始日志事件 */
     onBuildLogReceived: function(message) { EventBus.emit('raw:build-log', '[构建]\n' + message.body); },
     /** @description 处理运行日志消息, 触发一个原始日志事件 */
     onRunLogReceived: function(message) { EventBus.emit('raw:run-log', message.body); },
-    // ========================= 修改 END ===========================
     /** @description 处理调试事件消息 */
     onDebugEventReceived: function(message) { try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); } catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); } },
     /** @description 处理运行状态消息 */
@@ -192,6 +190,13 @@ const NetworkManager = {
     formatJavaCode: function(code) { return this._rawFetchApi('api/java/format', { method: 'POST', body: JSON.stringify({ code }) }); },
     deleteProject: function(projectName) { return this._rawFetchApi(`api/projects/${encodeURIComponent(projectName)}`, { method: 'DELETE' }); },
 
+    // ========================= 新增 START =========================
+    getAiChatCompletion: function(request) {
+        // AI聊天请求不显示全局繁忙光标，因为它有自己的加载指示器
+        return this._rawFetchApi('api/ai/chat', { method: 'POST', body: JSON.stringify(request) }, 'json', false);
+    },
+    // ========================= 新增 END ===========================
+
 
     // --- Git Methods with Authentication ---
 
@@ -283,29 +288,29 @@ const NetworkManager = {
         for await (const entry of dirHandle.values()) {
             if (['.git', '.idea', 'node_modules', 'target', 'dist', 'build', '.DS_Store'].includes(entry.name)) continue;
             const newPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
-            if (entry.kind === 'file') {
-                const file = await entry.getFile();
-                files.push({ file: file, path: newPath });
-            } else if (entry.kind === 'directory') {
-                files.push(...await this._getFilesRecursively(entry, newPath));
-            }
-        }
-        return files;
-    },
-    uploadFilesToPath: function(files, destinationPath) {
-        if (!Config.currentProject) {
-            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
-        }
+if (entry.kind === 'file') {
+    const file = await entry.getFile();
+    files.push({ file: file, path: newPath });
+} else if (entry.kind === 'directory') {
+    files.push(...await this._getFilesRecursively(entry, newPath));
+}
+}
+return files;
+},
+uploadFilesToPath: function(files, destinationPath) {
+    if (!Config.currentProject) {
+        return Promise.reject(new Error("没有活动的项来粘贴文件。"));
+    }
 
-        const formData = new FormData();
-        formData.append('projectPath', Config.currentProject);
-        formData.append('destinationPath', destinationPath);
-        files.forEach(file => {
-            formData.append('files', file, file.name);
-        });
+    const formData = new FormData();
+    formData.append('projectPath', Config.currentProject);
+    formData.append('destinationPath', destinationPath);
+    files.forEach(file => {
+        formData.append('files', file, file.name);
+    });
 
-        return this._uploadWithXHR('api/files/upload-to-path', formData);
-    },
+    return this._uploadWithXHR('api/files/upload-to-path', formData);
+},
 };
 
 export default NetworkManager;

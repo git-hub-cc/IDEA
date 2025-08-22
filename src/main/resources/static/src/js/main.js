@@ -13,8 +13,9 @@ import ConsoleManager from './managers/ConsoleManager.js';
 import ProblemsManager from './managers/ProblemsManager.js';
 import TerminalManager from './managers/TerminalManager.js';
 import DebuggerManager from './managers/DebuggerManager.js';
-// ========================= 新增 START =========================
 import DebugConsoleManager from './managers/DebugConsoleManager.js';
+// ========================= 新增 START =========================
+import AiChatManager from './managers/AiChatManager.js';
 // ========================= 新增 END ===========================
 import ActionManager from './managers/ActionManager.js';
 import KeyboardManager from './managers/KeyboardManager.js';
@@ -57,8 +58,9 @@ const App = {
         ProblemsManager.init();
         TerminalManager.init();
         DebuggerManager.init();
-        // ========================= 新增 START =========================
         DebugConsoleManager.init();
+        // ========================= 新增 START =========================
+        AiChatManager.init();
         // ========================= 新增 END ===========================
         MonitorManager.init();
         await CommandPaletteManager.init();

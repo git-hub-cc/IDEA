@@ -10,9 +10,7 @@ import { ResizableLayout } from '../utils/resizable-layout.js';
 const UIManager = {
     mainLayout: null,
     topLayout: null,
-    // ========================= 新增 START =========================
     bottomLayout: null,
-    // ========================= 新增 END ===========================
     panelTabButtons: null,
     panelContents: null,
     busyOverlay: null,
@@ -83,33 +81,33 @@ const UIManager = {
         );
         this.mainLayout.init();
 
-        // 顶部水平布局: [文件树] vs [编辑器]
+        // ========================= 修改 START =========================
+        // 顶部水平布局: [文件树] vs [编辑器] vs [AI聊天]
         this.topLayout = new ResizableLayout(
             '#top-panels-wrapper',
-            ['#left-panel', '#center-panel'],
+            ['#left-panel', '#center-panel', '#ai-chat-panel'],
             {
                 direction: 'horizontal',
-                minSizes: [200, 350],
-                initialSizes: [25, 75],
-                storageKey: 'web-idea-layout-horizontal'
+                minSizes: [200, 350, 250], // 为AI面板设置最小宽度
+                initialSizes: [20, 55, 25], // 调整初始百分比以容纳AI面板
+                storageKey: 'web-idea-layout-horizontal-v2' // 使用新key避免与旧布局冲突
             }
         );
         this.topLayout.init();
+        // ========================= 修改 END ===========================
 
-        // ========================= 新增 START =========================
         // 底部水平布局: [监控面板] vs [标签页主面板]
         this.bottomLayout = new ResizableLayout(
             '#bottom-panel-wrapper',
             ['#monitor-side-panel', '#main-bottom-panel'],
             {
                 direction: 'horizontal',
-                minSizes: [200, 350], // 监控和标签页的最小宽度
+                minSizes: [200, 350],
                 initialSizes: [25, 75],
                 storageKey: 'web-idea-layout-bottom-horizontal'
             }
         );
         this.bottomLayout.init();
-        // ========================= 新增 END ===========================
     },
 
     /**

@@ -5,12 +5,16 @@
     <div class="settings-modal-body">
         <div class="modal-tabs">
             <button class="modal-tab" data-tab="app-settings-pane">主题设置</button>
+            <button class="modal-tab" data-tab="ai-settings-pane">AI设置</button>
             <button class="modal-tab" data-tab="git-settings-pane">Git设置</button>
             <button class="modal-tab" data-tab="env-settings-pane">环境设置</button>
         </div>
         <div class="modal-tab-content">
             <div id="app-settings-pane" class="tab-pane">
                 <!-- App settings content will be populated by JS -->
+            </div>
+            <div id="ai-settings-pane" class="tab-pane">
+                <!-- AI settings content will be populated by JS -->
             </div>
             <div id="git-settings-pane" class="tab-pane">
                 <!-- Git settings content will be populated by JS -->
@@ -62,6 +66,31 @@
             <option value="true">开启</option>
             <option value="false">关闭</option>
         </select>
+    </div>
+</template>
+
+<!-- 设置模态框中“AI设置”面板的模板 -->
+<template id="ai-settings-pane-template">
+    <div class="settings-item">
+        <label for="settings-ai-api-endpoint">API 端点 URL</label>
+        <input type="text" id="settings-ai-api-endpoint" placeholder="例如: https://api.openai.com/v1/chat/completions">
+        <p style="font-size: 0.8em; color: var(--text-secondary); margin-top: 4px;">
+            AI服务的HTTP API接口地址。
+        </p>
+    </div>
+    <div class="settings-item">
+        <label for="settings-ai-api-key">API 密钥</label>
+        <input type="password" id="settings-ai-api-key" placeholder="在此输入您的API密钥">
+        <p style="font-size: 0.8em; color: var(--text-secondary); margin-top: 4px;">
+            您的密钥将安全地存储在浏览器的本地存储中，不会上传到IDE后端服务器。
+        </p>
+    </div>
+    <div class="settings-item">
+        <label for="settings-ai-model">模型名称</label>
+        <input type="text" id="settings-ai-model" placeholder="例如: gpt-3.5-turbo">
+        <p style="font-size: 0.8em; color: var(--text-secondary); margin-top: 4px;">
+            指定要使用的AI模型。
+        </p>
     </div>
 </template>
 
@@ -159,7 +188,6 @@
     </div>
 </template>
 
-<!-- ========================= 新增 START ========================= -->
 <!-- 调试器控制台虚拟滚动视口的模板 -->
 <template id="debugger-console-viewport-template">
     <div class="console-toolbar debugger-console-toolbar">
@@ -177,4 +205,27 @@
         <div class="console-content debugger-console-content"></div>
     </div>
 </template>
-<!-- ========================= 新增 END =========================== -->
+
+<!-- AI聊天面板的模板 -->
+<template id="ai-chat-panel-template">
+    <div class="panel-header">
+        <h3>AI 聊天</h3>
+        <button class="panel-header-btn" data-action="clear-ai-chat" title="清空对话">
+            <i class="fas fa-trash-alt"></i>
+        </button>
+    </div>
+    <div class="chat-history-container" id="ai-chat-history">
+        <!-- Messages will be appended here by AiChatManager -->
+        <div class="chat-message ai-message">
+            <div class="message-content">
+                <p>你好！有什么可以帮你的吗？可以问我关于代码的问题，或者让我帮你解释、重构代码。</p>
+            </div>
+        </div>
+    </div>
+    <form class="chat-input-form" id="ai-chat-form">
+        <textarea id="ai-chat-input" placeholder="输入消息 (Shift+Enter 换行)..." rows="1"></textarea>
+        <button type="submit" id="ai-chat-send-btn" title="发送消息">
+            <i class="fas fa-paper-plane"></i>
+        </button>
+    </form>
+</template>
