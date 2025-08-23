@@ -34,6 +34,13 @@
     background-color: var(--border-color);
     color: var(--text-primary);
 }
+.toolbar-btn.is-active {
+    background-color: #DB5860; /* 类似IDEA的红色停止按钮背景 */
+    color: white; /* 活动状态下图标为白色 */
+}
+.toolbar-btn.is-active:hover {
+    background-color: #C75259; /* 悬停时颜色加深 */
+}
 .toolbar-btn i { font-size: 1.1rem; }
 .toolbar-selector {
     background-color: var(--bg-primary);
@@ -74,8 +81,16 @@
 .progress-bar { height: 100%; width: 0%; background-color: var(--progress-fill); border-radius: 5px; transition: width 0.2s ease-in-out; }
 
 /* --- 工具栏运行/停止按钮状态 --- */
-.toolbar-btn[data-action="run-code"] .stop-icon { display: none; color: var(--color-error); }
+.toolbar-btn[data-action="run-code"] .stop-icon { display: none; }
 .toolbar-btn[data-action="run-code"] .run-icon { display: inline-block; }
-.toolbar-btn[data-action="run-code"].is-running .run-icon { display: none; }
-.toolbar-btn[data-action="run-code"].is-running .stop-icon { display: inline-block; }
-.toolbar-btn[data-action="debug-code"].is-running { opacity: 0.5; cursor: not-allowed; }
+.toolbar-btn[data-action="run-code"].is-active .run-icon { display: none; }
+.toolbar-btn[data-action="run-code"].is-active .stop-icon { display: inline-block; }
+
+/* 调试按钮的图标切换 */
+.toolbar-btn[data-action="debug-code"] .stop-icon { display: none; }
+.toolbar-btn[data-action="debug-code"] .debug-icon { display: inline-block; }
+.toolbar-btn[data-action="debug-code"].is-active .debug-icon { display: none; }
+.toolbar-btn[data-action="debug-code"].is-active .stop-icon { display: inline-block; }
+
+
+.toolbar-btn[data-action="debug-code"].is-running { opacity: 0.5; cursor: not-allowed; } /* 这条规则将被JS中的 disabled 属性逻辑取代 */

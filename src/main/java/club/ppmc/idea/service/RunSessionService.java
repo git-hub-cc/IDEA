@@ -67,17 +67,23 @@ public class RunSessionService {
 
             notificationService.sendMessage("/topic/run/status", "STARTED");
 
-            startLogReader(newSession);
+            // ========================= 关键修改 START =========================
+            // 设计改进: 使用 CompletableFuture 协调进程退出和日志读取完成，解决竞态条件。
+            // 1. 启动日志读取器，它现在返回一个 Future，该 Future 在流被完全读取后完成。
+            CompletableFuture<Void> logReaderFuture = startLogReader(newSession);
 
-            // 设计改进：使用 Process.onExit() 异步监听进程结束。
-            // 这是自Java 9以来最可靠、最高效的检测进程结束的方式。
-            process
-                    .onExit()
-                    .thenAccept(
-                            p -> {
-                                log.info("进程 PID {} 已退出，退出码 {}.", p.pid(), p.exitValue());
-                                handleSessionTermination(newSession, p.exitValue());
-                            });
+            // 2. 获取一个在进程退出时完成的 Future。
+            CompletableFuture<Process> processExitFuture = process.onExit();
+
+            // 3. 组合这两个 Future。当进程退出 并且 日志读取器完成时，才执行最终的清理工作。
+            //    这确保了即使进程执行得非常快，它的所有输出也一定会被捕获。
+            processExitFuture
+                    .thenCombine(logReaderFuture, (p, v) -> p) // 等待两者都完成
+                    .thenAccept(p -> {
+                        log.info("进程 PID {} 已退出，且其输出流已完全读取。", p.pid());
+                        handleSessionTermination(newSession, p.exitValue());
+                    });
+            // ========================= 关键修改 END ===========================
 
         } catch (IOException e) {
             log.error("启动进程失败，命令: {}", commandList, e);
@@ -94,8 +100,8 @@ public class RunSessionService {
         if (session != null && session.process().isAlive()) {
             log.info("正在停止进程，PID: {}", session.process().pid());
             session.isRunning().set(false); // 指示日志读取线程停止
-            session.process().destroyForcibly(); // 强制终止进程，这将自动触发 onExit() 回调
-            // 无需在此处发送 FINISHED 消息，onExit() 回调会统一处理
+            session.process().destroyForcibly(); // 强制终止进程，这将自动触发 onExit() -> thenCombine() 回调链
+            // 无需在此处发送 FINISHED 消息，回调链会统一处理
         }
     }
 
@@ -103,15 +109,18 @@ public class RunSessionService {
      * 在一个独立的线程中异步读取并转发指定会话的日志输出。
      *
      * @param session 正在运行的会话。
+     * @return 一个在日志流完全读取后完成的 CompletableFuture。
      */
-    private void startLogReader(RunSession session) {
-        CompletableFuture.runAsync(
+    // ========================= 关键修改 START =========================
+    private CompletableFuture<Void> startLogReader(RunSession session) {
+        return CompletableFuture.runAsync(
                 () -> {
                     try (var reader =
                                  new BufferedReader(new InputStreamReader(session.process().getInputStream()))) {
                         String line;
-                        // 循环条件：会话标记为运行中，且流中还有数据
-                        while (session.isRunning().get() && (line = reader.readLine()) != null) {
+                        // 循环条件变更：不再依赖 isRunning 标志，而是读取直到流结束 (readLine返回null)。
+                        // 这确保了即使进程已终止，流中的所有缓冲数据也会被完全读取。
+                        while ((line = reader.readLine()) != null) {
                             synchronized (session.logBuffer()) {
                                 session.logBuffer().append(line).append("\n");
                             }
@@ -122,15 +131,16 @@ public class RunSessionService {
                             log.warn("从进程流读取时出错 (如果进程被杀死，此为正常现象): {}", e.getMessage());
                         }
                     } finally {
-                        log.debug("进程 PID {} 的日志读取线程已终止。", session.process().pid());
+                        log.debug("进程 PID {} 的日志读取线程已完成对输出流的读取。", session.process().pid());
                         // 所有清理工作都已移至 handleSessionTermination，此处无需操作
                     }
                 });
     }
+    // ========================= 关键修改 END ===========================
 
     /**
      * 统一处理会话的终止，包括日志刷新和状态通知。
-     * 这个方法由 onExit() 回调触发，保证在进程实际结束后执行。
+     * 这个方法由 onExit() 和日志读取 Future 共同触发，保证在所有异步操作完成后执行。
      *
      * @param session 已结束的会话。
      * @param exitCode 进程的退出码。
@@ -142,12 +152,11 @@ public class RunSessionService {
             return;
         }
         session.isRunning().set(false);
-        // 短暂等待，让日志读取线程有机会处理完管道中最后的输出
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+
+        // ========================= 关键修改 START =========================
+        // 移除不可靠的 Thread.sleep()。
+        // 由于我们现在等待日志读取线程完成，可以确信所有日志都已在缓冲区中。
+        // ========================= 关键修改 END ===========================
 
         // 刷新所有剩余的日志
         flushLogBuffer(session);

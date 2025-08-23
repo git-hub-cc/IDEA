@@ -26,11 +26,9 @@
                 </div>
                 <div class="settings-item">
                     <label>JDK 路径配置 (修改后自动保存到服务器)</label>
-                    <!-- ========================= 修改 START ========================= -->
                     <p style="font-size: 0.8em; color: var(--text-secondary); margin-bottom: 8px;">
                         (可选) 指定本地JDK路径以覆盖后端默认的构建环境。如果留空，系统将使用内置的JDK 17进行兼容性编译。
                     </p>
-                    <!-- ========================= 修改 END =========================== -->
                     <div id="jdk-paths-list" class="settings-list"></div>
                     <button id="add-jdk-path-btn" class="modal-action-btn secondary-btn" style="margin-top: 10px; align-self: flex-start;">
                         <i class="fas fa-plus"></i> 添加 JDK
@@ -160,3 +158,23 @@
         <div class="console-content"></div>
     </div>
 </template>
+
+<!-- ========================= 新增 START ========================= -->
+<!-- 调试器控制台虚拟滚动视口的模板 -->
+<template id="debugger-console-viewport-template">
+    <div class="console-toolbar debugger-console-toolbar">
+        <button class="console-tool-btn active" data-action="scroll-lock" title="滚动到底部">
+            <i class="fas fa-arrow-down"></i>
+        </button>
+        <button class="console-tool-btn" data-action="clear-console" title="清空日志">
+            <i class="fas fa-trash-alt"></i>
+        </button>
+        <button class="console-tool-btn active" data-action="toggle-wrap" title="切换自动换行">
+            <i class="fas fa-align-left"></i>
+        </button>
+    </div>
+    <div class="console-viewport debugger-console-viewport">
+        <div class="console-content debugger-console-content"></div>
+    </div>
+</template>
+<!-- ========================= 新增 END =========================== -->

@@ -3,6 +3,9 @@
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
 import TemplateLoader from '../utils/TemplateLoader.js';
+// ========================= 新增 START =========================
+import DebuggerManager from './DebuggerManager.js';
+// ========================= 新增 END ===========================
 
 /**
  * @description 管理“日志”面板的输出。采用虚拟滚动技术来高效处理大量日志数据，
@@ -13,10 +16,20 @@ const ConsoleManager = {
     viewportElement: null,
     contentElement: null,
 
+    toolbarElement: null,
+    scrollLockBtn: null,
+    clearBtn: null,
+    wrapBtn: null,
+
+    isSoftWrapEnabled: true,
+    isScrollLockEnabled: true,
+    isUserScrolling: false,
+
     logLines: [],
     maxLines: 2000,
     lineHeight: 18, // 初始默认值，会被动态测量覆盖
     renderRequest: null,
+    scrollTimeout: null,
 
     /**
      * @description 初始化控制台管理器。
@@ -32,10 +45,28 @@ const ConsoleManager = {
         this.viewportElement = this.container.querySelector('.console-viewport');
         this.contentElement = this.container.querySelector('.console-content');
 
+        this.toolbarElement = this.container.querySelector('.console-toolbar');
+        if (this.toolbarElement) {
+            this.scrollLockBtn = this.toolbarElement.querySelector('[data-action="scroll-lock"]');
+            this.clearBtn = this.toolbarElement.querySelector('[data-action="clear-console"]');
+            this.wrapBtn = this.toolbarElement.querySelector('[data-action="toggle-wrap"]');
+            this.bindToolbarEvents();
+        }
+
         this.bindAppEvents();
         this.measureLineHeight();
 
-        this.viewportElement.addEventListener('scroll', () => this.requestRender(), { passive: true });
+        this.viewportElement.addEventListener('scroll', () => {
+            if (!this.isAtBottom()) {
+                this.isUserScrolling = true;
+                // 当用户向上滚动时，自动禁用滚动锁定
+                if (this.isScrollLockEnabled) {
+                    this.isScrollLockEnabled = false;
+                    this.scrollLockBtn.classList.remove('active');
+                }
+            }
+            this.requestRender();
+        }, { passive: true });
         EventBus.on('ui:layoutChanged', () => this.requestRender());
         window.addEventListener('resize', () => this.requestRender());
 
@@ -76,13 +107,53 @@ const ConsoleManager = {
      * @description 绑定应用事件。
      */
     bindAppEvents: function() {
-        EventBus.on('console:log', this.log.bind(this));
+        // ========================= 修改 START =========================
+        EventBus.on('raw:build-log', (message) => {
+            if (!DebuggerManager.isDebugging) this.log(message);
+        });
+        EventBus.on('raw:run-log', (message) => {
+            if (!DebuggerManager.isDebugging) this.log(message);
+        });
+        // ========================= 修改 END ===========================
         EventBus.on('console:error', this.error.bind(this));
         EventBus.on('console:clear', this.clear.bind(this));
         EventBus.on('log:info', (msg) => this.log(`[信息] ${msg}`));
         EventBus.on('log:warn', (msg) => this.log(`[警告] ${msg}`, 'warn'));
         EventBus.on('log:error', (msg) => this.error(msg));
         EventBus.on('settings:changed', this.applySettings.bind(this));
+    },
+
+    /**
+     * @description 为控制台工具栏按钮绑定事件。
+     */
+    bindToolbarEvents: function() {
+        this.scrollLockBtn.addEventListener('click', () => {
+            this.isScrollLockEnabled = !this.isScrollLockEnabled;
+            this.scrollLockBtn.classList.toggle('active', this.isScrollLockEnabled);
+            if (this.isScrollLockEnabled) {
+                this.scrollToBottom();
+            }
+        });
+
+        this.clearBtn.addEventListener('click', () => {
+            this.clear();
+        });
+
+        this.wrapBtn.addEventListener('click', () => {
+            this.isSoftWrapEnabled = !this.isSoftWrapEnabled;
+            this.applySoftWrap();
+        });
+    },
+
+    /**
+     * @description 应用自动换行设置并触发UI更新。
+     */
+    applySoftWrap: function() {
+        this.wrapBtn.classList.toggle('active', this.isSoftWrapEnabled);
+        this.container.classList.toggle('no-wrap', !this.isSoftWrapEnabled);
+        // 关键：重置所有行高缓存，以便在下次渲染时重新测量
+        this.logLines.forEach(line => { line.height = null; });
+        this.requestRender();
     },
 
     /**
@@ -93,7 +164,6 @@ const ConsoleManager = {
     log: function(message, type = 'log') {
         const timestamp = new Date().toLocaleTimeString();
         const lines = String(message).split('\n');
-        const wasAtBottom = this.isAtBottom();
 
         lines.forEach(function(line) {
             this.logLines.push({
@@ -112,11 +182,8 @@ const ConsoleManager = {
 
         this.requestRender();
 
-        // 如果用户正在查看底部，则自动滚动到底部
-        if (wasAtBottom) {
-            requestAnimationFrame(() => {
-                if (this.viewportElement) this.viewportElement.scrollTop = this.viewportElement.scrollHeight;
-            });
+        if (this.isScrollLockEnabled) {
+            this.scrollToBottom();
         }
     },
 
@@ -217,21 +284,24 @@ const ConsoleManager = {
     },
 
     /**
+     * @description 平滑滚动到日志视口的底部。
+     */
+    scrollToBottom: function() {
+        requestAnimationFrame(() => {
+            if (this.viewportElement) {
+                this.viewportElement.scrollTo({ top: this.viewportElement.scrollHeight, behavior: 'smooth' });
+            }
+        });
+    },
+
+    /**
      * @description 根据设置应用自动换行样式。
      * @param {object} settings - 设置对象。
      */
     applySettings: function(settings) {
         if (!this.container || !settings) return;
-        const shouldWrap = settings.wordWrap;
-        const hasNoWrapClass = this.container.classList.contains('no-wrap');
-        const shouldHaveNoWrapClass = !shouldWrap;
-
-        if (hasNoWrapClass !== shouldHaveNoWrapClass) {
-            this.container.classList.toggle('no-wrap', shouldHaveNoWrapClass);
-            // 重置所有行高缓存，以便在下次渲染时重新测量
-            this.logLines.forEach(line => { line.height = null; });
-            this.requestRender();
-        }
+        this.isSoftWrapEnabled = settings.wordWrap;
+        this.applySoftWrap();
     },
 
     /**

@@ -10,6 +10,9 @@ import { ResizableLayout } from '../utils/resizable-layout.js';
 const UIManager = {
     mainLayout: null,
     topLayout: null,
+    // ========================= 新增 START =========================
+    bottomLayout: null,
+    // ========================= 新增 END ===========================
     panelTabButtons: null,
     panelContents: null,
     busyOverlay: null,
@@ -67,6 +70,7 @@ const UIManager = {
      * @description 设置主界面的可拖拽面板布局。
      */
     setupPanelResizing: function() {
+        // 主垂直布局: [顶部区域] vs [底部面板]
         this.mainLayout = new ResizableLayout(
             '#main-panels',
             ['#top-panels-wrapper', '#bottom-panel'],
@@ -79,6 +83,7 @@ const UIManager = {
         );
         this.mainLayout.init();
 
+        // 顶部水平布局: [文件树] vs [编辑器]
         this.topLayout = new ResizableLayout(
             '#top-panels-wrapper',
             ['#left-panel', '#center-panel'],
@@ -90,6 +95,21 @@ const UIManager = {
             }
         );
         this.topLayout.init();
+
+        // ========================= 新增 START =========================
+        // 底部水平布局: [监控面板] vs [标签页主面板]
+        this.bottomLayout = new ResizableLayout(
+            '#bottom-panel-wrapper',
+            ['#monitor-side-panel', '#main-bottom-panel'],
+            {
+                direction: 'horizontal',
+                minSizes: [200, 350], // 监控和标签页的最小宽度
+                initialSizes: [25, 75],
+                storageKey: 'web-idea-layout-bottom-horizontal'
+            }
+        );
+        this.bottomLayout.init();
+        // ========================= 新增 END ===========================
     },
 
     /**

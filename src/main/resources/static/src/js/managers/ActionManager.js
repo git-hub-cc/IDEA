@@ -29,9 +29,7 @@ const ActionManager = {
         EventBus.on('action:new-file', ({ path } = {}) => this.handleNewFile(path));
         EventBus.on('action:open-folder', this.handleOpenFolder.bind(this));
         EventBus.on('action:save-file', this.handleSaveFile.bind(this));
-        // ========================= 修改 START =========================
         EventBus.on('action:format-code', this.handleFormatCode.bind(this));
-        // ========================= 修改 END ===========================
         EventBus.on('action:find-in-file', () => EventBus.emit('editor:find'));
         EventBus.on('action:run-code', this.handleRunCode.bind(this));
         EventBus.on('action:stop-run', this.handleStopRun.bind(this));
@@ -63,7 +61,6 @@ const ActionManager = {
         EventBus.on('context-action:close-tabs-to-the-left', this.handleCloseTabsToLeft.bind(this));
     },
 
-    // ========================= 新增方法 START =========================
     /**
      * @description 处理代码格式化请求。
      * - 如果是Java文件，则通过后端进行格式化。
@@ -102,7 +99,6 @@ const ActionManager = {
             EventBus.emit('log:info', `正在为 ${activeLanguage} 文件执行内置格式化。`);
         }
     },
-    // ========================= 新增方法 END ===========================
 
 
     /**
@@ -248,7 +244,8 @@ const ActionManager = {
      * 5. 调用后端API执行。
      */
     handleRunCode: async function() {
-        if (RunManager.isProgramRunning()) {
+        if (RunManager.isPending) return; // 如果已在等待运行，则忽略点击
+        if (RunManager.isRunning) {
             this.handleStopRun();
             return;
         }
@@ -310,6 +307,7 @@ const ActionManager = {
      * @private
      */
     _executeBuildAndRun: async function(mainClass) {
+        EventBus.emit('run:pending'); // 立即触发待定状态
         EventBus.emit('ui:activateBottomPanelTab', 'console-output');
         EventBus.emit('console:clear');
         EventBus.emit('statusbar:updateStatus', `正在构建 ${Config.activeProjectName}...`);
@@ -347,55 +345,9 @@ const ActionManager = {
     },
 
     /**
-     * @description 处理调试代码的动作。
-     */
-    handleDebugCode: async function() {
-        if (!Config.currentProject) {
-            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
-            return;
-        }
-        if (DebuggerManager.isDebugging || RunManager.isProgramRunning()) {
-            EventBus.emit('modal:showAlert', { title: '操作冲突', message: '已有程序在运行或调试中。请先停止当前会话。' });
-            return;
-        }
-
-        const storageKey = `lastDebugMainClass_${Config.currentProject}`;
-        const lastMainClass = localStorage.getItem(storageKey) || 'club.ppmc.Main';
-
-        EventBus.emit('modal:showPrompt', {
-            title: '启动调试会话',
-            message: '请输入要调试的完整类名 (例如: com.example.Application):',
-            defaultValue: lastMainClass,
-            onConfirm: async (mainClass) => {
-                if (!mainClass) {
-                    EventBus.emit('modal:showAlert', { title: '输入无效', message: '必须提供一个类名才能开始调试。' });
-                    return;
-                }
-                localStorage.setItem(storageKey, mainClass);
-                EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
-                EventBus.emit('debugger:clear');
-                EventBus.emit('console:clear');
-                EventBus.emit('statusbar:updateStatus', '启动调试器...');
-                try {
-                    await NetworkManager.startDebug(mainClass);
-                    EventBus.emit('log:info', '调试会话启动请求已发送。');
-                } catch (error) {
-                    EventBus.emit('log:error', `启动调试失败: ${error.message}`);
-                    EventBus.emit('modal:showAlert', { title: '调试失败', message: error.message });
-                    EventBus.emit('statusbar:updateStatus', '调试失败', 2000);
-                }
-            }
-        });
-    },
-
-    /**
      * @description 处理停止正在运行的程序的动作。
      */
     handleStopRun: async function() {
-        if (DebuggerManager.isDebugging) {
-            this.handleStopDebug();
-            return;
-        }
         if (RunManager.isProgramRunning()) {
             EventBus.emit('statusbar:updateStatus', '正在停止程序...');
             try {
@@ -419,6 +371,92 @@ const ActionManager = {
     handleStepOut: function() { NetworkManager.stepOut(); },
     /** @description 调试：恢复程序 */
     handleResumeDebug: function() { NetworkManager.resumeDebug(); },
+
+    /**
+     * @description 启动调试会话，逻辑与运行类似，先扫描并选择主类。
+     */
+    handleDebugCode: async function() {
+        if (DebuggerManager.isDebugging) {
+            this.handleStopDebug();
+            return;
+        }
+
+        if (!Config.currentProject) {
+            EventBus.emit('modal:showAlert', { title: '无活动项目', message: '请先克隆或打开一个项目。' });
+            return;
+        }
+        if (DebuggerManager.isPending) return; // 如果已在等待调试，则忽略
+        if (DebuggerManager.isDebugging || RunManager.isProgramRunning()) {
+            EventBus.emit('modal:showAlert', { title: '操作冲突', message: '已有程序在运行或调试中。请先停止当前会话。' });
+            return;
+        }
+
+        try {
+            EventBus.emit('statusbar:updateStatus', '正在扫描主类...');
+            const mainClasses = await NetworkManager.getMainClasses(Config.currentProject);
+            EventBus.emit('statusbar:updateStatus', '就绪');
+
+            if (mainClasses.length === 0) {
+                EventBus.emit('modal:showAlert', {
+                    title: '无法调试',
+                    message: '在项目中未找到任何可执行的主类 (public static void main)。'
+                });
+                return;
+            }
+
+            let selectedMainClass;
+            if (mainClasses.length === 1) {
+                selectedMainClass = mainClasses[0];
+                EventBus.emit('log:info', `自动选择唯一的主类进行调试: ${selectedMainClass}`);
+            } else {
+                const storageKey = `lastDebugMainClass_${Config.currentProject}`;
+                const lastUsed = localStorage.getItem(storageKey);
+
+                const choices = mainClasses.map(mc => ({
+                    id: mc,
+                    text: mc === lastUsed ? `${mc} (上次使用)` : mc
+                }));
+
+                selectedMainClass = await EventBus.emit('modal:showChoiceModal', {
+                    title: '选择要调试的主类',
+                    message: '项目中检测到多个可执行的主类。请选择一个进行调试:',
+                    choices: choices
+                })[0];
+            }
+
+            if (selectedMainClass) {
+                const storageKey = `lastDebugMainClass_${Config.currentProject}`;
+                localStorage.setItem(storageKey, selectedMainClass);
+                await this._executeDebug(selectedMainClass);
+            }
+        } catch (error) {
+            if (error.message !== '用户取消了操作。') {
+                EventBus.emit('log:error', `启动调试失败: ${error.message}`);
+                EventBus.emit('modal:showAlert', { title: '调试失败', message: '扫描或选择主类时出错。' });
+            }
+        }
+    },
+
+    /**
+     * @description 封装实际的调试API调用。
+     * @param {string} mainClass - 要调试的主类。
+     * @private
+     */
+    _executeDebug: async function(mainClass) {
+        EventBus.emit('debug:pending'); // 立即触发待定状态
+        EventBus.emit('ui:activateBottomPanelTab', 'debugger-panel');
+        EventBus.emit('debugger:clear');
+        EventBus.emit('console:clear');
+        EventBus.emit('statusbar:updateStatus', '启动调试器...');
+        try {
+            await NetworkManager.startDebug(mainClass);
+            EventBus.emit('log:info', '调试会话启动请求已发送。');
+        } catch (error) {
+            EventBus.emit('log:error', `启动调试失败: ${error.message}`);
+            EventBus.emit('modal:showAlert', { title: '调试失败', message: error.message });
+            EventBus.emit('statusbar:updateStatus', '调试失败', 2000);
+        }
+    },
 
     /**
      * @description 处理从Git平台克隆仓库的动作。
@@ -597,7 +635,6 @@ const ActionManager = {
      * @param {string} payload.type - 路径类型 ('file' 或 'folder')。
      */
     handleDeletePath: function({ path, type }) {
-        // ========================= 修正 START =========================
         const isProjectRoot = type === 'folder' && (path === '' || !path.includes('/'));
         const pathToDelete = isProjectRoot ? Config.currentProject : path;
 
@@ -640,7 +677,6 @@ const ActionManager = {
                 }
             }
         });
-        // ========================= 修正 END ===========================
     },
 
     /**

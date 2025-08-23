@@ -114,10 +114,10 @@ html, body {
 }
 
 .panel-content {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
+    /* position: absolute;  <-- 已移除 */
+    /* top: 0;              <-- 已移除 */
+    /* left: 0;             <-- 已移除 */
+    /* width: 100%;         <-- 已移除 */
     height: 100%;
     overflow: auto;
     display: none;
@@ -130,6 +130,25 @@ html, body {
 .panel-content.active {
     display: block;
 }
+
+/* 底部面板的水平布局容器样式 */
+.bottom-panel-wrapper {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* 确保wrapper内的panel能正确参与flex布局 */
+.bottom-panel-wrapper > .panel {
+    flex-grow: 1;
+    flex-shrink: 0;
+    flex-basis: 0;
+    display: flex;
+    flex-direction: column;
+}
+
 
 /* Monaco Editor 的挂载点 */
 #editor-area {
@@ -268,3 +287,43 @@ body.is-resizing * {
 .busy-overlay.visible {
     display: block;
 }
+
+
+/* ========================= 核心修改 START ========================= */
+/* --- 主题切换的视图过渡动画 --- */
+@keyframes reveal-in {
+    from {
+        clip-path: circle(0 at var(--clip-x) var(--clip-y));
+    }
+    to {
+        clip-path: circle(var(--clip-r) at var(--clip-x) var(--clip-y));
+    }
+}
+
+/*
+  默认情况下，View Transitions API 会对新旧视图进行淡入淡出。
+  我们禁用这个默认动画，以便应用我们自己的 clip-path 动画。
+*/
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}
+
+/*
+  在主题切换时，我们只关心新视图的进入动画。
+  我们让新视图（`::view-transition-new`）在旧视图（`::view-transition-old`）之上
+  执行“圆形揭示”动画。
+*/
+::view-transition-new(root) {
+    /* 将新视图置于顶层 */
+    z-index: 1;
+    /* 应用我们的自定义动画 */
+    animation: reveal-in 0.5s ease-in-out;
+}
+
+::view-transition-old(root) {
+    /* 将旧视图置于底层，它会立即被新视图覆盖 */
+    z-index: 0;
+}
+/* ========================= 核心修改 END =========================== */

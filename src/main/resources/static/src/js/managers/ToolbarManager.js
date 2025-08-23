@@ -3,6 +3,8 @@
 import EventBus from '../utils/event-emitter.js';
 import Config from '../config.js';
 import NetworkManager from './NetworkManager.js';
+import RunManager from './RunManager.js';
+import DebuggerManager from './DebuggerManager.js';
 
 /**
  * @description 管理顶部工具栏和调试器控制面板中的所有按钮的事件和状态。
@@ -45,7 +47,8 @@ const ToolbarManager = {
     bindAppEvents: function() {
         EventBus.on('project:list-updated', this.populateProjectSelector.bind(this));
         EventBus.on('project:activated', this.updateButtonStates.bind(this));
-        EventBus.on('run:stateUpdated', this.updateRunButtonState.bind(this));
+        EventBus.on('run:stateUpdated', this.updateButtonStates.bind(this));
+        EventBus.on('debugger:stateUpdated', this.updateButtonStates.bind(this));
     },
 
     /**
@@ -53,40 +56,41 @@ const ToolbarManager = {
      */
     updateButtonStates: function() {
         const hasActiveProject = !!Config.currentProject;
+        const isPendingRun = RunManager.isPending;
+        const isPendingDebug = DebuggerManager.isPending;
+
+        // 仅在程序实际运行时才认为其处于活动状态，以应用红色样式和停止图标
+        const isRunning = RunManager.isRunning;
+        const isDebugging = DebuggerManager.isDebugging;
+
+        // 用于判断是否应禁用其他按钮的更广泛的状态
+        const isAnyProcessActive = isRunning || isPendingRun || isDebugging || isPendingDebug;
+
+        // 步骤 1: 根据项目是否存在，设置一个基础的禁用状态
         this.projectDependentButtons.forEach(function(button) {
             button.disabled = !hasActiveProject;
-            button.style.opacity = hasActiveProject ? '1' : '0.5';
-            button.style.cursor = hasActiveProject ? 'pointer' : 'not-allowed';
         });
-        // 确保在没有项目时，运行状态也是重置的
-        if (!hasActiveProject) {
-            this.updateRunButtonState(false);
-        }
-    },
 
-    /**
-     * @description 根据程序是否正在运行来更新运行/停止按钮的UI和行为。
-     * @param {boolean} isRunning - 程序是否正在运行。
-     */
-    updateRunButtonState: function(isRunning) {
-        if (!this.runButton || !this.debugButton) {
-            return;
+        // 步骤 2: 根据运行/调试状态，覆盖和调整特定按钮的样式和禁用状态
+        if (this.runButton) {
+            this.runButton.classList.toggle('is-active', isRunning);
+            this.runButton.disabled = !hasActiveProject || isAnyProcessActive;
+            if (isRunning) this.runButton.disabled = false; // 如果正在运行，按钮必须是可点击以停止的
+            this.runButton.title = isRunning ? '停止运行 (Ctrl+F2) / 点击停止' : '运行代码 (Shift+F10)';
         }
 
-        this.runButton.classList.toggle('is-running', isRunning);
-
-        if (isRunning) {
-            this.runButton.title = '停止运行 (Ctrl+F2)';
-            // 当程序运行时，禁用调试按钮
-            this.debugButton.disabled = true;
-            this.debugButton.classList.add('is-running');
-        } else {
-            this.runButton.title = '运行代码 (Shift+F10)';
-            // 只有当有活动项目时才重新启用调试按钮
-            const hasActiveProject = !!Config.currentProject;
-            this.debugButton.disabled = !hasActiveProject;
-            this.debugButton.classList.remove('is-running');
+        if (this.debugButton) {
+            this.debugButton.classList.toggle('is-active', isDebugging);
+            this.debugButton.disabled = !hasActiveProject || isAnyProcessActive;
+            if (isDebugging) this.debugButton.disabled = false; // 如果正在调试，按钮也必须是可点击以停止的
+            this.debugButton.title = isDebugging ? '停止调试 (Ctrl+F2) / 点击停止' : '调试代码 (Shift+F9)';
         }
+
+        // 步骤 3: 统一根据最终的 `disabled` 属性来设置视觉样式
+        this.projectDependentButtons.forEach(function(button) {
+            button.style.opacity = button.disabled ? '0.5' : '1';
+            button.style.cursor = button.disabled ? 'not-allowed' : 'pointer';
+        });
     },
 
     /**

@@ -375,11 +375,13 @@ public class DebugService {
                 EventQueue eventQueue = virtualMachine.eventQueue();
                 while (!Thread.currentThread().isInterrupted()) {
                     EventSet eventSet = eventQueue.remove();
+                    boolean manuallyResumedInSet = false;
                     for (Event event : eventSet) {
-                        handleEvent(event);
+                        if (handleEvent(event)) {
+                            manuallyResumedInSet = true;
+                        }
                     }
-                    if (!mainBreakpointSetAndResumed.get()) {
-                    } else {
+                    if (!manuallyResumedInSet) {
                         eventSet.resume();
                     }
                 }
@@ -395,13 +397,19 @@ public class DebugService {
         eventThread.start();
     }
 
-    private void handleEvent(Event event) {
+    /**
+     * 处理 JDI 事件。
+     * @return true 如果事件处理器不希望外层循环自动恢复VM（例如，因为VM已暂停或已手动恢复），否则返回 false。
+     */
+    private boolean handleEvent(Event event) {
         if (event instanceof VMDisconnectEvent || event instanceof VMDeathEvent) {
             LOGGER.info("检测到 VM 断开或死亡事件。");
         } else if (event instanceof BreakpointEvent bpEvent) {
             handlePausedEvent(bpEvent);
+            return true; // ========================= 核心修复 #1 =========================
         } else if (event instanceof StepEvent stepEvent) {
             handlePausedEvent(stepEvent);
+            return true; // ========================= 核心修复 #2 =========================
         } else if (event instanceof ClassPrepareEvent cpe) {
             ReferenceType refType = cpe.referenceType();
             String className = refType.name();
@@ -413,6 +421,7 @@ public class DebugService {
                     LOGGER.info("入口断点已设置。正在恢复VM以命中该断点。");
                     event.virtualMachine().resume();
                     mainBreakpointSetAndResumed.set(true);
+                    return true;
                 } catch (Exception e) {
                     LOGGER.error("为 {} 设置主方法入口断点失败。正在中止调试。", className, e);
                     cleanup();
@@ -431,10 +440,23 @@ public class DebugService {
                 });
             }
         }
+        return false;
     }
 
+    /**
+     * 处理所有暂停事件（断点、单步）。
+     * 新增逻辑：如果暂停在外部代码（如JDK库），则自动执行“步出”操作，而不是通知前端。
+     *
+     * @param event 暂停事件
+     */
     private void handlePausedEvent(LocatableEvent event) {
         try {
+            if (isJdkClass(event.location().declaringType().name())) {
+                LOGGER.info("调试器暂停在外部代码 {}。将自动执行“步出”。", event.location());
+                stepOut();
+                return;
+            }
+
             LocationInfo location = createLocationData(event.location());
             List<StackFrameInfo> callStack = getCallStack(event.thread());
             List<VariableInfo> variables = getVariables(event.thread().frame(0));
@@ -449,17 +471,11 @@ public class DebugService {
     private LocationInfo createLocationData(Location loc) {
         try {
             String className = loc.declaringType().name();
-            // ========================= 关键修改 START =========================
-            // 检查是否为JDK核心类。如果是，则不构造项目内的文件路径。
             if (isJdkClass(className)) {
-                // 对于JDK类，我们没有其在项目中的路径，所以filePath为null
-                // 但我们仍然可以提供文件名 (sourceName) 和行号。
                 return new LocationInfo(null, loc.sourceName(), loc.lineNumber());
             } else {
-                // 对于项目内的类，使用旧的逻辑。
                 return new LocationInfo(guessFilePathFromClassName(className), loc.sourceName(), loc.lineNumber());
             }
-            // ========================= 关键修改 END ===========================
         } catch (AbsentInformationException e) {
             return new LocationInfo(guessFilePathFromClassName(loc.declaringType().name()), "Unknown Source", loc.lineNumber());
         }
@@ -536,7 +552,6 @@ public class DebugService {
         return "src/main/java/" + className.replace(".", "/") + ".java";
     }
 
-    // ========================= 关键修改 START =========================
     /**
      * 判断一个类名是否属于JDK核心库。
      * @param className 完全限定类名。
@@ -549,5 +564,4 @@ public class DebugService {
                 className.startsWith("sun.") ||
                 className.startsWith("com.sun.");
     }
-    // ========================= 关键修改 END ===========================
 }

@@ -3,6 +3,9 @@
 import EventBus from '../utils/event-emitter.js';
 import NetworkManager from './NetworkManager.js';
 import CompletionProviderService from '../services/CompletionProviderService.js';
+// ========================= 核心修改 START =========================
+import ThemeManager from '../utils/ThemeManager.js';
+// ========================= 核心修改 END ===========================
 
 /**
  * @description 管理 Monaco Editor 实例的所有方面，包括文件打开/关闭、
@@ -59,10 +62,20 @@ const CodeEditorManager = {
             EventBus.emit('log:error', 'Monaco Editor未能加载，代码编辑器无法初始化。');
             return;
         }
+
+        // ========================= 核心修改 START =========================
+        // 不再硬编码 'vs-dark'。
+        // 主动从 ThemeManager 获取已从 localStorage 加载的当前主题。
+        const currentAppTheme = ThemeManager.getCurrentTheme();
+        const monacoTheme = currentAppTheme.includes('dark') ? 'vs-dark' : 'vs';
+        // ========================= 核心修改 END ===========================
+
         this.monacoInstance = window.monaco.editor.create(this.monacoContainer, {
             value: '// 欢迎使用 Web IDEA！请从顶部选择一个项目，然后从左侧文件树中选择一个文件。\n',
             language: 'plaintext',
-            theme: 'vs-dark', // 将由 ThemeManager 更新
+            // ========================= 核心修改 START =========================
+            theme: monacoTheme, // 使用动态获取的主题进行初始化
+            // ========================= 核心修改 END ===========================
             automaticLayout: true,
             fontSize: 14,
             wordWrap: 'on',
@@ -99,10 +112,8 @@ const CodeEditorManager = {
         EventBus.on('editor:closeTabsToTheLeft', this.closeTabsToTheLeft.bind(this));
         EventBus.on('editor:insertSnippet', this.insertSnippet.bind(this));
 
-        // ========================= 修改 START =========================
         // 这个事件现在由ActionManager在检查语言后触发，用于非Java文件
         EventBus.on('editor:formatDocument', () => this.monacoInstance?.getAction('editor.action.formatDocument').run());
-        // ========================= 修改 END ===========================
         EventBus.on('editor:find', () => this.monacoInstance?.getAction('actions.find').run());
         EventBus.on('editor:duplicate-line', () => this.monacoInstance?.getAction('editor.action.copyLinesDownAction').run());
         EventBus.on('editor:delete-line', () => this.monacoInstance?.getAction('editor.action.deleteLines').run());
@@ -139,13 +150,11 @@ const CodeEditorManager = {
     },
 
     openFile: async function(filePath) {
-        // ========================= 关键修改 START =========================
         // 如果filePath为null或undefined，直接显示源不可用视图
         if (!filePath) {
             this._showSourceNotAvailable("未知文件", 0);
             return;
         }
-        // ========================= 关键修改 END ===========================
 
         if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
             const activeFileInfo = this.openFiles.get(this.activeFilePath);
@@ -257,10 +266,8 @@ const CodeEditorManager = {
                 this.monacoInstance.restoreViewState(fileInfo.viewState);
             }
             this.monacoInstance.focus();
-            // ========================= 关键修改 START =========================
             // 确保切换回可编辑文件时，编辑器是可写的
             this.monacoInstance.updateOptions({ readOnly: false });
-            // ========================= 关键修改 END ===========================
             const position = this.monacoInstance.getPosition() || { lineNumber: 1, column: 1 };
             EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), ...position });
             this._setFileDirty(filePath, fileInfo.isDirty);
@@ -426,10 +433,8 @@ const CodeEditorManager = {
         this.monacoContainer.style.display = 'block';
         this.mediaPreviewContainer.style.display = 'none';
         this.monacoInstance.setModel(null);
-        // ========================= 关键修改 START =========================
         this.monacoInstance.setValue('// 没有打开的文件');
         this.monacoInstance.updateOptions({ readOnly: true }); // 在欢迎视图中设为只读
-        // ========================= 关键修改 END ===========================
         EventBus.emit('statusbar:clearFileInfo');
     },
 
@@ -517,7 +522,6 @@ const CodeEditorManager = {
 
     highlightDebugLine: function({ filePath, fileName, lineNumber }) {
         this.clearDebugHighlight();
-        // ========================= 关键修改 START =========================
         if (filePath) {
             // 这是项目内的文件
             this.gotoLine({ filePath, lineNumber });
@@ -533,7 +537,6 @@ const CodeEditorManager = {
             // 这是JDK或外部库的文件
             this._showSourceNotAvailable(fileName, lineNumber);
         }
-        // ========================= 关键修改 END ===========================
     },
 
     clearDebugHighlight: function() {
@@ -544,7 +547,10 @@ const CodeEditorManager = {
 
     setTheme: function(theme) {
         if (window.monaco) {
-            const monacoTheme = theme.includes('dark') ? 'vs-dark' : 'light';
+            // ========================= 核心修改 START =========================
+            // Monaco的浅色主题是 'vs', 不是 'light'
+            const monacoTheme = theme.includes('dark') ? 'vs-dark' : 'vs';
+            // ========================= 核心修改 END ===========================
             window.monaco.editor.setTheme(monacoTheme);
         }
     },
@@ -566,7 +572,6 @@ const CodeEditorManager = {
         }
     },
 
-    // ========================= 关键修改 START =========================
     /**
      * 在编辑器区域显示“源文件不可用”的消息。
      * @param {string} fileName - 不可用的文件名。
@@ -600,7 +605,6 @@ const CodeEditorManager = {
             column: 1
         });
     }
-    // ========================= 关键修改 END ===========================
 };
 
 export default CodeEditorManager;

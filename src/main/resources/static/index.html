@@ -7,13 +7,11 @@
 
     <!-- 引入 CSS 样式 -->
     <link href="src/css/main.css" rel="stylesheet"/>
-    <!-- ========================= 修改 START ========================= -->
     <!-- 拆分后的 CSS 文件 -->
     <link href="src/css/chrome.css" rel="stylesheet"/>
     <link href="src/css/panels.css" rel="stylesheet"/>
     <link href="src/css/overlays.css" rel="stylesheet"/>
     <link href="src/css/features.css" rel="stylesheet"/>
-    <!-- ========================= 修改 END =========================== -->
     <!-- ThemeManager 将会动态修改这个 link 的 href -->
     <link href="src/css/theme-dark.css" id="theme-link" rel="stylesheet"/>
     <!-- 引入 Font Awesome (本地化) -->
@@ -72,7 +70,10 @@
                 </span>
             </button>
             <button class="toolbar-btn" data-action="debug-code" title="调试代码 (Shift+F9)">
-                <i class="fas fa-bug"></i>
+                <span class="btn-icon-wrapper">
+                    <i class="fas fa-bug debug-icon"></i>      <!-- 调试图标 -->
+                    <i class="fas fa-stop stop-icon"></i>     <!-- 停止图标，默认隐藏 -->
+                </span>
             </button>
         </div>
         <div class="toolbar-group">
@@ -122,61 +123,91 @@
             </div>
         </div>
 
-        <!-- 底部面板现在是主布局的直接子元素 -->
+        <!-- 底部面板现在包含一个水平布局的包裹容器 -->
         <div id="bottom-panel" class="panel resizable-panel">
-            <div class="panel-tab-bar">
-                <button class="panel-tab active" data-panel-id="console-output">日志</button>
-                <button class="panel-tab" data-panel-id="problems-list">问题</button>
-                <button class="panel-tab" data-panel-id="terminal-panel">终端</button>
-                <button class="panel-tab" data-panel-id="debugger-panel">调试</button>
-                <button class="panel-tab" data-panel-id="monitor-panel">监控</button>
-            </div>
-            <div class="panel-content-area">
-                <div id="console-output" class="panel-content active">
-                    <!-- 这个区域的内容将由 ConsoleManager.js 动态创建以支持虚拟滚动 -->
-                </div>
-                <div id="problems-list" class="panel-content">
-                    <ul><li>无问题</li></ul>
-                </div>
-                <div id="terminal-panel" class="panel-content">
-                    <div id="terminal-output-container">
-                        <pre id="terminal-output"></pre>
+            <div id="bottom-panel-wrapper" class="bottom-panel-wrapper">
+                <!-- 左侧: 监控面板 -->
+                <div id="monitor-side-panel" class="panel">
+                    <div class="panel-header">
+                        <h3>监控</h3>
                     </div>
-                    <div class="terminal-input-container">
-                        <span class="terminal-prompt">></span>
-                        <input type="text" id="terminal-input" autocomplete="off" spellcheck="false"/>
-                    </div>
-                </div>
-                <div id="debugger-panel" class="panel-content">
-                    <div class="debugger-controls">
-                        <button data-action="step-over" title="步过 (F8)"><i class="fas fa-step-forward"></i></button>
-                        <button data-action="step-into" title="步入 (F7)"><i class="fas fa-arrow-right-to-bracket"></i></button>
-                        <button data-action="step-out" title="步出 (Shift+F8)"><i class="fas fa-arrow-left"></i></button>
-                        <button data-action="resume-debug" title="恢复程序 (F9)"><i class="fas fa-play-circle"></i></button>
-                        <button data-action="stop-debug" title="停止调试 (Ctrl+F2)"><i class="fas fa-stop-circle"></i></button>
-                    </div>
-                    <div class="debugger-info">
-                        <div class="debugger-section">
-                            <h4>变量</h4>
-                            <ul id="debugger-variables"><li>无信息</li></ul>
-                        </div>
-                        <div class="debugger-section">
-                            <h4>调用栈</h4>
-                            <ul id="debugger-call-stack"><li>无信息</li></ul>
+                    <div class="panel-content-area">
+                        <div class="monitor-grid">
+                            <div class="chart-container">
+                                <canvas id="cpu-chart"></canvas>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="mem-chart"></canvas>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="net-chart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div id="monitor-panel" class="panel-content">
-                    <div class="monitor-grid">
-                        <div class="chart-container">
-                            <canvas id="cpu-chart"></canvas>
+                <!-- 右侧: 标签页主面板 -->
+                <div id="main-bottom-panel" class="panel">
+                    <div class="panel-tab-bar">
+                        <button class="panel-tab active" data-panel-id="console-output">日志</button>
+                        <button class="panel-tab" data-panel-id="problems-list">问题</button>
+                        <button class="panel-tab" data-panel-id="terminal-panel">终端</button>
+                        <button class="panel-tab" data-panel-id="debugger-panel">调试</button>
+                    </div>
+                    <div class="panel-content-area">
+                        <div id="console-output" class="panel-content active">
+                            <!-- 新增: 控制台左侧工具栏 -->
+                            <div class="console-toolbar">
+                                <button class="console-tool-btn active" data-action="scroll-lock" title="滚动到底部">
+                                    <i class="fas fa-arrow-down"></i>
+                                </button>
+                                <button class="console-tool-btn" data-action="clear-console" title="清空日志">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                                <button class="console-tool-btn active" data-action="toggle-wrap" title="切换自动换行">
+                                    <i class="fas fa-align-left"></i>
+                                </button>
+                            </div>
+                            <!-- ConsoleManager 将在此面板的其余部分动态创建虚拟滚动视口 -->
                         </div>
-                        <div class="chart-container">
-                            <canvas id="mem-chart"></canvas>
+                        <div id="problems-list" class="panel-content">
+                            <ul><li>无问题</li></ul>
                         </div>
-                        <div class="chart-container">
-                            <canvas id="net-chart"></canvas>
+                        <div id="terminal-panel" class="panel-content">
+                            <div id="terminal-output-container">
+                                <pre id="terminal-output"></pre>
+                            </div>
+                            <div class="terminal-input-container">
+                                <span class="terminal-prompt">></span>
+                                <input type="text" id="terminal-input" autocomplete="off" spellcheck="false"/>
+                            </div>
                         </div>
+                        <!-- ========================= 修改 START ========================= -->
+                        <div id="debugger-panel" class="panel-content">
+                            <div class="debugger-controls">
+                                <button data-action="resume-debug" title="恢复程序 (F9)"><i class="fas fa-play"></i></button>
+                                <button data-action="stop-debug" title="停止调试 (Ctrl+F2)"><i class="fas fa-stop"></i></button>
+                                <div class="debugger-controls-separator"></div>
+                                <button data-action="step-over" title="步过 (F8)"><i class="fas fa-share"></i></button>
+                                <button data-action="step-into" title="步入 (F7)"><i class="fas fa-arrow-down"></i></button>
+                                <button data-action="step-out" title="步出 (Shift+F8)"><i class="fas fa-reply"></i></button>
+                            </div>
+                            <div class="debugger-main-content">
+                                <div id="debugger-info-panel" class="debugger-info">
+                                    <div class="debugger-section">
+                                        <h4>变量</h4>
+                                        <ul id="debugger-variables"><li>无信息</li></ul>
+                                    </div>
+                                    <div class="debugger-section">
+                                        <h4>调用栈</h4>
+                                        <ul id="debugger-call-stack"><li>无信息</li></ul>
+                                    </div>
+                                </div>
+                                <div id="debugger-console-panel">
+                                    <!-- DebugConsoleManager 将在此处动态创建工具栏和虚拟滚动视口 -->
+                                </div>
+                            </div>
+                        </div>
+                        <!-- ========================= 修改 END =========================== -->
                     </div>
                 </div>
             </div>

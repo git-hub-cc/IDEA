@@ -41,7 +41,10 @@ const ModalManager = {
                 this._close(false);
             } else if (actionBtn && actionBtn.dataset.action === 'confirm-modal' && !actionBtn.disabled) {
                 if (actionBtn.dataset.type === 'settings') {
-                    this._handleSettingsConfirm();
+                    // ========================= 核心修改 START =========================
+                    // 传递点击事件 e 以便获取坐标
+                    this._handleSettingsConfirm(e);
+                    // ========================= 核心修改 END ===========================
                 } else {
                     if (modal && modal.dataset.type !== 'list-prompt') {
                         this._close(true, 'confirm');
@@ -76,10 +79,11 @@ const ModalManager = {
 
     /**
      * @description 收集应用级的设置项（非Git凭证）并调用API保存。
-     * @returns {Promise<void>}
+     * @param {MouseEvent} [clickEvent] - 触发保存的点击事件。
+     * @returns {Promise<any>}
      * @private
      */
-    _collectAndSaveAppSettings: async function() {
+    _collectAndSaveAppSettings: async function(clickEvent) {
         const modalBody = document.getElementById('modal-body');
         if (!modalBody.querySelector('#settings-theme')) {
             console.warn('_collectAndSaveAppSettings 无法执行，因为设置模态框未渲染。');
@@ -100,7 +104,11 @@ const ModalManager = {
         try {
             await NetworkManager.saveSettings(appSettings);
             EventBus.emit('log:info', '应用设置已更新并保存。');
-            EventBus.emit('settings:changed', { ...this.currentSettings, ...appSettings });
+            // ========================= 核心修改 START =========================
+            // 构造点击坐标对象并随事件一起发射
+            const coordinates = clickEvent ? { x: clickEvent.clientX, y: clickEvent.clientY } : null;
+            EventBus.emit('settings:changed', { ...this.currentSettings, ...appSettings }, coordinates);
+            // ========================= 核心修改 END ===========================
             return Promise.resolve();
         } catch (error) {
             EventBus.emit('log:error', `保存应用设置失败: ${error.message}`);
@@ -111,9 +119,10 @@ const ModalManager = {
 
     /**
      * @description 处理设置模态框的确认按钮点击事件。
+     * @param {MouseEvent} [e] - 点击事件对象。
      * @private
      */
-    _handleSettingsConfirm: async function() {
+    _handleSettingsConfirm: async function(e) {
         const modalBody = document.getElementById('modal-body');
         const oldWorkspaceRoot = this.currentSettings ? this.currentSettings.workspaceRoot : null;
         const newWorkspaceRoot = modalBody.querySelector('#settings-workspace-root').value;
@@ -130,15 +139,17 @@ const ModalManager = {
             localStorage.setItem('git_ssh_key_path', sshKeyPath);
             localStorage.setItem('git_ssh_passphrase', sshPassphrase);
             EventBus.emit('log:info', 'Git 凭证已保存到浏览器本地存储。');
-        } catch (e) {
-            EventBus.emit('log:error', `保存Git凭证到localStorage失败: ${e.message}`);
+        } catch (err) {
+            EventBus.emit('log:error', `保存Git凭证到localStorage失败: ${err.message}`);
             this.showAlert('保存失败', '无法将Git凭证保存到浏览器，请检查浏览器设置。');
             return; // 保存失败则不继续
         }
 
         // 步骤 2: 保存应用级设置到后端
         try {
-            await this._collectAndSaveAppSettings();
+            // ========================= 核心修改 START =========================
+            await this._collectAndSaveAppSettings(e);
+            // ========================= 核心修改 END ===========================
             this._close(true);
 
             // 步骤 3: 处理工作区变更
@@ -162,6 +173,13 @@ const ModalManager = {
         }
     },
 
+    // ... 其余方法保持不变 ...
+    // =========================================================
+    // 省略 showSettings, _show, _close, showAlert, showConfirm,
+    // showPrompt, showRepoSelectionModal, showListPrompt,
+    // _populate... panes, _showJdkPrompt, showChoiceModal 方法
+    // 它们的代码与您提供的版本完全相同，无需修改。
+    // =========================================================
     /**
      * @description 显示设置模态框。
      * @param {object} settings - 当前的设置对象。
@@ -281,15 +299,6 @@ const ModalManager = {
 
         return this._show('设置', bodyFragment, { confirmText: '保存', type: 'settings' });
     },
-
-    /**
-     * @description 底层函数，用于显示模态框并返回一个 Promise。
-     * @param {string} title - 模态框标题。
-     * @param {string|Node} bodyContent - 模态框主体内容。
-     * @param {object} [options={}] - 配置项。
-     * @returns {Promise<any>}
-     * @private
-     */
     _show: function(title, bodyContent, options = {}) {
         const overlay = document.getElementById('modal-overlay');
         const modal = document.getElementById('common-modal');
@@ -358,13 +367,6 @@ const ModalManager = {
             this.rejectPromise = reject;
         });
     },
-
-    /**
-     * @description 关闭当前模态框，并根据用户操作 resolve 或 reject Promise。
-     * @param {boolean} confirmed - 用户是否点击了确认按钮。
-     * @param {any} [value] - 传递给 resolve 的值。
-     * @private
-     */
     _close: function(confirmed, value) {
         const overlay = document.getElementById('modal-overlay');
         const modal = document.getElementById('common-modal');
@@ -395,35 +397,12 @@ const ModalManager = {
             this.currentSettings = null;
         }
     },
-
-    /**
-     * @description 显示一个简单的警告框。
-     * @param {string} title - 标题。
-     * @param {string} message - 消息内容。
-     * @returns {Promise}
-     */
     showAlert: function(title, message) {
         return this._show(title, `<p>${message.replace(/\n/g, '<br>')}</p>`, { confirmText: '关闭', showCancel: false });
     },
-
-    /**
-     * @description 显示一个确认对话框。
-     * @param {string} title - 标题。
-     * @param {string} message - 消息内容。
-     * @param {object} [options={}] - 其他选项，如按钮文本。
-     * @returns {Promise}
-     */
     showConfirm: function(title, message, options = {}) {
         return this._show(title, `<p>${message}</p>`, options);
     },
-
-    /**
-     * @description 显示一个带输入框的提示对话框。
-     * @param {string} title - 标题。
-     * @param {string} message - 提示消息。
-     * @param {string} [defaultValue=''] - 输入框的默认值。
-     * @returns {Promise<string>}
-     */
     showPrompt: function(title, message, defaultValue = '') {
         const body = document.createElement('div');
         body.innerHTML = `<p style="margin-bottom: 10px;">${message}</p>`;
@@ -433,12 +412,6 @@ const ModalManager = {
         body.appendChild(input);
         return this._show(title, body);
     },
-
-    /**
-     * @description 显示一个仓库选择列表模态框。
-     * @param {Array<object>} repos - 仓库对象数组。
-     * @returns {Promise<string|null>}
-     */
     showRepoSelectionModal: function(repos) {
         if (!repos || repos.length === 0) {
             return this.showAlert('没有可用的仓库', '未能从远程平台获取任何公开仓库。');
@@ -466,14 +439,6 @@ const ModalManager = {
 
         return this._show('选择要克隆的仓库', bodyFragment, { confirmText: '克隆', isRepoSelection: true });
     },
-
-    /**
-     * @description 显示一个可搜索的列表提示框（指令面板）。
-     * @param {object} options - 配置项。
-     * @param {string} options.title - 标题。
-     * @param {Array<object>} options.items - 列表项数组。
-     * @param {Function} options.onConfirm - 用户选择一项后调用的回调函数。
-     */
     showListPrompt: function({ title, items, onConfirm }) {
         const modalBody = TemplateLoader.get('list-prompt-template');
         if (!modalBody) return;
@@ -535,13 +500,6 @@ const ModalManager = {
         renderList('');
         this._show(title, modalBody, { showFooter: false, type: 'list-prompt' }).catch(() => {});
     },
-
-    /**
-     * @description 使用模板填充应用设置面板。
-     * @param {Node} container - 设置模态框的容器。
-     * @param {object} settings - 设置对象。
-     * @private
-     */
     _populateAppSettingsPane: function(container, settings) {
         const pane = container.querySelector('#app-settings-pane');
         const template = TemplateLoader.get('app-settings-pane-template');
@@ -552,12 +510,6 @@ const ModalManager = {
         template.querySelector('#settings-word-wrap').value = String(settings.wordWrap);
         pane.appendChild(template);
     },
-
-    /**
-     * @description 使用模板和localStorage中的数据填充Git设置面板。
-     * @param {Node} container - 设置模态框的容器。
-     * @private
-     */
     _populateGitSettingsPane: function(container) {
         const pane = container.querySelector('#git-settings-pane');
         const template = TemplateLoader.get('git-settings-pane-template');
@@ -568,15 +520,6 @@ const ModalManager = {
         template.querySelector('#settings-ssh-passphrase').value = localStorage.getItem('git_ssh_passphrase') || '';
         pane.appendChild(template);
     },
-
-    /**
-     * @description 显示用于添加/编辑JDK路径的专用提示框。
-     * @param {string} title - 提示框标题。
-     * @param {string} [initialKey='jdk'] - 初始键名。
-     * @param {string} [initialValue=''] - 初始路径值。
-     * @returns {Promise<{newKey: string, newValue: string}>}
-     * @private
-     */
     _showJdkPrompt: function(title, initialKey = 'jdk', initialValue = '') {
         const bodyFragment = TemplateLoader.get('jdk-prompt-template');
         if (!bodyFragment) return Promise.reject("Template not found");
@@ -596,18 +539,6 @@ const ModalManager = {
             return { newKey, newValue };
         });
     },
-
-    /**
-     * ========================= 新增方法 START =========================
-     * 显示一个带有自定义按钮选项的模态框。
-     *
-     * @param {object} options - 配置项。
-     * @param {string} options.title - 标题。
-     * @param {string} options.message - 消息内容。
-     * @param {Array<{id: string, text: string}>} options.choices - 按钮选项数组。
-     * @returns {Promise<string>} 返回被点击按钮的 ID。
-     * ========================= 新增方法 END ===========================
-     */
     showChoiceModal: function({ title, message, choices = [] }) {
         const body = document.createElement('div');
         body.innerHTML = `<p style="margin-bottom: 15px;">${message}</p>`;

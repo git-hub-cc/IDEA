@@ -3,7 +3,7 @@ import EventBus from './utils/event-emitter.js';
 import SessionLockManager from './managers/SessionLockManager.js';
 import NetworkManager from './managers/NetworkManager.js';
 import UIManager from './managers/UIManager.js';
-import ThemeManager from './utils/theme-manager.js';
+import ThemeManager from './utils/ThemeManager.js';
 import ModalManager from './managers/ModalManager.js';
 import ToolbarManager from './managers/ToolbarManager.js';
 import StatusBarManager from './managers/StatusBarManager.js';
@@ -13,6 +13,9 @@ import ConsoleManager from './managers/ConsoleManager.js';
 import ProblemsManager from './managers/ProblemsManager.js';
 import TerminalManager from './managers/TerminalManager.js';
 import DebuggerManager from './managers/DebuggerManager.js';
+// ========================= 新增 START =========================
+import DebugConsoleManager from './managers/DebugConsoleManager.js';
+// ========================= 新增 END ===========================
 import ActionManager from './managers/ActionManager.js';
 import KeyboardManager from './managers/KeyboardManager.js';
 import ContextMenuManager from './managers/ContextMenuManager.js';
@@ -54,6 +57,9 @@ const App = {
         ProblemsManager.init();
         TerminalManager.init();
         DebuggerManager.init();
+        // ========================= 新增 START =========================
+        DebugConsoleManager.init();
+        // ========================= 新增 END ===========================
         MonitorManager.init();
         await CommandPaletteManager.init();
         ActionManager.init();
@@ -63,10 +69,8 @@ const App = {
         EventBus.emit('app:ready');
         console.log("应用已准备就绪。");
 
-        // ========================= 修改 START =========================
         // 步骤 4: 广播应用初始化完成事件，通知 SessionLockManager 隐藏初始加载遮罩
         EventBus.emit('app:initialization-complete');
-        // ========================= 修改 END ===========================
 
         // 步骤 5: 延迟启动功能引导，确保所有UI元素都已渲染完毕并可见。
         setTimeout(function() {

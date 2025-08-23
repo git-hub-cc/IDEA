@@ -1,18 +1,68 @@
 /* src/css/features.css - 特定高级功能面板的专属样式 */
 
 /* --- 控制台虚拟滚动样式 --- */
+#console-output.active {
+    display: flex;
+    flex-direction: row;
+    padding: 0;
+    height: 100%; /* <-- 新增，确保填满父容器 */
+}
+
+/* 控制台左侧工具栏 */
+.console-toolbar {
+    flex-shrink: 0;
+    width: 35px;
+    background-color: var(--bg-panel);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 5px;
+    gap: 8px;
+    user-select: none;
+}
+
+/* 工具栏按钮 */
+.console-tool-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.console-tool-btn:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.console-tool-btn.active {
+    background-color: var(--selection-color);
+    color: var(--accent-color);
+}
+
 #console-output .console-viewport {
-    height: 100%;
+    flex-grow: 1; /* 占据剩余空间 */
     overflow-y: auto;
     overflow-x: auto;
     font-size: 0.9rem;
 }
+
 #console-output .console-content {
     position: relative;
     overflow: hidden;
     font-family: var(--font-family-mono);
     color: var(--text-primary);
 }
+
 #console-output .console-line {
     position: absolute;
     left: 0;
@@ -21,14 +71,15 @@
     white-space: pre-wrap;
     word-break: break-all;
 }
+
 #console-output.no-wrap .console-line {
     white-space: pre;
     word-break: normal;
     width: fit-content;
-    width: -moz-fit-content;
     max-width: 100%;
     overflow-x: auto;
 }
+
 #console-output .console-line.error { color: var(--color-error); }
 #console-output .console-line.warn { color: var(--color-warning); }
 
@@ -37,7 +88,9 @@
     display: flex;
     flex-direction: column;
     padding: 0;
+    height: 100%; /* <-- 新增，确保填满父容器 */
 }
+
 #terminal-output-container {
     flex-grow: 1;
     overflow-y: auto;
@@ -47,11 +100,13 @@
     color: var(--terminal-fg);
     padding: 10px;
 }
+
 #terminal-output-container pre {
     margin: 0;
     white-space: pre-wrap;
     word-break: break-all;
 }
+
 .ansi-black-fg { color: var(--terminal-black); }
 .ansi-red-fg { color: var(--terminal-red); }
 .ansi-green-fg { color: var(--terminal-green); }
@@ -101,16 +156,103 @@
 }
 
 /* --- 调试器 --- */
-#debugger-panel.active { display: flex; flex-direction: column; }
-.debugger-controls { display: flex; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; flex-shrink: 0; }
-.debugger-controls button { background-color: var(--border-color); border: none; color: var(--text-primary); padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-.debugger-controls button:hover { background-color: var(--accent-color); color: white; }
+/* ========================= 修改 START ========================= */
+#debugger-panel.active {
+    display: flex;
+    flex-direction: column;
+    padding: 0; /* 移除内边距以允许子元素填满 */
+    height: 100%;
+}
+
+.debugger-controls {
+    display: flex;
+    align-items: center; /* 垂直居中 */
+    gap: 10px;
+    padding: 5px 10px; /* 调整内边距 */
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.debugger-controls button {
+    background-color: transparent; /* 透明背景 */
+    border: none;
+    color: var(--text-primary);
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1.1rem; /* 增大图标尺寸 */
+    line-height: 1;
+}
+.debugger-controls button:hover { background-color: var(--border-color); }
+.debugger-controls-separator {
+    width: 1px;
+    height: 20px;
+    background-color: var(--border-color);
+    margin: 0 5px;
+}
+.debugger-main-content {
+    flex-grow: 1;
+    display: flex;
+    overflow: hidden; /* 确保内容不溢出 */
+}
+
+#debugger-info-panel {
+    flex: 1 1 30%; /* 占据30%宽度，可伸缩 */
+    min-width: 200px;
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    padding: 10px;
+}
+
+#debugger-console-panel {
+    flex: 1 1 70%; /* 占据70%宽度，可伸缩 */
+    min-width: 300px;
+    display: flex; /* 使用flex布局容纳工具栏和视口 */
+    flex-direction: row;
+}
+
+/* 适配调试器内的虚拟控制台样式 */
+#debugger-console-panel .console-viewport {
+    flex-grow: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    font-size: 0.9rem;
+}
+#debugger-console-panel .console-content {
+    position: relative;
+    overflow: hidden;
+    font-family: var(--font-family-mono);
+    color: var(--text-primary);
+}
+#debugger-console-panel .console-line {
+    position: absolute;
+    left: 0;
+    padding: 0 10px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+#debugger-console-panel.no-wrap .console-line {
+    white-space: pre;
+    word-break: normal;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+#debugger-console-panel .console-line.error { color: var(--color-error); }
+#debugger-console-panel .console-line.warn { color: var(--color-warning); }
+
 .debugger-info { flex-grow: 1; overflow: auto; }
 .debugger-section { margin-bottom: 15px; }
 .debugger-section h4 { font-size: 0.95rem; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px dashed var(--border-color); }
 .debugger-section ul { list-style: none; padding: 0; margin: 0; }
 .debugger-section li { font-family: var(--font-family-mono); font-size: 0.85rem; padding: 4px 0; }
 .debugger-section li.highlight { background-color: rgba(98, 163, 255, 0.2); border-radius: 4px; padding: 4px 5px; }
+/* ========================= 修改 END =========================== */
+
 
 /* --- Monaco/Debugger 特有样式 --- */
 .debug-line-highlight { background-color: rgba(98, 163, 255, 0.2); }
@@ -118,7 +260,7 @@
 .breakpoint-decorator { width: 10px !important; height: 10px !important; background: var(--color-error); border-radius: 50%; margin-left: 5px; margin-top: 5px; }
 
 /* --- 监控面板样式 --- */
-#monitor-panel.panel-content.active {
+#monitor-side-panel .panel-content-area {
     padding: 10px;
     display: flex;
 }
@@ -138,4 +280,6 @@
     border-radius: 4px;
     padding: 10px;
     box-shadow: inset 0 0 5px rgba(0,0,0,0.1);
+    min-width: 0;  /* 允许容器在flex/grid布局中收缩到小于其内容的固有宽度 */
+    min-height: 0; /* 允许容器在flex/grid布局中收缩到小于其内容的固有高度 */
 }

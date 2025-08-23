@@ -9,7 +9,7 @@ package club.ppmc.idea.model;
 /**
  * 封装实时系统监控数据的DTO。
  *
- * @param cpuUsage      CPU 总使用率 (0.0 到 1.0 之间的小数)。
+ * @param cpuUsage      CPU 总使用率 (0.0 到 100.0 之间的百分比值)。
  * @param memoryUsed    已用内存 (以字节为单位)。
  * @param memoryTotal   总内存 (以字节为单位)。
  * @param networkUp     上传速率 (以字节/秒为单位)。

@@ -15,22 +15,24 @@ const MonitorManager = {
 
     /**
      * @description 初始化监控管理器。
-     * 真正的图表设置工作会延迟到面板首次被激活时进行。
+     * 图表将在应用准备就绪后立即设置，因为面板现在始终可见。
      */
     init: function() {
         this.bindAppEvents();
+        // ========================= 修改 START =========================
+        // 监控面板现在始终可见，因此在 app:ready 后立即初始化图表
+        EventBus.on('app:ready', this.setupCharts.bind(this));
+        // ========================= 修改 END ===========================
     },
 
     /**
      * @description 绑定应用事件。
      */
     bindAppEvents: function() {
-        // 监听面板激活事件以进行惰性初始化
-        EventBus.on('ui:activateBottomPanelTab', (panelId) => {
-            if (panelId === 'monitor-panel' && !this.isInitialized) {
-                this.setupCharts();
-            }
-        });
+        // ========================= 修改 START =========================
+        // 移除基于标签页激活的惰性初始化逻辑
+        // EventBus.on('ui:activateBottomPanelTab', ...);
+        // ========================= 修改 END ===========================
 
         // 监听来自后端的数据更新
         EventBus.on('monitor:data-update', this.handleDataUpdate.bind(this));
@@ -47,7 +49,6 @@ const MonitorManager = {
             return;
         }
 
-        // ========================= 优化 START: 定义新的颜色和辅助函数 =========================
         const chartColors = {
             cpu: { border: '#FFB74D', background: 'rgba(255, 183, 77, 0.2)' }, // Amber
             memUsed: { border: '#64B5F6', background: 'rgba(100, 181, 246, 0.2)' }, // Blue
@@ -64,7 +65,6 @@ const MonitorManager = {
             gradient.addColorStop(1, Chart.helpers.color(rgb).alpha(0.3).rgbString());
             return gradient;
         };
-        // ========================= 优化 END ==============================================
 
 
         this.cpuChart = this.createChart('cpu-chart', 'CPU 使用率 (%)', {
@@ -122,13 +122,11 @@ const MonitorManager = {
     createChart: function(canvasId, title, scales, datasets) {
         const ctx = document.getElementById(canvasId).getContext('2d');
 
-        // ========================= 优化 START: 读取CSS变量用于样式 =========================
         const styles = getComputedStyle(document.body);
         const textPrimary = styles.getPropertyValue('--text-primary').trim();
         const textSecondary = styles.getPropertyValue('--text-secondary').trim();
         const borderColor = styles.getPropertyValue('--border-color').trim();
         const panelBg = styles.getPropertyValue('--bg-panel').trim();
-        // ========================= 优化 END ==============================================
 
         return new Chart(ctx, {
             type: 'line',
@@ -155,7 +153,6 @@ const MonitorManager = {
                 plugins: {
                     title: { display: true, text: title, color: textPrimary, font: { size: 14 } },
                     legend: { labels: { color: textSecondary } },
-                    // ========================= 优化 START: 自定义工具提示 =========================
                     tooltip: {
                         enabled: true,
                         backgroundColor: panelBg,
@@ -168,7 +165,6 @@ const MonitorManager = {
                         displayColors: true,
                         boxPadding: 4
                     }
-                    // ========================= 优化 END ==============================================
                 },
                 scales: {
                     x: {
@@ -201,8 +197,11 @@ const MonitorManager = {
 
         const timestamp = new Date(data.timestamp);
 
+        // ========================= 修正 START =========================
         // 更新 CPU 图表
-        this.updateChartData(this.cpuChart, timestamp, [data.cpuUsage * 100]); // 转换为百分比
+        // 修正：后端传来的 data.cpuUsage 已经是百分比值，无需再乘以100。
+        this.updateChartData(this.cpuChart, timestamp, [data.cpuUsage]);
+        // ========================= 修正 END ===========================
 
         // 更新内存图表
         this.updateChartData(this.memChart, timestamp, [data.memoryUsed, data.memoryTotal]);

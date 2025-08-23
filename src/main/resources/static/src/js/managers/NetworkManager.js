@@ -74,10 +74,12 @@ const NetworkManager = {
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
-    /** @description 处理构建日志消息 */
-    onBuildLogReceived: function(message) { EventBus.emit('console:log', '[构建]\n' + message.body); },
-    /** @description 处理运行日志消息 */
-    onRunLogReceived: function(message) { EventBus.emit('console:log', message.body); },
+    // ========================= 修改 START =========================
+    /** @description 处理构建日志消息, 触发一个原始日志事件 */
+    onBuildLogReceived: function(message) { EventBus.emit('raw:build-log', '[构建]\n' + message.body); },
+    /** @description 处理运行日志消息, 触发一个原始日志事件 */
+    onRunLogReceived: function(message) { EventBus.emit('raw:run-log', message.body); },
+    // ========================= 修改 END ===========================
     /** @description 处理调试事件消息 */
     onDebugEventReceived: function(message) { try { EventBus.emit('debugger:eventReceived', JSON.parse(message.body)); } catch (e) { EventBus.emit('log:error', '解析调试事件失败: ' + e.message); } },
     /** @description 处理运行状态消息 */
@@ -187,9 +189,7 @@ const NetworkManager = {
     getProjectClassNames: function(projectName) { return this._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`); },
     stopRun: function() { return this._rawFetchApi('api/run/stop', { method: 'POST' }); },
     getSessionStatus: function() { return this._rawFetchApi('api/session/status', {}, 'json', false); },
-    // ========================= 新增方法 START =========================
     formatJavaCode: function(code) { return this._rawFetchApi('api/java/format', { method: 'POST', body: JSON.stringify({ code }) }); },
-    // ========================= 新增方法 END ===========================
     deleteProject: function(projectName) { return this._rawFetchApi(`api/projects/${encodeURIComponent(projectName)}`, { method: 'DELETE' }); },
 
 
