@@ -6,6 +6,7 @@
  */
 package club.ppmc.idea.controller;
 
+import club.ppmc.idea.model.GitCredentialsRequest;
 import club.ppmc.idea.model.GitStatusResponse;
 import club.ppmc.idea.model.RemoteRepoInfo;
 import club.ppmc.idea.service.GitService;
@@ -30,11 +31,14 @@ public class GitController {
     }
 
     /**
-     * 根据用户在设置中配置的平台（Gitee/GitHub）及其Token，获取其公开仓库列表。
+     * 根据用户提供的平台和Token，获取其公开仓库列表。
      */
     @GetMapping("/remote-repos")
-    public ResponseEntity<List<RemoteRepoInfo>> getRemoteRepos() {
-        return ResponseEntity.ok(gitService.getRemoteRepositories());
+    public ResponseEntity<List<RemoteRepoInfo>> getRemoteRepos(
+            @RequestParam String platform,
+            @RequestHeader("Authorization") String authorizationHeader) {
+        String token = extractToken(authorizationHeader);
+        return ResponseEntity.ok(gitService.getRemoteRepositories(platform, token));
     }
 
     /**
@@ -43,11 +47,16 @@ public class GitController {
     @PostMapping("/clone-specific")
     public ResponseEntity<?> cloneSpecificRepository(@RequestBody Map<String, String> payload) {
         String repoCloneUrl = payload.get("cloneUrl");
+        String token = payload.get("token"); // 从请求体获取token
+
         if (repoCloneUrl == null || repoCloneUrl.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("message", "克隆地址 (cloneUrl) 不能为空。"));
         }
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "访问令牌 (token) 不能为空。"));
+        }
         try {
-            String projectName = gitService.cloneSpecificRepository(repoCloneUrl);
+            String projectName = gitService.cloneSpecificRepository(repoCloneUrl, token);
             return ResponseEntity.ok(Map.of("projectName", projectName));
         } catch (GitAPIException | IOException | IllegalArgumentException e) {
             log.error("克隆仓库 {} 失败", repoCloneUrl, e);
@@ -106,13 +115,15 @@ public class GitController {
      * 在指定项目中执行Git拉取。
      */
     @PostMapping("/pull")
-    public ResponseEntity<Map<String, String>> pull(@RequestParam(required = false) String projectPath) {
+    public ResponseEntity<Map<String, String>> pull(
+            @RequestParam(required = false) String projectPath,
+            @RequestBody GitCredentialsRequest credentials) {
         if (projectPath == null || projectPath.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("message", "未选择活动项目。"));
         }
         try {
             log.info("收到项目 '{}' 的git pull请求", projectPath);
-            String result = gitService.pull(projectPath);
+            String result = gitService.pull(projectPath, credentials);
             return ResponseEntity.ok(Map.of("message", result));
         } catch (GitAPIException | IOException | IllegalStateException e) {
             log.error("为项目 '{}' 拉取失败", projectPath, e);
@@ -124,17 +135,29 @@ public class GitController {
      * 在指定项目中执行Git推送。
      */
     @PostMapping("/push")
-    public ResponseEntity<?> push(@RequestParam(required = false) String projectPath) {
+    public ResponseEntity<?> push(
+            @RequestParam(required = false) String projectPath,
+            @RequestBody GitCredentialsRequest credentials) {
         if (projectPath == null || projectPath.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("message", "未选择活动项目。"));
         }
         try {
             log.info("收到项目 '{}' 的git push请求", projectPath);
-            Map<String, Object> result = gitService.push(projectPath);
+            Map<String, Object> result = gitService.push(projectPath, credentials);
             return ResponseEntity.ok(result);
         } catch (GitAPIException | IOException | IllegalStateException e) {
             log.error("为项目 '{}' 推送失败", projectPath, e);
             return ResponseEntity.badRequest().body(Map.of("message", "推送失败: " + e.getMessage()));
         }
+    }
+
+    /**
+     * 从 "Bearer <token>" 格式的 Authorization 头中提取令牌。
+     */
+    private String extractToken(String authorizationHeader) {
+        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
+            return authorizationHeader.substring(7);
+        }
+        return null;
     }
 }

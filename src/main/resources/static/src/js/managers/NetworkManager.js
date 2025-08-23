@@ -22,9 +22,7 @@ const NetworkManager = {
         this.onDebugEventReceived = this.onDebugEventReceived.bind(this);
         this.onRunStatusReceived = this.onRunStatusReceived.bind(this);
         this.onSessionStatusReceived = this.onSessionStatusReceived.bind(this);
-        // ========================= 新增绑定 START =========================
         this.onSystemMetricsReceived = this.onSystemMetricsReceived.bind(this);
-        // ========================= 新增绑定 END ===========================
         EventBus.on('app:ready', () => this.connectWebSocket());
     },
 
@@ -72,9 +70,7 @@ const NetworkManager = {
             EventBus.emit('terminal:data', message.body);
         });
         this.stompClient.subscribe('/user/queue/session/status', this.onSessionStatusReceived);
-        // ========================= 新增订阅 START =========================
         this.stompClient.subscribe('/topic/system-metrics', this.onSystemMetricsReceived);
-        // ========================= 新增订阅 END ===========================
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
     },
 
@@ -88,18 +84,22 @@ const NetworkManager = {
     onRunStatusReceived: function(message) { EventBus.emit('run:statusChanged', message.body); },
     /** @description 处理会话锁定状态消息 */
     onSessionStatusReceived: function(message) { if (message.body === 'LOCKED') EventBus.emit('session:locked'); },
-
-    // ========================= 新增方法 START =========================
     /** @description 处理系统监控数据消息 */
-    onSystemMetricsReceived: function(message) {
-        try {
-            const data = JSON.parse(message.body);
-            EventBus.emit('monitor:data-update', data);
-        } catch (e) {
-            console.error('解析系统监控数据失败:', e);
-        }
+    onSystemMetricsReceived: function(message) { try { const data = JSON.parse(message.body); EventBus.emit('monitor:data-update', data); } catch (e) { console.error('解析系统监控数据失败:', e); } },
+
+    /**
+     * @description 从localStorage获取Git凭证。
+     * @returns {object} 包含token, platform, sshKeyPath, sshPassphrase的对象。
+     * @private
+     */
+    _getGitCredentials: function() {
+        return {
+            token: localStorage.getItem('git_access_token') || '',
+            platform: localStorage.getItem('git_platform') || 'gitee',
+            sshKeyPath: localStorage.getItem('git_ssh_key_path') || '',
+            sshPassphrase: localStorage.getItem('git_ssh_passphrase') || ''
+        };
     },
-    // ========================= 新增方法 END ===========================
 
     /**
      * @description 底层的 fetch API 包装器，统一处理全局繁忙状态和错误。
@@ -165,37 +165,80 @@ const NetworkManager = {
         return this._rawFetchApi(finalEndpoint, finalOptions, responseType, showBusy);
     },
 
-    getProjects: function() { return NetworkManager._rawFetchApi('api/projects'); },
-    getFileTree: function(relativePath = '') { return NetworkManager.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`); },
-    getFileContent: function(relativePath) { return NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'); },
-    downloadFileAsBlob: function(relativePath) { return NetworkManager.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'); },
-    saveFileContent: function(relativePath, content) { return NetworkManager.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }); },
-    buildProject: function() { return NetworkManager.fetchApi(`api/java/build`, { method: 'POST' }); },
-    getGitStatus: function() { return NetworkManager.fetchApi(`api/git/status`, {}, 'json', false); },
-    gitCommit: function(message) { return NetworkManager.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) }); },
-    gitPull: function() { return NetworkManager.fetchApi(`api/git/pull`, { method: 'POST' }); },
-    gitPush: function() { return NetworkManager.fetchApi(`api/git/push`, { method: 'POST' }); },
-    createFileOrDir: function(parentPath, name, type) { return NetworkManager.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }); },
-    deletePath: function(path) { return NetworkManager.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }); },
-    renamePath: function(oldPath, newName) { return NetworkManager.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }); },
-    getRemoteRepos: function() { return NetworkManager._rawFetchApi('api/git/remote-repos'); },
-    cloneSpecificRepo: function(cloneUrl) { return NetworkManager._rawFetchApi('api/git/clone-specific', { method: 'POST', body: JSON.stringify({ cloneUrl }) }); },
-    startDebug: function(mainClass) { return NetworkManager.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }); },
-    stopDebug: function() { return NetworkManager.fetchApi('api/debug/stop', { method: 'POST' }); },
-    stepOver: function() { return NetworkManager.fetchApi('api/debug/stepOver', { method: 'POST' }); },
-    stepInto: function() { return NetworkManager.fetchApi('api/debug/stepInto', { method: 'POST' }); },
-    stepOut: function() { return NetworkManager.fetchApi('api/debug/stepOut', { method: 'POST' }); },
-    resumeDebug: function() { return NetworkManager.fetchApi('api/debug/resume', { method: 'POST' }); },
-    toggleBreakpoint: function(filePath, lineNumber, enabled) { return NetworkManager._rawFetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify({ filePath, lineNumber, enabled }) }); },
-    getSettings: function() { return NetworkManager._rawFetchApi('api/settings'); },
-    saveSettings: function(settings) { return NetworkManager._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }); },
-    getProjectClassNames: function(projectName) { return NetworkManager._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`); },
-    stopRun: function() { return NetworkManager._rawFetchApi('api/run/stop', { method: 'POST' }); },
-    getSessionStatus: function() { return NetworkManager._rawFetchApi('api/session/status', {}, 'json', false); },
+    getProjects: function() { return this._rawFetchApi('api/projects'); },
+    getFileTree: function(relativePath = '') { return this.fetchApi(`api/files/tree?path=${encodeURIComponent(relativePath)}`); },
+    getFileContent: function(relativePath) { return this.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'text'); },
+    downloadFileAsBlob: function(relativePath) { return this.fetchApi(`api/files/content?path=${encodeURIComponent(relativePath)}`, {}, 'blob'); },
+    saveFileContent: function(relativePath, content) { return this.fetchApi('api/files/content', { method: 'POST', body: JSON.stringify({ path: relativePath, content }) }); },
+    buildProject: function(mainClass) { return this.fetchApi(`api/java/build?mainClass=${encodeURIComponent(mainClass)}`, { method: 'POST' }); },
+    getMainClasses: function() { return this.fetchApi('api/java/main-classes'); },
+    createFileOrDir: function(parentPath, name, type) { return this.fetchApi('api/files/create', { method: 'POST', body: JSON.stringify({ parentPath, name, type }) }); },
+    deletePath: function(path) { return this.fetchApi(`api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }); },
+    renamePath: function(oldPath, newName) { return this.fetchApi('api/files/rename', { method: 'PUT', body: JSON.stringify({ oldPath, newName }) }); },
+    startDebug: function(mainClass) { return this.fetchApi('api/debug/start', { method: 'POST', body: JSON.stringify({ mainClass: mainClass }) }); },
+    stopDebug: function() { return this.fetchApi('api/debug/stop', { method: 'POST' }); },
+    stepOver: function() { return this.fetchApi('api/debug/stepOver', { method: 'POST' }); },
+    stepInto: function() { return this.fetchApi('api/debug/stepInto', { method: 'POST' }); },
+    stepOut: function() { return this.fetchApi('api/debug/stepOut', { method: 'POST' }); },
+    resumeDebug: function() { return this.fetchApi('api/debug/resume', { method: 'POST' }); },
+    toggleBreakpoint: function(filePath, lineNumber, enabled) { return this._rawFetchApi('api/debug/breakpoint/toggle', { method: 'POST', body: JSON.stringify({ filePath, lineNumber, enabled }) }); },
+    getSettings: function() { return this._rawFetchApi('api/settings'); },
+    saveSettings: function(settings) { return this._rawFetchApi('api/settings', { method: 'POST', body: JSON.stringify(settings) }); },
+    getProjectClassNames: function(projectName) { return this._rawFetchApi(`api/java/class-names?projectPath=${encodeURIComponent(projectName)}`); },
+    stopRun: function() { return this._rawFetchApi('api/run/stop', { method: 'POST' }); },
+    getSessionStatus: function() { return this._rawFetchApi('api/session/status', {}, 'json', false); },
+    // ========================= 新增方法 START =========================
+    formatJavaCode: function(code) { return this._rawFetchApi('api/java/format', { method: 'POST', body: JSON.stringify({ code }) }); },
+    // ========================= 新增方法 END ===========================
+    deleteProject: function(projectName) { return this._rawFetchApi(`api/projects/${encodeURIComponent(projectName)}`, { method: 'DELETE' }); },
 
+
+    // --- Git Methods with Authentication ---
+
+    getRemoteRepos: function() {
+        const { platform, token } = this._getGitCredentials();
+        const endpoint = `api/git/remote-repos?platform=${platform}`;
+        const headers = { 'Authorization': `Bearer ${token}` };
+        return this._rawFetchApi(endpoint, { headers });
+    },
+
+    cloneSpecificRepo: function(cloneUrl) {
+        const { token } = this._getGitCredentials();
+        const body = JSON.stringify({ cloneUrl, token });
+        return this._rawFetchApi('api/git/clone-specific', { method: 'POST', body });
+    },
+
+    getGitStatus: function() {
+        const { token } = this._getGitCredentials();
+        const headers = { 'Authorization': `Bearer ${token}` };
+        return this.fetchApi(`api/git/status`, { headers }, 'json', false);
+    },
+
+    gitCommit: function(message) {
+        // Commit is a local operation, no auth needed for the commit itself.
+        // Auth will be needed for push.
+        return this.fetchApi('api/git/commit', { method: 'POST', body: JSON.stringify({ message }) });
+    },
+
+    gitPull: function() {
+        const creds = this._getGitCredentials();
+        const body = JSON.stringify({ ...creds });
+        return this.fetchApi(`api/git/pull`, { method: 'POST', body });
+    },
+
+    gitPush: function() {
+        const creds = this._getGitCredentials();
+        const body = JSON.stringify({ ...creds });
+        return this.fetchApi(`api/git/push`, { method: 'POST', body });
+    },
+
+
+    // --- Terminal Methods ---
     startTerminal: function(path) { if (this.stompClient && this.isConnected) { this.stompClient.send('/app/terminal/start', {}, path || Config.currentProject || ""); } },
     sendTerminalInput: function(data) { if (this.stompClient && this.isConnected) { this.stompClient.send('/app/terminal/input', {}, data); } },
 
+
+    // --- Upload Methods ---
     _uploadWithXHR: function(endpoint, formData) {
         EventBus.emit('network:request-start');
         return new Promise((resolve, reject) => {
@@ -248,6 +291,20 @@ const NetworkManager = {
             }
         }
         return files;
+    },
+    uploadFilesToPath: function(files, destinationPath) {
+        if (!Config.currentProject) {
+            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
+        }
+
+        const formData = new FormData();
+        formData.append('projectPath', Config.currentProject);
+        formData.append('destinationPath', destinationPath);
+        files.forEach(file => {
+            formData.append('files', file, file.name);
+        });
+
+        return this._uploadWithXHR('api/files/upload-to-path', formData);
     },
 };
 

@@ -29,7 +29,9 @@ const ActionManager = {
         EventBus.on('action:new-file', ({ path } = {}) => this.handleNewFile(path));
         EventBus.on('action:open-folder', this.handleOpenFolder.bind(this));
         EventBus.on('action:save-file', this.handleSaveFile.bind(this));
-        EventBus.on('action:format-code', () => EventBus.emit('editor:formatDocument'));
+        // ========================= 修改 START =========================
+        EventBus.on('action:format-code', this.handleFormatCode.bind(this));
+        // ========================= 修改 END ===========================
         EventBus.on('action:find-in-file', () => EventBus.emit('editor:find'));
         EventBus.on('action:run-code', this.handleRunCode.bind(this));
         EventBus.on('action:stop-run', this.handleStopRun.bind(this));
@@ -60,6 +62,48 @@ const ActionManager = {
         EventBus.on('context-action:close-tabs-to-the-right', this.handleCloseTabsToRight.bind(this));
         EventBus.on('context-action:close-tabs-to-the-left', this.handleCloseTabsToLeft.bind(this));
     },
+
+    // ========================= 新增方法 START =========================
+    /**
+     * @description 处理代码格式化请求。
+     * - 如果是Java文件，则通过后端进行格式化。
+     * - 否则，使用Monaco的内置格式化器。
+     */
+    handleFormatCode: async function() {
+        if (!CodeEditorManager.monacoInstance) return;
+
+        const activeLanguage = CodeEditorManager.getActiveLanguage();
+        const model = CodeEditorManager.monacoInstance.getModel();
+        if (!model) return;
+
+        if (activeLanguage === 'java') {
+            const originalCode = model.getValue();
+            try {
+                EventBus.emit('statusbar:updateStatus', '正在格式化Java代码...');
+                const { formattedCode } = await NetworkManager.formatJavaCode(originalCode);
+
+                // 使用pushEditOperations而不是setValue，以支持撤销(undo)操作
+                const fullRange = model.getFullModelRange();
+                const edit = { range: fullRange, text: formattedCode };
+                model.pushEditOperations([], [edit], () => null);
+
+                EventBus.emit('log:info', 'Java代码格式化成功。');
+                EventBus.emit('statusbar:updateStatus', '格式化成功', 1500);
+            } catch (error) {
+                const errorMessage = error.message.includes('{')
+                    ? JSON.parse(error.message.substring(error.message.indexOf('{'))).message
+                    : error.message;
+                EventBus.emit('log:error', `Java代码格式化失败: ${errorMessage}`);
+                EventBus.emit('statusbar:updateStatus', '格式化失败', 2000);
+            }
+        } else {
+            // 对于其他语言，触发Monaco的内置格式化动作
+            EventBus.emit('editor:formatDocument');
+            EventBus.emit('log:info', `正在为 ${activeLanguage} 文件执行内置格式化。`);
+        }
+    },
+    // ========================= 新增方法 END ===========================
+
 
     /**
      * @description 获取用于创建新文件或文件夹的上下文路径。
@@ -193,7 +237,15 @@ const ActionManager = {
     },
 
     /**
-     * @description 处理运行/停止代码的动作。
+     * 重写 `handleRunCode` 方法以支持动态主类选择。
+     * 1. 检查运行状态。
+     * 2. 获取主类列表。
+     * 3. 根据主类数量决定下一步：
+     *    - 0个：提示错误。
+     *    - 1个：直接运行。
+     *    - 多个：弹出选择框。
+     * 4. 记住用户的选择。
+     * 5. 调用后端API执行。
      */
     handleRunCode: async function() {
         if (RunManager.isProgramRunning()) {
@@ -206,12 +258,64 @@ const ActionManager = {
             return;
         }
 
+        try {
+            EventBus.emit('statusbar:updateStatus', '正在扫描主类...');
+            const mainClasses = await NetworkManager.getMainClasses(Config.currentProject);
+            EventBus.emit('statusbar:updateStatus', '就绪');
+
+            if (mainClasses.length === 0) {
+                EventBus.emit('modal:showAlert', {
+                    title: '无法运行',
+                    message: '在项目中未找到任何可执行的主类 (public static void main)。'
+                });
+                return;
+            }
+
+            let selectedMainClass;
+            if (mainClasses.length === 1) {
+                selectedMainClass = mainClasses[0];
+                EventBus.emit('log:info', `自动选择唯一的主类: ${selectedMainClass}`);
+            } else {
+                const storageKey = `lastRunMainClass_${Config.currentProject}`;
+                const lastUsed = localStorage.getItem(storageKey);
+
+                const choices = mainClasses.map(mc => ({
+                    id: mc,
+                    text: mc === lastUsed ? `${mc} (上次使用)` : mc
+                }));
+
+                selectedMainClass = await EventBus.emit('modal:showChoiceModal', {
+                    title: '选择要运行的主类',
+                    message: '项目中检测到多个可执行的主类。请选择一个运行:',
+                    choices: choices
+                })[0]; // EventBus.emit returns an array of results
+            }
+
+            if (selectedMainClass) {
+                const storageKey = `lastRunMainClass_${Config.currentProject}`;
+                localStorage.setItem(storageKey, selectedMainClass);
+                await this._executeBuildAndRun(selectedMainClass);
+            }
+        } catch (error) {
+            if (error.message !== '用户取消了操作。') {
+                EventBus.emit('log:error', `运行程序失败: ${error.message}`);
+                EventBus.emit('modal:showAlert', { title: '运行失败', message: '扫描或选择主类时出错。' });
+            }
+        }
+    },
+
+    /**
+     * @description 封装实际的构建和运行API调用。
+     * @param {string} mainClass - 要运行的主类。
+     * @private
+     */
+    _executeBuildAndRun: async function(mainClass) {
         EventBus.emit('ui:activateBottomPanelTab', 'console-output');
         EventBus.emit('console:clear');
         EventBus.emit('statusbar:updateStatus', `正在构建 ${Config.activeProjectName}...`);
 
         try {
-            await NetworkManager.buildProject();
+            await NetworkManager.buildProject(mainClass);
             EventBus.emit('log:info', '构建与运行请求已发送。');
         } catch (error) {
             EventBus.emit('log:error', `构建请求失败: ${error.message}`);
@@ -228,7 +332,7 @@ const ActionManager = {
             if (errorPayload.type === 'ENVIRONMENT_ERROR') {
                 EventBus.emit('modal:showConfirm', {
                     title: '环境配置错误',
-                    message: errorPayload.details || '执行环境未正确配置，无法运行项目。',
+                    message: errorPayload.message || '执行环境未正确配置，无法运行项目。',
                     confirmText: '前往设置',
                     cancelText: '关闭',
                     onConfirm: () => {
@@ -490,23 +594,53 @@ const ActionManager = {
      * @description 处理删除文件或文件夹的动作。
      * @param {object} payload - 动作的载荷。
      * @param {string} payload.path - 要删除的路径。
+     * @param {string} payload.type - 路径类型 ('file' 或 'folder')。
      */
-    handleDeletePath: function({ path }) {
+    handleDeletePath: function({ path, type }) {
+        // ========================= 修正 START =========================
+        const isProjectRoot = type === 'folder' && (path === '' || !path.includes('/'));
+        const pathToDelete = isProjectRoot ? Config.currentProject : path;
+
+        if (!pathToDelete) {
+            EventBus.emit('log:error', '无法确定要删除的路径。');
+            return;
+        }
+
+        const title = isProjectRoot ? '确认删除项目' : '确认删除';
+        const message = isProjectRoot
+            ? `您确定要永久删除整个项目 '${pathToDelete}' 吗？此操作不可撤销，所有文件都将丢失。`
+            : `您确定要删除 '${pathToDelete}' 吗？此操作不可撤销。`;
+
         EventBus.emit('modal:showConfirm', {
-            title: '确认删除',
-            message: `您确定要删除 '${path}' 吗？此操作不可撤销。`,
+            title: title,
+            message: message,
             onConfirm: async () => {
                 try {
-                    await NetworkManager.deletePath(path);
-                    EventBus.emit('log:info', `路径 '${path}' 已被删除。`);
-                    EventBus.emit('filesystem:changed');
-                    EventBus.emit('file:closeRequest', path);
+                    if (isProjectRoot) {
+                        await NetworkManager.deleteProject(pathToDelete);
+                        EventBus.emit('log:info', `项目 '${pathToDelete}' 已被删除。`);
+
+                        // 重新获取项目列表并更新UI
+                        const projects = await NetworkManager.getProjects();
+                        Config.setProjectList(projects);
+
+                        // 如果删除的是当前项目，则需要更新全局状态
+                        if (Config.currentProject === pathToDelete) {
+                            Config.setActiveProject(null);
+                        }
+                    } else {
+                        await NetworkManager.deletePath(pathToDelete);
+                        EventBus.emit('log:info', `路径 '${pathToDelete}' 已被删除。`);
+                        EventBus.emit('filesystem:changed');
+                        EventBus.emit('file:closeRequest', pathToDelete);
+                    }
                 } catch (error) {
                     EventBus.emit('log:error', `删除失败: ${error.message}`);
                     EventBus.emit('modal:showAlert', { title: '删除失败', message: error.message });
                 }
             }
         });
+        // ========================= 修正 END ===========================
     },
 
     /**

@@ -21,9 +21,7 @@ import ProjectAnalysisService from './services/ProjectAnalysisService.js';
 import RunManager from './managers/RunManager.js';
 import TourManager from './managers/TourManager.js';
 import TemplateLoader from './utils/TemplateLoader.js';
-// ========================= 新增导入 START =========================
 import MonitorManager from './managers/MonitorManager.js';
-// ========================= 新增导入 END ===========================
 
 /**
  * @description 应用核心初始化逻辑。
@@ -56,9 +54,7 @@ const App = {
         ProblemsManager.init();
         TerminalManager.init();
         DebuggerManager.init();
-        // ========================= 新增初始化 START =========================
         MonitorManager.init();
-        // ========================= 新增初始化 END ===========================
         await CommandPaletteManager.init();
         ActionManager.init();
         await KeyboardManager.init();
@@ -67,7 +63,12 @@ const App = {
         EventBus.emit('app:ready');
         console.log("应用已准备就绪。");
 
-        // 步骤 4: 延迟启动功能引导，确保所有UI元素都已渲染完毕。
+        // ========================= 修改 START =========================
+        // 步骤 4: 广播应用初始化完成事件，通知 SessionLockManager 隐藏初始加载遮罩
+        EventBus.emit('app:initialization-complete');
+        // ========================= 修改 END ===========================
+
+        // 步骤 5: 延迟启动功能引导，确保所有UI元素都已渲染完毕并可见。
         setTimeout(function() {
             TourManager.start();
         }, 500);

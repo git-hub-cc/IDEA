@@ -218,6 +218,38 @@ public class FileService {
         LOGGER.info("成功上传 {} 个条目到项目 '{}' 的 '{}' 路径下。", files.length, projectPath, destinationPath);
     }
 
+    // ========================= 新增 START =========================
+    /**
+     * 删除一个完整的项目目录。
+     *
+     * @param projectName 要删除的项目的名称。
+     * @throws IOException 如果删除过程中发生I/O错误。
+     * @throws IllegalArgumentException 如果项目名称无效或试图删除工作区外的目录。
+     */
+    public void deleteProject(String projectName) throws IOException {
+        Path workspaceRoot = getWorkspaceRoot();
+        Path projectPath = workspaceRoot.resolve(projectName).normalize();
+
+        // 安全校验
+        if (!projectPath.startsWith(workspaceRoot)) {
+            throw new IllegalArgumentException("检测到路径遍历攻击: " + projectName);
+        }
+        if (projectName.contains("..") || !StringUtils.hasText(projectName)) {
+            throw new IllegalArgumentException("无效的项目名称: " + projectName);
+        }
+        if (Files.notExists(projectPath)) {
+            throw new IOException("项目不存在: " + projectName);
+        }
+        if (!Files.isDirectory(projectPath)) {
+            throw new IOException("目标不是一个目录，无法作为项目删除: " + projectName);
+        }
+
+        // 执行删除
+        FileUtils.deleteDirectory(projectPath.toFile());
+        LOGGER.info("项目 '{}' 已被成功删除。", projectName);
+    }
+    // ========================= 新增 END ===========================
+
     private void uploadFilesToPathInternal(Path destinationDir, MultipartFile[] files) throws IOException {
         for (MultipartFile file : files) {
             String originalFilename = file.getOriginalFilename();

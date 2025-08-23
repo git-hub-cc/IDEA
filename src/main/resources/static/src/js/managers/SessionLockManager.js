@@ -54,6 +54,10 @@ const SessionLockManager = {
             this.showLockScreen();
             this.startPolling();
         });
+        // ========================= 修改 START =========================
+        // 新增监听器：当主应用完成所有初始加载后，才隐藏遮罩
+        EventBus.on('app:initialization-complete', this.hideLockScreen.bind(this));
+        // ========================= 修改 END ===========================
     },
 
     /**
@@ -69,7 +73,11 @@ const SessionLockManager = {
                     this.startPolling();
                 }
             } else {
-                this.hideLockScreen();
+                // ========================= 修改 START =========================
+                // 移除此处的 hideLockScreen() 调用。
+                // 遮罩的隐藏将由 'app:initialization-complete' 事件触发。
+                // this.hideLockScreen();
+                // ========================= 修改 END ===========================
                 this.stopPolling();
                 if (this.onAppReadyCallback) {
                     this.onAppReadyCallback();

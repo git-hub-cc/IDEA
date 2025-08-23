@@ -386,7 +386,10 @@ const FileTreeManager = {
         }
 
         const iconClass = node.isFolder() ? 'fas fa-folder' : this.getFileIcon(node.name);
-        li.innerHTML = `<i class="${iconClass}"></i><span>${node.name}</span>`;
+        // ========================= 修改 START =========================
+        // Wrap icon and span in a div to allow for targeted highlighting
+        li.innerHTML = `<div class="node-label"><i class="${iconClass}"></i><span>${node.name}</span></div>`;
+        // ========================= 修改 END ===========================
 
         if (node.isFolder() && node.children) {
             const nestedUl = document.createElement('ul');

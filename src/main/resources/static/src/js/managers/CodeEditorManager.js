@@ -99,8 +99,10 @@ const CodeEditorManager = {
         EventBus.on('editor:closeTabsToTheLeft', this.closeTabsToTheLeft.bind(this));
         EventBus.on('editor:insertSnippet', this.insertSnippet.bind(this));
 
-        // 绑定来自快捷键或指令面板的编辑器动作
+        // ========================= 修改 START =========================
+        // 这个事件现在由ActionManager在检查语言后触发，用于非Java文件
         EventBus.on('editor:formatDocument', () => this.monacoInstance?.getAction('editor.action.formatDocument').run());
+        // ========================= 修改 END ===========================
         EventBus.on('editor:find', () => this.monacoInstance?.getAction('actions.find').run());
         EventBus.on('editor:duplicate-line', () => this.monacoInstance?.getAction('editor.action.copyLinesDownAction').run());
         EventBus.on('editor:delete-line', () => this.monacoInstance?.getAction('editor.action.deleteLines').run());
@@ -114,9 +116,6 @@ const CodeEditorManager = {
         EventBus.on('editor:insert-line-after', () => this.monacoInstance?.getAction('editor.action.insertLineAfter').run());
     },
 
-    /**
-     * @description 处理编辑器内容变更事件，标记文件为“脏”状态。
-     */
     handleContentChange: function() {
         if (!this.activeFilePath) return;
         const fileInfo = this.openFiles.get(this.activeFilePath);
@@ -125,10 +124,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 处理光标位置变更事件，更新状态栏。
-     * @param {object} e - Monaco 编辑器的光标位置变更事件对象。
-     */
     handleCursorChange: function(e) {
         if (!e.position) return;
         EventBus.emit('statusbar:updateCursorPos', {
@@ -137,21 +132,21 @@ const CodeEditorManager = {
         });
     },
 
-    /**
-     * @description 处理项目切换事件，关闭所有已打开的文件。
-     */
     handleProjectChange: function() {
         const openFilePaths = Array.from(this.openFiles.keys());
         openFilePaths.forEach(path => this.closeFile(path));
         this.breakpointDecorations = [];
     },
 
-    /**
-     * @description 打开一个文件，根据文件类型决定是显示在编辑器中还是媒体预览中。
-     * @param {string} filePath - 要打开的文件的相对路径。
-     * @returns {Promise<void>}
-     */
     openFile: async function(filePath) {
+        // ========================= 关键修改 START =========================
+        // 如果filePath为null或undefined，直接显示源不可用视图
+        if (!filePath) {
+            this._showSourceNotAvailable("未知文件", 0);
+            return;
+        }
+        // ========================= 关键修改 END ===========================
+
         if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
             const activeFileInfo = this.openFiles.get(this.activeFilePath);
             if (activeFileInfo.type === 'editor') {
@@ -174,11 +169,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 打开并显示一个文本文件。
-     * @param {string} filePath - 文件路径。
-     * @private
-     */
     _openTextFile: async function(filePath) {
         try {
             const content = await NetworkManager.getFileContent(filePath);
@@ -196,11 +186,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 打开并预览一个媒体文件。
-     * @param {string} filePath - 文件路径。
-     * @private
-     */
     _openMediaFile: async function(filePath) {
         try {
             const blob = await NetworkManager.downloadFileAsBlob(filePath);
@@ -218,10 +203,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 关闭一个指定路径的文件。
-     * @param {string} filePath - 要关闭的文件路径。
-     */
     closeFile: function(filePath) {
         const fileInfo = this.openFiles.get(filePath);
         if (!fileInfo) return;
@@ -250,14 +231,9 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 设置并激活一个文件作为当前活动文件。
-     * @param {string} filePath - 要激活的文件路径。
-     */
     setActiveFile: function(filePath) {
         if (this.activeFilePath === filePath && this.activeFilePath !== null) return;
 
-        // 保存上一个文件的视图状态
         if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
             const oldFileInfo = this.openFiles.get(this.activeFilePath);
             oldFileInfo.tabEl.classList.remove('active');
@@ -273,7 +249,6 @@ const CodeEditorManager = {
         }
         fileInfo.tabEl.classList.add('active');
 
-        // 根据文件类型切换视图
         if (fileInfo.type === 'editor') {
             this.mediaPreviewContainer.style.display = 'none';
             this.monacoContainer.style.display = 'block';
@@ -282,13 +257,17 @@ const CodeEditorManager = {
                 this.monacoInstance.restoreViewState(fileInfo.viewState);
             }
             this.monacoInstance.focus();
+            // ========================= 关键修改 START =========================
+            // 确保切换回可编辑文件时，编辑器是可写的
+            this.monacoInstance.updateOptions({ readOnly: false });
+            // ========================= 关键修改 END ===========================
             const position = this.monacoInstance.getPosition() || { lineNumber: 1, column: 1 };
             EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), ...position });
             this._setFileDirty(filePath, fileInfo.isDirty);
         } else if (fileInfo.type === 'media') {
             this.monacoContainer.style.display = 'none';
             this.mediaPreviewContainer.style.display = 'flex';
-            this.mediaPreviewContainer.innerHTML = ''; // 清除旧媒体
+            this.mediaPreviewContainer.innerHTML = '';
             this.mediaPreviewContainer.appendChild(fileInfo.previewElement);
             fileInfo.previewElement.style.display = 'block';
             EventBus.emit('statusbar:updateFileInfo', { path: filePath, language: this._getLanguageFromPath(filePath), lineNumber: 1, column: 1 });
@@ -298,11 +277,6 @@ const CodeEditorManager = {
         this.activeFilePath = filePath;
     },
 
-    /**
-     * @description 在指定行切换断点。
-     * @param {string} filePath - 文件路径。
-     * @param {number} lineNumber - 行号。
-     */
     toggleBreakpoint: function(filePath, lineNumber) {
         if (!filePath) return;
 
@@ -323,12 +297,6 @@ const CodeEditorManager = {
             });
     },
 
-    /**
-     * @description 更新编辑器UI上的断点标记。
-     * @param {string} filePath - 文件路径。
-     * @param {number} lineNumber - 行号。
-     * @param {boolean} enabled - 是添加还是移除断点。
-     */
     updateBreakpointDecorations: function(filePath, lineNumber, enabled) {
         const model = this.monacoInstance.getModel();
         if (!model || this.activeFilePath !== filePath) return;
@@ -369,9 +337,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 保存当前活动的文件。
-     */
     saveActiveFile: async function() {
         if (!this.activeFilePath || !this.openFiles.has(this.activeFilePath)) {
             EventBus.emit('log:warn', '没有活动文件可供保存。');
@@ -403,12 +368,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 创建并返回一个文件标签页的DOM元素。
-     * @param {string} filePath - 文件路径。
-     * @returns {HTMLElement}
-     * @private
-     */
     _createFileTab: function(filePath) {
         const tab = document.createElement('div');
         tab.className = 'editor-tab';
@@ -440,19 +399,11 @@ const CodeEditorManager = {
         return tab;
     },
 
-    /**
-     * @description 关闭除指定文件外的所有其他标签页。
-     * @param {string} filePathToKeep - 要保留的文件路径。
-     */
     closeOtherTabs: function(filePathToKeep) {
         const pathsToClose = Array.from(this.openFiles.keys()).filter(p => p !== filePathToKeep);
         pathsToClose.forEach(p => this.closeFile(p));
     },
 
-    /**
-     * @description 关闭指定文件右侧的所有标签页。
-     * @param {string} referenceFilePath - 参考文件路径。
-     */
     closeTabsToTheRight: function(referenceFilePath) {
         const allTabs = Array.from(this.tabBar.children);
         const refIndex = allTabs.findIndex(tab => tab.dataset.filePath === referenceFilePath);
@@ -462,10 +413,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 关闭指定文件左侧的所有标签页。
-     * @param {string} referenceFilePath - 参考文件路径。
-     */
     closeTabsToTheLeft: function(referenceFilePath) {
         const allTabs = Array.from(this.tabBar.children);
         const refIndex = allTabs.findIndex(tab => tab.dataset.filePath === referenceFilePath);
@@ -475,24 +422,17 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 当没有文件打开时，显示欢迎视图。
-     * @private
-     */
     _showWelcomeView: function() {
         this.monacoContainer.style.display = 'block';
         this.mediaPreviewContainer.style.display = 'none';
         this.monacoInstance.setModel(null);
+        // ========================= 关键修改 START =========================
+        this.monacoInstance.setValue('// 没有打开的文件');
+        this.monacoInstance.updateOptions({ readOnly: true }); // 在欢迎视图中设为只读
+        // ========================= 关键修改 END ===========================
         EventBus.emit('statusbar:clearFileInfo');
     },
 
-    /**
-     * @description 创建媒体文件的预览DOM元素。
-     * @param {string} filePath - 文件路径。
-     * @param {string} objectUrl - 媒体文件的Blob URL。
-     * @returns {HTMLElement}
-     * @private
-     */
     _createMediaPreviewElement: function(filePath, objectUrl) {
         const ext = filePath.split('.').pop().toLowerCase();
         let element;
@@ -511,23 +451,11 @@ const CodeEditorManager = {
         return element;
     },
 
-    /**
-     * @description 检查文件是否为已知媒体类型。
-     * @param {string} filePath - 文件路径。
-     * @returns {boolean}
-     * @private
-     */
     _isMediaFile: function(filePath) {
         const ext = filePath.split('.').pop().toLowerCase();
         return this.KNOWN_MEDIA_EXTENSIONS.has(ext);
     },
 
-    /**
-     * @description 标记或取消标记文件的“脏”状态（未保存）。
-     * @param {string} filePath - 文件路径。
-     * @param {boolean} isDirty - 是否为脏状态。
-     * @private
-     */
     _setFileDirty: function(filePath, isDirty) {
         const fileInfo = this.openFiles.get(filePath);
         if (fileInfo) {
@@ -539,24 +467,12 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 检查文件是否为已知文本类型。
-     * @param {string} filePath - 文件路径。
-     * @returns {boolean}
-     * @private
-     */
     _isTextFile: function(filePath) {
         const ext = filePath.split('.').pop().toLowerCase();
         if (!ext || filePath.endsWith('.')) return true;
         return this.KNOWN_TEXT_EXTENSIONS.has(ext);
     },
 
-    /**
-     * @description 根据文件路径推断Monaco应使用的语言ID。
-     * @param {string} filePath - 文件路径。
-     * @returns {string} 语言ID。
-     * @private
-     */
     _getLanguageFromPath: function(filePath) {
         if (!filePath) return 'plaintext';
         const ext = filePath.split('.').pop().toLowerCase();
@@ -575,27 +491,14 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 获取当前活动编辑器的语言ID。
-     * @returns {string}
-     */
     getActiveLanguage: function() {
         return this._getLanguageFromPath(this.activeFilePath);
     },
 
-    /**
-     * @description 调整编辑器大小以适应其容器。
-     */
     resizeEditor: function() {
         this.monacoInstance?.layout();
     },
 
-    /**
-     * @description 跳转到指定文件的指定行。
-     * @param {object} payload - 跳转信息。
-     * @param {string} payload.filePath - 文件路径。
-     * @param {number} payload.lineNumber - 行号。
-     */
     gotoLine: function({ filePath, lineNumber }) {
         const openAndReveal = () => {
             const fileInfo = this.openFiles.get(filePath);
@@ -612,36 +515,33 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 在调试时高亮显示当前执行到的行。
-     * @param {object} payload - 高亮信息。
-     * @param {string} payload.filePath - 文件路径。
-     * @param {number} payload.lineNumber - 行号。
-     */
-    highlightDebugLine: function({ filePath, lineNumber }) {
-        this.gotoLine({ filePath, lineNumber });
+    highlightDebugLine: function({ filePath, fileName, lineNumber }) {
         this.clearDebugHighlight();
-        this.debugDecorations = this.monacoInstance.deltaDecorations([], [{
-            range: new window.monaco.Range(lineNumber, 1, lineNumber, 1),
-            options: {
-                isWholeLine: true,
-                className: 'debug-line-highlight',
-                linesDecorationsClassName: 'debug-line-decorator-gutter'
-            }
-        }]);
+        // ========================= 关键修改 START =========================
+        if (filePath) {
+            // 这是项目内的文件
+            this.gotoLine({ filePath, lineNumber });
+            this.debugDecorations = this.monacoInstance.deltaDecorations([], [{
+                range: new window.monaco.Range(lineNumber, 1, lineNumber, 1),
+                options: {
+                    isWholeLine: true,
+                    className: 'debug-line-highlight',
+                    linesDecorationsClassName: 'debug-line-decorator-gutter'
+                }
+            }]);
+        } else {
+            // 这是JDK或外部库的文件
+            this._showSourceNotAvailable(fileName, lineNumber);
+        }
+        // ========================= 关键修改 END ===========================
     },
 
-    /**
-     * @description 清除所有调试高亮。
-     */
     clearDebugHighlight: function() {
-        this.debugDecorations = this.monacoInstance.deltaDecorations(this.debugDecorations, []);
+        if (this.monacoInstance && this.debugDecorations) {
+            this.debugDecorations = this.monacoInstance.deltaDecorations(this.debugDecorations, []);
+        }
     },
 
-    /**
-     * @description 设置Monaco编辑器的颜色主题。
-     * @param {string} theme - 主题名称 ('dark-theme' 或 'light-theme')。
-     */
     setTheme: function(theme) {
         if (window.monaco) {
             const monacoTheme = theme.includes('dark') ? 'vs-dark' : 'light';
@@ -649,10 +549,6 @@ const CodeEditorManager = {
         }
     },
 
-    /**
-     * @description 应用从设置中传入的编辑器相关配置。
-     * @param {object} settings - 设置对象。
-     */
     applySettings: function(settings) {
         if (!this.monacoInstance || !settings) return;
         this.monacoInstance.updateOptions({
@@ -662,10 +558,6 @@ const CodeEditorManager = {
         });
     },
 
-    /**
-     * @description 在当前编辑器光标位置插入代码片段。
-     * @param {string} template - 要插入的代码片段字符串。
-     */
     insertSnippet: function(template) {
         if (!this.monacoInstance) return;
         const fileInfo = this.openFiles.get(this.activeFilePath);
@@ -673,6 +565,42 @@ const CodeEditorManager = {
             this.monacoInstance.getContribution('snippetController2').insert(template);
         }
     },
+
+    // ========================= 关键修改 START =========================
+    /**
+     * 在编辑器区域显示“源文件不可用”的消息。
+     * @param {string} fileName - 不可用的文件名。
+     * @param {number} lineNumber - 程序暂停的行号。
+     * @private
+     */
+    _showSourceNotAvailable: function(fileName, lineNumber) {
+        // 确保没有标签页被视为活动
+        if (this.activeFilePath && this.openFiles.has(this.activeFilePath)) {
+            this.openFiles.get(this.activeFilePath).tabEl.classList.remove('active');
+        }
+        this.activeFilePath = null;
+
+        this.monacoContainer.style.display = 'block';
+        this.mediaPreviewContainer.style.display = 'none';
+
+        // 卸载当前模型，并显示提示信息
+        this.monacoInstance.setModel(null);
+        this.monacoInstance.setValue(
+            `// 源文件 "${fileName}" 不可用。\n` +
+            `// 调试器已暂停在第 ${lineNumber} 行。\n\n` +
+            `// 您可以使用 "步出 (Shift+F8)" 返回到您自己的代码中。`
+        );
+        this.monacoInstance.updateOptions({ readOnly: true });
+
+        // 更新状态栏
+        EventBus.emit('statusbar:updateFileInfo', {
+            path: `[外部源码] ${fileName}`,
+            language: 'Java (Decompiled)',
+            lineNumber: lineNumber,
+            column: 1
+        });
+    }
+    // ========================= 关键修改 END ===========================
 };
 
 export default CodeEditorManager;

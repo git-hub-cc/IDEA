@@ -195,4 +195,26 @@ public class FileController {
                     .body(Map.of("message", "上传文件失败: " + e.getMessage()));
         }
     }
+
+    // ========================= 新增 START =========================
+    /**
+     * 删除一个完整的项目。
+     * 这是一个具有破坏性的操作，因此有独立的API端点。
+     *
+     * @param projectName 要删除的项目名称。
+     * @return 操作结果的响应。
+     */
+    @DeleteMapping("/projects/{projectName}")
+    public ResponseEntity<Map<String, String>> deleteProject(@PathVariable String projectName) {
+        try {
+            log.warn("收到删除整个项目 '{}' 的请求", projectName);
+            fileService.deleteProject(projectName);
+            return ResponseEntity.ok(Map.of("message", "项目 '" + projectName + "' 已成功删除。"));
+        } catch (IOException | IllegalArgumentException e) {
+            log.error("删除项目 '{}' 失败", projectName, e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", "删除项目失败: " + e.getMessage()));
+        }
+    }
+    // ========================= 新增 END ===========================
 }

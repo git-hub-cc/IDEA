@@ -4,28 +4,43 @@
 .file-tree-container { flex-grow: 1; overflow: auto; padding: 5px; }
 .file-tree { list-style: none; padding: 0; margin: 0; }
 .file-tree li {
-    padding: 5px 8px;
+    /* padding: 5px 8px; (Padding is moved to the node-label) */
     cursor: pointer;
     user-select: none;
+    /* ========================= 修改 START ========================= */
+    /* Use column flexbox to stack the label and the children list */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    /* ========================= 修改 END =========================== */
+    white-space: nowrap;
+    /* border-radius: 4px; (Radius moved to the node-label) */
+    /* border: 1px solid transparent; (Border moved to the node-label) */
+}
+/* ========================= 修改 START ========================= */
+/* New wrapper for the icon and name, this is what gets highlighted */
+.node-label {
     display: flex;
     align-items: center;
-    white-space: nowrap;
+    padding: 5px 8px;
     border-radius: 4px;
     border: 1px solid transparent;
 }
-.file-tree li.focused {
+.file-tree li.focused > .node-label {
     background-color: var(--selection-color);
     color: var(--text-primary);
     border: 1px solid var(--accent-color);
 }
-.file-tree li.folder { flex-wrap: wrap; align-items: flex-start; }
-.file-tree li.folder > span {
+/* li.folder styles are no longer needed as the layout is handled by flex-direction: column */
+/* li.folder { flex-wrap: wrap; align-items: flex-start; } */
+
+.file-tree li.folder > .node-label > span {
     position: relative;
     padding-left: 20px;
     flex-grow: 1;
     min-width: 0;
 }
-.file-tree li.folder > span::before {
+.file-tree li.folder > .node-label > span::before {
     font-family: "Font Awesome 6 Free";
     content: "\f0da";
     font-weight: 900;
@@ -35,17 +50,23 @@
     transform: translateY(-50%);
     transition: transform 0.2s ease-in-out;
 }
-.file-tree li.folder.expanded > span::before { transform: translateY(-50%) rotate(90deg); }
+.file-tree li.folder.expanded > .node-label > span::before { transform: translateY(-50%) rotate(90deg); }
 .file-tree li.folder > ul { width: 100%; display: none; margin-left: 15px; }
 .file-tree li.folder.expanded > ul { display: block; }
-.file-tree li i { margin-right: 8px; width: 14px; text-align: center; }
-.file-tree li.folder > i { color: var(--accent-color); }
-.file-tree li.drag-hover-target > span,
-.file-tree li.drag-hover-target > i {
+
+.file-tree .node-label i {
+    margin-right: 8px;
+    width: 14px;
+    text-align: center;
+}
+.file-tree li.folder > .node-label > i { color: var(--accent-color); }
+
+.file-tree li.drag-hover-target > .node-label {
     background-color: var(--selection-color);
     outline: 1px solid var(--accent-color);
     border-radius: 2px;
 }
+/* ========================= 修改 END =========================== */
 
 /* --- 编辑器标签页 --- */
 #center-panel { display: flex; flex-direction: column; }

@@ -26,6 +26,11 @@
                 </div>
                 <div class="settings-item">
                     <label>JDK 路径配置 (修改后自动保存到服务器)</label>
+                    <!-- ========================= 修改 START ========================= -->
+                    <p style="font-size: 0.8em; color: var(--text-secondary); margin-bottom: 8px;">
+                        (可选) 指定本地JDK路径以覆盖后端默认的构建环境。如果留空，系统将使用内置的JDK 17进行兼容性编译。
+                    </p>
+                    <!-- ========================= 修改 END =========================== -->
                     <div id="jdk-paths-list" class="settings-list"></div>
                     <button id="add-jdk-path-btn" class="modal-action-btn secondary-btn" style="margin-top: 10px; align-self: flex-start;">
                         <i class="fas fa-plus"></i> 添加 JDK

@@ -38,18 +38,21 @@ public class SettingsService {
     private final String initialWorkspaceRoot;
     private final String initialMavenHome;
     private final Map<String, String> initialJdkPaths;
-    private final String initialGiteeToken;
+    // ========================= 关键修正 START =========================
+    // 移除了 initialGiteeToken 字段的注入，因为它不再属于服务器配置
+    // ========================= 关键修正 END ===========================
 
     public SettingsService(
             @Value("${app.workspace-root}") String initialWorkspaceRoot,
             @Value("${app.maven.home:}") String initialMavenHome,
-            @Value("#{${app.jdk.paths}}") Map<String, String> initialJdkPaths,
-            @Value("${gitee.api.access-token:}") String initialGiteeToken) {
+            @Value("#{${app.jdk.paths}}") Map<String, String> initialJdkPaths) {
+        // ========================= 关键修正 START =========================
+        // 移除了构造函数参数中的 Gitee Token
+        // ========================= 关键修正 END ===========================
 
         this.initialWorkspaceRoot = initialWorkspaceRoot;
         this.initialMavenHome = initialMavenHome;
         this.initialJdkPaths = initialJdkPaths;
-        this.initialGiteeToken = initialGiteeToken;
 
         // 设置文件的最终路径依赖于工作区路径，该路径本身也是可配置的。
         // 所以在init()中加载配置后，才能确定最终的 settingsFilePath。
@@ -132,9 +135,9 @@ public class SettingsService {
         if (this.initialJdkPaths != null && !this.initialJdkPaths.isEmpty()) {
             settings.setJdkPaths(this.initialJdkPaths);
         }
-        if (StringUtils.hasText(this.initialGiteeToken)) {
-            settings.setGiteeAccessToken(this.initialGiteeToken);
-        }
+        // ========================= 关键修正 START =========================
+        // 移除了尝试设置 Gitee Token 的代码块
+        // ========================= 关键修正 END ===========================
         return settings;
     }
 }

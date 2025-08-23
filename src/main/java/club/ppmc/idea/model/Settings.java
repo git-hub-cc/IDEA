@@ -40,15 +40,8 @@ public class Settings {
     private String editorFontFamily = "JetBrains Mono";
     private boolean wordWrap = true;
 
-    // --- Git 平台配置 ---
-    /**
-     * Git 托管平台，例如 "gitee" 或 "github"。
-     * 这决定了 `GitService` 调用哪个平台的API来获取仓库列表。
-     */
-    private String gitPlatform = "gitee";
+    // --- Git 平台配置 (已移除) ---
+    // giteeAccessToken, gitPlatform 等敏感信息和用户特定配置
+    // 已从服务器端全局设置中移除，现在由客户端管理。
 
-    /**
-     * 个人访问令牌，用于API访问和HTTPS协议的Git操作。
-     */
-    private String giteeAccessToken;
 }

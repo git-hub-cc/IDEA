@@ -11,7 +11,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -23,16 +25,22 @@ public class SystemCommandExecutor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SystemCommandExecutor.class);
 
+    public CompletableFuture<Integer> executeCommand(
+            List<String> commandList, File workingDirectory, Consumer<String> outputConsumer) {
+        return executeCommand(commandList, workingDirectory, Collections.emptyMap(), outputConsumer);
+    }
+
     /**
      * 异步执行一个系统命令，并实时流式传输其标准输出和错误流。
      *
-     * @param commandList 要执行的命令及其参数列表 (e.g., ["git", "pull"])。
+     * @param commandList      要执行的命令及其参数列表 (e.g., ["git", "pull"])。
      * @param workingDirectory 命令执行的工作目录。
-     * @param outputConsumer 一个消费者，用于处理命令输出的每一行。
+     * @param environment      要为命令设置的环境变量。
+     * @param outputConsumer   一个消费者，用于处理命令输出的每一行。
      * @return 一个CompletableFuture，当命令执行完毕时完成，其值为进程的退出码。
      */
     public CompletableFuture<Integer> executeCommand(
-            List<String> commandList, File workingDirectory, Consumer<String> outputConsumer) {
+            List<String> commandList, File workingDirectory, Map<String, String> environment, Consumer<String> outputConsumer) {
         return CompletableFuture.supplyAsync(
                 () -> {
                     if (commandList == null || commandList.isEmpty()) {
@@ -41,14 +49,20 @@ public class SystemCommandExecutor {
                     }
                     try {
                         LOGGER.info(
-                                "在目录 {} 中执行命令: {}",
+                                "在目录 {} 中执行命令: {} (环境变量: {})",
                                 workingDirectory.getAbsolutePath(),
-                                String.join(" ", commandList));
+                                String.join(" ", commandList),
+                                environment);
 
                         var processBuilder =
                                 new ProcessBuilder(commandList)
                                         .directory(workingDirectory)
                                         .redirectErrorStream(true); // 将错误流重定向到标准输出流
+
+                        // 设置环境变量
+                        if (environment != null && !environment.isEmpty()) {
+                            processBuilder.environment().putAll(environment);
+                        }
 
                         var process = processBuilder.start();
 

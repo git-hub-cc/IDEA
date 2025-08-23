@@ -95,7 +95,12 @@
         </dependency>
         <!-- ========================= 新增依赖 END =========================== -->
 
-
+        <!-- https://mvnrepository.com/artifact/com.google.googlejavaformat/google-java-format -->
+        <dependency>
+            <groupId>com.google.googlejavaformat</groupId>
+            <artifactId>google-java-format</artifactId>
+            <version>1.28.0</version>
+        </dependency>
         <!-- Spring Boot Test Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

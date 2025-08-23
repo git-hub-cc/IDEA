@@ -4,13 +4,13 @@
  * 该服务封装了所有与Git相关的操作，包括克隆远程仓库、获取状态、提交、推送和拉取。
  * 它使用 JGit 库处理本地仓库操作，并使用 RestTemplate 调用 Gitee/GitHub API。
  * 对于需要认证的 push/pull 操作，它会调用本机的 `git` 命令来利用系统级的凭证管理。
- * 它依赖 SettingsService 获取工作区路径和Git配置。
+ * 它依赖 SettingsService 获取工作区路径。
  */
 package club.ppmc.idea.service;
 
+import club.ppmc.idea.model.GitCredentialsRequest;
 import club.ppmc.idea.model.GitStatusResponse;
 import club.ppmc.idea.model.RemoteRepoInfo;
-import club.ppmc.idea.model.Settings;
 import club.ppmc.idea.util.SystemCommandExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -29,9 +29,7 @@ import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
-// ========================= 关键修正 START: 导入正确的类 =========================
 import org.eclipse.jgit.lib.StoredConfig;
-// ========================= 关键修正 END ======================================
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,13 +74,9 @@ public class GitService {
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubApiRepo(String name, String description, @JsonProperty("clone_url") String cloneUrl) {}
 
-    public List<RemoteRepoInfo> getRemoteRepositories() {
-        Settings settings = settingsService.getSettings();
-        String platform = settings.getGitPlatform();
-        String accessToken = settings.getGiteeAccessToken();
-
+    public List<RemoteRepoInfo> getRemoteRepositories(String platform, String accessToken) {
         if (!StringUtils.hasText(accessToken)) {
-            LOGGER.warn("未在设置中配置个人访问令牌，无法获取远程仓库列表。");
+            LOGGER.warn("未提供个人访问令牌，无法获取远程仓库列表。");
             return Collections.emptyList();
         }
 
@@ -125,7 +119,7 @@ public class GitService {
         }
     }
 
-    public String cloneSpecificRepository(String repoHttpsUrl) throws GitAPIException, IOException {
+    public String cloneSpecificRepository(String repoHttpsUrl, String accessToken) throws GitAPIException, IOException {
         String projectName = extractProjectNameFromUrl(repoHttpsUrl);
         Path projectDir = getWorkspaceRoot().resolve(projectName);
 
@@ -134,7 +128,6 @@ public class GitService {
             FileUtils.deleteDirectory(projectDir.toFile());
         }
 
-        String accessToken = settingsService.getSettings().getGiteeAccessToken();
         LOGGER.info("正在克隆仓库 {} 到 {}", repoHttpsUrl, projectDir);
 
         try (Git git =
@@ -146,15 +139,9 @@ public class GitService {
             LOGGER.info("仓库已通过HTTPS成功克隆到: {}", git.getRepository().getDirectory());
 
             String sshUrl = convertHttpsToSshUrl(repoHttpsUrl);
-
-            // ========================= 关键修正 START =========================
-            // git.getRepository().getConfig() 返回的是 StoredConfig，它有 save() 方法。
-            // 将变量类型从 Config 修正为 StoredConfig 即可。
             StoredConfig config = git.getRepository().getConfig();
-            // ========================= 关键修正 END ===========================
-
             config.setString("remote", "origin", "url", sshUrl);
-            config.save(); // 现在可以正常调用
+            config.save();
             LOGGER.info("远程 'origin' URL已成功更新为: {}", sshUrl);
 
             return projectName;
@@ -203,12 +190,12 @@ public class GitService {
         }
     }
 
-    public String pull(String projectPath) throws IOException, GitAPIException {
-        return executeNativeGitCommand(projectPath, List.of("git", "pull"), "拉取", "Pull");
+    public String pull(String projectPath, GitCredentialsRequest credentials) throws IOException, GitAPIException {
+        return executeNativeGitCommand(projectPath, List.of("git", "pull"), "拉取", "Pull", credentials);
     }
 
-    public Map<String, Object> push(String projectPath) throws IOException, GitAPIException {
-        String output = executeNativeGitCommand(projectPath, List.of("git", "push"), "推送", "Push");
+    public Map<String, Object> push(String projectPath, GitCredentialsRequest credentials) throws IOException, GitAPIException {
+        String output = executeNativeGitCommand(projectPath, List.of("git", "push"), "推送", "Push", credentials);
 
         String remoteUrl;
         try (Git git = openRepository(projectPath)) {
@@ -218,13 +205,21 @@ public class GitService {
         return Map.of("message", "推送成功。\n" + output, "repoUrl", convertGitUrlToBrowsableHttps(remoteUrl));
     }
 
-    private String executeNativeGitCommand(String projectPath, List<String> command, String opNameChinese, String opNameEnglish) throws IOException, GitAPIException {
+    private String executeNativeGitCommand(
+            String projectPath, List<String> command, String opNameChinese, String opNameEnglish, GitCredentialsRequest credentials)
+            throws IOException, GitAPIException {
         File projectDir = getValidatedProjectDir(projectPath);
         LOGGER.info("正在为项目 '{}' 执行原生git命令: {}", projectPath, String.join(" ", command));
 
+        // 为SSH操作设置环境变量
+        Map<String, String> env = new HashMap<>();
+        if (StringUtils.hasText(credentials.sshKeyPath())) {
+            env.put("GIT_SSH_COMMAND", "ssh -i " + credentials.sshKeyPath());
+        }
+
         var output = new StringBuilder();
         try {
-            int exitCode = commandExecutor.executeCommand(command, projectDir, line -> output.append(line).append("\n")).get();
+            int exitCode = commandExecutor.executeCommand(command, projectDir, env, line -> output.append(line).append("\n")).get();
             String commandOutput = output.toString().trim();
 
             if (exitCode == 0) {

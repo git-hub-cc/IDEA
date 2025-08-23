@@ -75,36 +75,36 @@ const ModalManager = {
     },
 
     /**
-     * @description 收集所有设置项的值并调用API保存。
+     * @description 收集应用级的设置项（非Git凭证）并调用API保存。
      * @returns {Promise<void>}
      * @private
      */
-    _collectAndSaveAllSettings: async function() {
+    _collectAndSaveAppSettings: async function() {
         const modalBody = document.getElementById('modal-body');
         if (!modalBody.querySelector('#settings-theme')) {
-            console.warn('_collectAndSaveAllSettings 无法执行，因为设置模态框未渲染。');
+            console.warn('_collectAndSaveAppSettings 无法执行，因为设置模态框未渲染。');
             return Promise.reject(new Error("设置UI未加载。"));
         }
 
-        this.currentSettings.theme = modalBody.querySelector('#settings-theme').value;
-        this.currentSettings.fontSize = parseInt(modalBody.querySelector('#settings-font-size').value, 10);
-        this.currentSettings.editorFontFamily = modalBody.querySelector('#settings-editor-font').value;
-        this.currentSettings.wordWrap = modalBody.querySelector('#settings-word-wrap').value === 'true';
-        this.currentSettings.gitPlatform = modalBody.querySelector('#settings-git-platform').value;
-        this.currentSettings.giteeAccessToken = modalBody.querySelector('#settings-gitee-token').value;
-        this.currentSettings.giteeSshPrivateKeyPath = modalBody.querySelector('#settings-ssh-key-path').value;
-        this.currentSettings.giteeSshPassphrase = modalBody.querySelector('#settings-ssh-passphrase').value;
-        this.currentSettings.workspaceRoot = modalBody.querySelector('#settings-workspace-root').value;
-        this.currentSettings.mavenHome = modalBody.querySelector('#settings-maven-home').value;
+        // 只收集非敏感的应用和环境设置
+        const appSettings = {
+            theme: modalBody.querySelector('#settings-theme').value,
+            fontSize: parseInt(modalBody.querySelector('#settings-font-size').value, 10),
+            editorFontFamily: modalBody.querySelector('#settings-editor-font').value,
+            wordWrap: modalBody.querySelector('#settings-word-wrap').value === 'true',
+            workspaceRoot: modalBody.querySelector('#settings-workspace-root').value,
+            mavenHome: modalBody.querySelector('#settings-maven-home').value
+            // JDK路径是即时保存的，这里不包含
+        };
 
         try {
-            await NetworkManager.saveSettings(this.currentSettings);
-            EventBus.emit('log:info', '设置已更新并保存。');
-            EventBus.emit('settings:changed', { ...this.currentSettings });
+            await NetworkManager.saveSettings(appSettings);
+            EventBus.emit('log:info', '应用设置已更新并保存。');
+            EventBus.emit('settings:changed', { ...this.currentSettings, ...appSettings });
             return Promise.resolve();
         } catch (error) {
-            EventBus.emit('log:error', `保存设置失败: ${error.message}`);
-            this.showAlert('保存失败', `无法保存设置: ${error.message}`);
+            EventBus.emit('log:error', `保存应用设置失败: ${error.message}`);
+            this.showAlert('保存失败', `无法保存应用设置: ${error.message}`);
             return Promise.reject(error);
         }
     },
@@ -118,10 +118,30 @@ const ModalManager = {
         const oldWorkspaceRoot = this.currentSettings ? this.currentSettings.workspaceRoot : null;
         const newWorkspaceRoot = modalBody.querySelector('#settings-workspace-root').value;
 
+        // 步骤 1: 将Git凭证保存到localStorage
         try {
-            await this._collectAndSaveAllSettings();
+            const gitPlatform = modalBody.querySelector('#settings-git-platform').value;
+            const giteeToken = modalBody.querySelector('#settings-gitee-token').value;
+            const sshKeyPath = modalBody.querySelector('#settings-ssh-key-path').value;
+            const sshPassphrase = modalBody.querySelector('#settings-ssh-passphrase').value;
+
+            localStorage.setItem('git_platform', gitPlatform);
+            localStorage.setItem('git_access_token', giteeToken);
+            localStorage.setItem('git_ssh_key_path', sshKeyPath);
+            localStorage.setItem('git_ssh_passphrase', sshPassphrase);
+            EventBus.emit('log:info', 'Git 凭证已保存到浏览器本地存储。');
+        } catch (e) {
+            EventBus.emit('log:error', `保存Git凭证到localStorage失败: ${e.message}`);
+            this.showAlert('保存失败', '无法将Git凭证保存到浏览器，请检查浏览器设置。');
+            return; // 保存失败则不继续
+        }
+
+        // 步骤 2: 保存应用级设置到后端
+        try {
+            await this._collectAndSaveAppSettings();
             this._close(true);
 
+            // 步骤 3: 处理工作区变更
             if (oldWorkspaceRoot !== null && oldWorkspaceRoot !== newWorkspaceRoot) {
                 EventBus.emit('log:info', '工作区路径已更改，正在刷新项目列表...');
                 Config.setActiveProject(null);
@@ -138,7 +158,7 @@ const ModalManager = {
                 }
             }
         } catch (error) {
-            console.error('设置保存失败，操作被中断。', error);
+            console.error('应用设置保存失败，操作被中断。', error);
         }
     },
 
@@ -149,7 +169,7 @@ const ModalManager = {
      * @returns {Promise}
      */
     showSettings: function(settings, openTab = 'app-settings-pane') {
-        this.currentSettings = { ...settings };
+        this.currentSettings = { ...settings }; // 缓存从后端获取的非敏感设置
         if (!this.currentSettings.jdkPaths) {
             this.currentSettings.jdkPaths = {};
         }
@@ -157,8 +177,8 @@ const ModalManager = {
         const bodyFragment = TemplateLoader.get('settings-modal-template');
         if (!bodyFragment) return Promise.reject("Template not found");
 
-        this._populateAppSettings(bodyFragment, settings);
-        this._populateGitSettings(bodyFragment, settings);
+        this._populateAppSettingsPane(bodyFragment, settings);
+        this._populateGitSettingsPane(bodyFragment); // 从localStorage加载
         bodyFragment.querySelector('#settings-workspace-root').value = settings.workspaceRoot || '';
         bodyFragment.querySelector('#settings-maven-home').value = settings.mavenHome || '';
 
@@ -191,53 +211,44 @@ const ModalManager = {
             const button = e.target.closest('button');
             if (!button) return;
 
-            const settingsBeingEdited = this.currentSettings;
+            const settingsBeingEdited = { ...this.currentSettings }; // 操作副本
             if (!settingsBeingEdited) return;
 
             const action = button.dataset.action;
             const key = button.dataset.key;
-            const oldJdkPaths = { ...settingsBeingEdited.jdkPaths };
 
             if (action === 'delete-jdk') {
                 delete settingsBeingEdited.jdkPaths[key];
-                try {
-                    await NetworkManager.saveSettings(settingsBeingEdited);
-                    this.currentSettings = settingsBeingEdited;
-                    EventBus.emit('log:info', `JDK配置 '${key}' 已删除并保存。`);
-                    renderJdkList();
-                } catch (saveError) {
-                    settingsBeingEdited.jdkPaths = oldJdkPaths;
-                    this.currentSettings = settingsBeingEdited;
-                    EventBus.emit('log:error', `删除JDK配置失败: ${saveError.message}`);
-                    this.showAlert('保存失败', `无法删除JDK配置: ${saveError.message}`);
-                    renderJdkList();
-                }
             } else if (action === 'edit-jdk') {
                 try {
                     const currentValue = settingsBeingEdited.jdkPaths[key];
                     const { newKey, newValue } = await this._showJdkPrompt('编辑 JDK', key, currentValue);
                     if (newKey !== key) delete settingsBeingEdited.jdkPaths[key];
                     settingsBeingEdited.jdkPaths[newKey] = newValue;
-                    await NetworkManager.saveSettings(settingsBeingEdited);
-                    this.currentSettings = settingsBeingEdited;
-                    EventBus.emit('log:info', `JDK配置 '${key}' 已更新为 '${newKey}' 并保存。`);
-                    renderJdkList();
-                } catch (error) {
-                    settingsBeingEdited.jdkPaths = oldJdkPaths;
-                    this.currentSettings = settingsBeingEdited;
-                    if (error.message !== '用户取消了操作。') {
-                        EventBus.emit('log:error', `编辑JDK配置失败: ${error.message}`);
-                        this.showAlert('保存失败', `无法编辑JDK配置: ${error.message}`);
+                } catch (promptError) {
+                    if (promptError.message !== '用户取消了操作。') {
+                        EventBus.emit('log:error', `编辑JDK配置失败: ${promptError.message}`);
+                        this.showAlert('保存失败', `无法编辑JDK配置: ${promptError.message}`);
                     }
-                    renderJdkList();
+                    return; // 用户取消或出错，则不继续
                 }
+            }
+
+            try {
+                // JDK路径是环境配置的一部分，可以保存到后端
+                await NetworkManager.saveSettings(settingsBeingEdited);
+                this.currentSettings = settingsBeingEdited; // 更新本地缓存
+                EventBus.emit('log:info', `JDK配置已更新并保存。`);
+                renderJdkList();
+            } catch (saveError) {
+                EventBus.emit('log:error', `保存JDK配置失败: ${saveError.message}`);
+                this.showAlert('保存失败', `无法保存JDK配置: ${saveError.message}`);
             }
         });
 
         addJdkBtn.addEventListener('click', async () => {
-            const settingsBeingEdited = this.currentSettings;
+            const settingsBeingEdited = { ...this.currentSettings };
             if (!settingsBeingEdited) return;
-            const oldJdkPaths = { ...settingsBeingEdited.jdkPaths };
 
             try {
                 const { newKey, newValue } = await this._showJdkPrompt('添加 JDK');
@@ -247,13 +258,10 @@ const ModalManager = {
                 EventBus.emit('log:info', `新的JDK配置 '${newKey}' 已添加并保存。`);
                 renderJdkList();
             } catch (error) {
-                settingsBeingEdited.jdkPaths = oldJdkPaths;
-                this.currentSettings = settingsBeingEdited;
                 if (error.message !== '用户取消了操作。') {
                     EventBus.emit('log:error', `添加JDK配置失败: ${error.message}`);
                     this.showAlert('保存失败', `无法添加JDK配置: ${error.message}`);
                 }
-                renderJdkList();
             }
         });
 
@@ -534,7 +542,7 @@ const ModalManager = {
      * @param {object} settings - 设置对象。
      * @private
      */
-    _populateAppSettings: function(container, settings) {
+    _populateAppSettingsPane: function(container, settings) {
         const pane = container.querySelector('#app-settings-pane');
         const template = TemplateLoader.get('app-settings-pane-template');
         if (!template) return;
@@ -546,19 +554,18 @@ const ModalManager = {
     },
 
     /**
-     * @description 使用模板填充Git设置面板。
+     * @description 使用模板和localStorage中的数据填充Git设置面板。
      * @param {Node} container - 设置模态框的容器。
-     * @param {object} settings - 设置对象。
      * @private
      */
-    _populateGitSettings: function(container, settings) {
+    _populateGitSettingsPane: function(container) {
         const pane = container.querySelector('#git-settings-pane');
         const template = TemplateLoader.get('git-settings-pane-template');
         if (!template) return;
-        template.querySelector('#settings-git-platform').value = settings.gitPlatform || 'gitee';
-        template.querySelector('#settings-gitee-token').value = settings.giteeAccessToken || '';
-        template.querySelector('#settings-ssh-key-path').value = settings.giteeSshPrivateKeyPath || '';
-        template.querySelector('#settings-ssh-passphrase').value = settings.giteeSshPassphrase || '';
+        template.querySelector('#settings-git-platform').value = localStorage.getItem('git_platform') || 'gitee';
+        template.querySelector('#settings-gitee-token').value = localStorage.getItem('git_access_token') || '';
+        template.querySelector('#settings-ssh-key-path').value = localStorage.getItem('git_ssh_key_path') || '';
+        template.querySelector('#settings-ssh-passphrase').value = localStorage.getItem('git_ssh_passphrase') || '';
         pane.appendChild(template);
     },
 
@@ -591,12 +598,15 @@ const ModalManager = {
     },
 
     /**
-     * @description 显示一个带有自定义按钮选项的模态框。
+     * ========================= 新增方法 START =========================
+     * 显示一个带有自定义按钮选项的模态框。
+     *
      * @param {object} options - 配置项。
      * @param {string} options.title - 标题。
      * @param {string} options.message - 消息内容。
      * @param {Array<{id: string, text: string}>} options.choices - 按钮选项数组。
      * @returns {Promise<string>} 返回被点击按钮的 ID。
+     * ========================= 新增方法 END ===========================
      */
     showChoiceModal: function({ title, message, choices = [] }) {
         const body = document.createElement('div');

@@ -86,7 +86,7 @@
   },
   {
     "keys": "Ctrl+Alt+L",
-    "event": "editor:formatDocument",
+    "event": "action:format-code",
     "description": "格式化代码 (IDEA 风格)"
   },
   {

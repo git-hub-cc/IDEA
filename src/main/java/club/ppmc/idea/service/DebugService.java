@@ -14,36 +14,19 @@ import club.ppmc.idea.model.debug.StackFrameInfo;
 import club.ppmc.idea.model.debug.VariableInfo;
 import club.ppmc.idea.model.debug.WsDebugEvent;
 import club.ppmc.idea.util.MavenProjectHelper;
-import com.sun.jdi.AbsentInformationException;
-import com.sun.jdi.Bootstrap;
-import com.sun.jdi.IncompatibleThreadStateException;
-import com.sun.jdi.LocalVariable;
-import com.sun.jdi.Location;
-import com.sun.jdi.ObjectReference;
-import com.sun.jdi.PrimitiveValue;
-import com.sun.jdi.ReferenceType;
-import com.sun.jdi.StackFrame;
-import com.sun.jdi.StringReference;
-import com.sun.jdi.ThreadReference;
-import com.sun.jdi.VMDisconnectedException;
-import com.sun.jdi.VirtualMachine;
-import com.sun.jdi.VirtualMachineManager;
+import com.sun.jdi.*;
 import com.sun.jdi.connect.AttachingConnector;
 import com.sun.jdi.connect.Connector;
 import com.sun.jdi.connect.IllegalConnectorArgumentsException;
-import com.sun.jdi.event.BreakpointEvent;
-import com.sun.jdi.event.ClassPrepareEvent;
-import com.sun.jdi.event.Event;
-import com.sun.jdi.event.EventQueue;
-import com.sun.jdi.event.EventSet;
-import com.sun.jdi.event.LocatableEvent;
-import com.sun.jdi.event.StepEvent;
-import com.sun.jdi.event.VMDeathEvent;
-import com.sun.jdi.event.VMDisconnectEvent;
+import com.sun.jdi.event.*;
 import com.sun.jdi.request.BreakpointRequest;
 import com.sun.jdi.request.ClassPrepareRequest;
 import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.StepRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -53,15 +36,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 @Service
 public class DebugService {
@@ -78,6 +60,9 @@ public class DebugService {
     private final Map<String, List<club.ppmc.idea.model.debug.BreakpointRequest>> userBreakpoints =
             new ConcurrentHashMap<>();
 
+    private final AtomicBoolean mainBreakpointSetAndResumed = new AtomicBoolean(false);
+    private volatile String mainClassNameForDebug;
+
     private volatile Thread eventThread;
 
     public DebugService(
@@ -89,9 +74,6 @@ public class DebugService {
         this.settingsService = settingsService;
     }
 
-    /**
-     * 动态获取最新的工作区根目录。
-     */
     private Path getWorkspaceRoot() {
         String workspaceRootPath = settingsService.getSettings().getWorkspaceRoot();
         return Paths.get(workspaceRootPath).toAbsolutePath().normalize();
@@ -104,13 +86,15 @@ public class DebugService {
             LOGGER.warn("检测到活动的调试会话，将先进行清理...");
             cleanup();
             try {
-                // 等待旧进程资源释放
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 LOGGER.warn("清理等待期间被中断。");
             }
         }
+
+        this.mainClassNameForDebug = mainClass;
+        this.mainBreakpointSetAndResumed.set(false);
 
         try {
             launchDebugeeProcess(projectPath, mainClass)
@@ -138,7 +122,6 @@ public class DebugService {
             this.vm.set(newVm);
             LOGGER.info("已成功附加到 VM: {}", newVm.description());
 
-            // 监听类加载事件，以便在类加载后动态设置断点
             ClassPrepareRequest cpr = newVm.eventRequestManager().createClassPrepareRequest();
             cpr.addClassFilter("*");
             cpr.setSuspendPolicy(EventRequest.SUSPEND_ALL);
@@ -146,10 +129,8 @@ public class DebugService {
 
             configureAndStartEventHandling(newVm);
             notificationService.sendDebugEvent(new WsDebugEvent<>("STARTED", null));
-            newVm.resume(); // 让目标VM继续执行
-            LOGGER.info("调试会话已完全启动并恢复运行。");
+            LOGGER.info("调试器已附加。等待 ClassPrepareEvents 以设置断点并开始执行。");
         } catch (Exception e) {
-            // Unboxing a potential CompletionException
             var cause = e.getCause() != null ? e.getCause() : e;
             LOGGER.error("附加到VM或启动事件处理时失败: {}", cause.getMessage(), cause);
             cleanup();
@@ -159,31 +140,19 @@ public class DebugService {
 
     private CompletableFuture<Process> launchDebugeeProcess(String projectPath, String mainClass)
             throws IOException {
-        // 步骤 1: 编译项目
-        runMavenCompile(projectPath);
-
-        // 步骤 2: 获取环境配置
         Settings settings = settingsService.getSettings();
         Path projectDir = getWorkspaceRoot().resolve(projectPath);
-        String jdkVersion =
-                mavenHelper.getJavaVersionFromPom(
-                        projectDir.toFile(), notificationService::sendBuildLog);
-        String javaExecutable =
-                settings.getJdkPaths().get("jdk" + jdkVersion); // 从settings中获取JDK路径
+        String jdkVersion = mavenHelper.getJavaVersionFromPom(projectDir.toFile(), notificationService::sendBuildLog);
+        String javaExecutable = mavenHelper.selectJdkExecutable(settings, jdkVersion, notificationService::sendBuildLog);
 
-        if (javaExecutable == null || !new File(javaExecutable).exists()) {
-            LOGGER.warn("未找到为项目配置的JDK'{}'，将回退到系统默认'java'。", "jdk" + jdkVersion);
-            notificationService.sendBuildLog(
-                    String.format("[警告] 未在设置中找到JDK %s，将尝试使用系统默认'java'。", jdkVersion));
-            javaExecutable = "java"; // 安全回退
+        List<String> mavenGoals = Arrays.asList("clean", "install", "dependency:copy-dependencies", "-U");
+        int buildExitCode = mavenHelper.executeMavenBuild(projectPath, settings, mavenGoals);
+
+        if (buildExitCode != 0) {
+            throw new IOException("Maven 编译失败，退出码: " + buildExitCode + "。已终止调试启动。");
         }
 
-        Path classesDir = projectDir.resolve("target/classes");
-        if (!Files.exists(classesDir)) {
-            throw new IOException("编译产物目录 'target/classes' 不存在。请检查编译是否成功。");
-        }
-
-        // 步骤 3: 构建调试命令
+        String classpath = buildClasspath(projectDir);
         String jdwpConfig =
                 String.format("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=%d", JDWP_PORT);
 
@@ -191,13 +160,12 @@ public class DebugService {
         command.add(javaExecutable);
         command.add(jdwpConfig);
         command.add("-cp");
-        command.add(classesDir.toAbsolutePath().toString());
+        command.add(classpath);
         command.add(mainClass);
 
         ProcessBuilder pb = new ProcessBuilder(command).directory(projectDir.toFile());
         LOGGER.info("执行调试命令: {}", String.join(" ", pb.command()));
 
-        // 步骤 4: 启动进程并监听JDWP握手信息
         Process p = pb.start();
         var processReadyFuture = new CompletableFuture<Process>();
         redirectStream(p, p.getInputStream(), "信息", processReadyFuture);
@@ -206,35 +174,28 @@ public class DebugService {
         return processReadyFuture.orTimeout(90, TimeUnit.SECONDS);
     }
 
-    private void runMavenCompile(String projectPath) throws IOException {
-        Path projectDir = getWorkspaceRoot().resolve(projectPath);
-        // 此处应使用 SettingsService 获取Maven路径，但为简化，暂用系统mvn
-        String mvnCommand = System.getProperty("os.name").toLowerCase().contains("win") ? "mvn.cmd" : "mvn";
-        var pb = new ProcessBuilder(mvnCommand, "compile").directory(projectDir.toFile());
-        pb.redirectErrorStream(true);
+    private String buildClasspath(Path projectDir) throws IOException {
+        Path targetDir = projectDir.resolve("target");
+        Path classesDir = targetDir.resolve("classes");
+        Path dependencyDir = targetDir.resolve("dependency");
 
-        LOGGER.info("正在为调试执行编译: {} compile", mvnCommand);
-        notificationService.sendBuildLog("[信息] 正在执行 Maven 编译...");
-        Process compileProcess = pb.start();
-
-        try (var reader = new BufferedReader(new InputStreamReader(compileProcess.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                notificationService.sendBuildLog("[编译] " + line);
-            }
+        if (!Files.isDirectory(classesDir)) {
+            throw new IOException("未找到编译输出目录 'target/classes'。请确认 Maven 构建是否成功。");
         }
 
-        try {
-            int exitCode = compileProcess.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("Maven 编译失败，退出码: " + exitCode);
+        List<String> classpathEntries = new ArrayList<>();
+        classpathEntries.add(classesDir.toAbsolutePath().toString());
+
+        if (Files.isDirectory(dependencyDir)) {
+            try (var dependencyJars = Files.walk(dependencyDir)) {
+                List<String> jarPaths = dependencyJars
+                        .filter(path -> path.toString().endsWith(".jar"))
+                        .map(path -> path.toAbsolutePath().toString())
+                        .toList();
+                classpathEntries.addAll(jarPaths);
             }
-            LOGGER.info("编译成功。");
-            notificationService.sendBuildLog("[信息] 编译成功。");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("编译过程被中断。", e);
         }
+        return String.join(File.pathSeparator, classpathEntries);
     }
 
     private void redirectStream(
@@ -254,7 +215,6 @@ public class DebugService {
                         LOGGER.warn("读取进程流时出错 (可能是进程已结束): {}", e.getMessage());
                     }
 
-                    // 如果流结束了但future还未完成，说明进程启动失败
                     if (!readyFuture.isDone()) {
                         String errorMsg = "进程意外终止，未能启动调试模式。请检查日志输出以获取详细错误。";
                         LOGGER.error(errorMsg);
@@ -275,7 +235,7 @@ public class DebugService {
         Map<String, Connector.Argument> arguments = connector.defaultArguments();
         arguments.get("port").setValue(String.valueOf(JDWP_PORT));
         arguments.get("hostname").setValue("localhost");
-        arguments.get("timeout").setValue("10000"); // 10秒超时
+        arguments.get("timeout").setValue("10000");
 
         return connector.attach(arguments);
     }
@@ -323,8 +283,6 @@ public class DebugService {
         LOGGER.info("调试会话清理完成。");
     }
 
-    // ... 其他方法（step, resume, breakpoint等）和事件处理逻辑保持不变，但可以进行细微优化和注释添加 ...
-
     public void toggleBreakpoint(String filePath, int lineNumber, boolean enabled) {
         var fileBreakpoints = userBreakpoints.computeIfAbsent(filePath, k -> new ArrayList<>());
         fileBreakpoints.removeIf(bp -> bp.lineNumber() == lineNumber);
@@ -346,16 +304,16 @@ public class DebugService {
             return;
         }
         try {
-            // 只处理第一个匹配的类
             ReferenceType refType = classes.get(0);
             List<Location> locations = refType.locationsOfLine(lineNumber);
             if (locations.isEmpty()) {
                 LOGGER.warn("在文件 {} 的行 {} 找不到可执行代码位置，无法应用断点变更", filePath, lineNumber);
+                notificationService.sendBuildLog(String.format(
+                        "[警告] 无法在 %s:%d 设置断点，该行可能没有可执行的代码。", filePath.split("/")[filePath.split("/").length-1], lineNumber));
                 return;
             }
             Location loc = locations.get(0);
 
-            // 移除此位置所有旧的断点请求
             vm.eventRequestManager().breakpointRequests().stream()
                     .filter(req -> req.location().equals(loc))
                     .forEach(req -> vm.eventRequestManager().deleteEventRequest(req));
@@ -369,7 +327,11 @@ public class DebugService {
                 LOGGER.info("动态移除断点于: {}", loc);
             }
         } catch (AbsentInformationException e) {
-            LOGGER.error("无法应用断点变更，请确保代码已使用调试信息编译 (-g)", e);
+            String errorMessage = String.format(
+                    "[警告] 无法在 %s:%d 设置断点。请确保项目编译时包含了调试信息 (例如，Maven Compiler Plugin 的 <debug> 设置为 true)。",
+                    filePath, lineNumber);
+            LOGGER.error("无法应用断点变更: {}", errorMessage, e);
+            notificationService.sendBuildLog(errorMessage);
         }
     }
 
@@ -381,17 +343,9 @@ public class DebugService {
         }
     }
 
-    public void stepOver() {
-        executeStep(StepRequest.STEP_OVER);
-    }
-
-    public void stepInto() {
-        executeStep(StepRequest.STEP_INTO);
-    }
-
-    public void stepOut() {
-        executeStep(StepRequest.STEP_OUT);
-    }
+    public void stepOver() { executeStep(StepRequest.STEP_OVER); }
+    public void stepInto() { executeStep(StepRequest.STEP_INTO); }
+    public void stepOut() { executeStep(StepRequest.STEP_OUT); }
 
     private void executeStep(int stepType) {
         VirtualMachine currentVm = vm.get();
@@ -400,15 +354,12 @@ public class DebugService {
         try {
             ThreadReference thread = getSuspendedThread(currentVm);
             if (thread != null) {
-                // 清理所有旧的单步请求
                 currentVm.eventRequestManager().deleteEventRequests(currentVm.eventRequestManager().stepRequests());
-
                 StepRequest request = currentVm.eventRequestManager().createStepRequest(thread, StepRequest.STEP_LINE, stepType);
-                request.addCountFilter(1); // 只执行一步
+                request.addCountFilter(1);
                 request.setSuspendPolicy(EventRequest.SUSPEND_ALL);
                 request.enable();
-
-                currentVm.resume(); // 恢复执行以完成这一步
+                currentVm.resume();
                 notificationService.sendDebugEvent(new WsDebugEvent<>("RESUMED", null));
             } else {
                 LOGGER.warn("无法执行单步操作：没有找到已暂停的线程。");
@@ -418,29 +369,28 @@ public class DebugService {
         }
     }
 
-
     private void configureAndStartEventHandling(VirtualMachine virtualMachine) {
-        eventThread =
-                new Thread(
-                        () -> {
-                            try {
-                                EventQueue eventQueue = virtualMachine.eventQueue();
-                                while (!Thread.currentThread().isInterrupted()) {
-                                    EventSet eventSet = eventQueue.remove(); // 阻塞直到有事件
-                                    for (Event event : eventSet) {
-                                        handleEvent(event);
-                                    }
-                                    eventSet.resume(); // 处理完后恢复目标VM
-                                }
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt(); // 保持中断状态
-                            } catch (VMDisconnectedException e) {
-                                LOGGER.info("VM 在事件处理期间断开连接，将执行清理。");
-                                cleanup();
-                                notificationService.sendDebugEvent(new WsDebugEvent<>("TERMINATED", null));
-                            }
-                        },
-                        "JDI-Event-Handler");
+        eventThread = new Thread(() -> {
+            try {
+                EventQueue eventQueue = virtualMachine.eventQueue();
+                while (!Thread.currentThread().isInterrupted()) {
+                    EventSet eventSet = eventQueue.remove();
+                    for (Event event : eventSet) {
+                        handleEvent(event);
+                    }
+                    if (!mainBreakpointSetAndResumed.get()) {
+                    } else {
+                        eventSet.resume();
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (VMDisconnectedException e) {
+                LOGGER.info("VM 在事件处理期间断开连接，将执行清理。");
+                cleanup();
+                notificationService.sendDebugEvent(new WsDebugEvent<>("TERMINATED", null));
+            }
+        }, "JDI-Event-Handler");
         eventThread.setDaemon(true);
         eventThread.start();
     }
@@ -448,25 +398,37 @@ public class DebugService {
     private void handleEvent(Event event) {
         if (event instanceof VMDisconnectEvent || event instanceof VMDeathEvent) {
             LOGGER.info("检测到 VM 断开或死亡事件。");
-            // 清理工作会由VMDisconnectedException的catch块或外部stop调用处理
         } else if (event instanceof BreakpointEvent bpEvent) {
             handlePausedEvent(bpEvent);
         } else if (event instanceof StepEvent stepEvent) {
             handlePausedEvent(stepEvent);
         } else if (event instanceof ClassPrepareEvent cpe) {
-            // 当一个类被加载时，检查是否有为它预设的断点
-            String className = cpe.referenceType().name();
+            ReferenceType refType = cpe.referenceType();
+            String className = refType.name();
+
+            if (className.equals(this.mainClassNameForDebug) && !mainBreakpointSetAndResumed.get()) {
+                LOGGER.info("主类 '{}' 已准备好。正在设置入口断点。", className);
+                try {
+                    setMainMethodEntryBreakpoint(refType);
+                    LOGGER.info("入口断点已设置。正在恢复VM以命中该断点。");
+                    event.virtualMachine().resume();
+                    mainBreakpointSetAndResumed.set(true);
+                } catch (Exception e) {
+                    LOGGER.error("为 {} 设置主方法入口断点失败。正在中止调试。", className, e);
+                    cleanup();
+                    notificationService.sendBuildLog("[错误] 无法设置初始断点: " + e.getMessage());
+                }
+            }
+
             String guessedFilePath = guessFilePathFromClassName(className);
             List<club.ppmc.idea.model.debug.BreakpointRequest> bpList = userBreakpoints.get(guessedFilePath);
-
             if (bpList != null && !bpList.isEmpty()) {
                 LOGGER.info("类 '{}' 已准备好，找到 {} 个关联断点，准备应用。", className, bpList.size());
-                bpList.forEach(
-                        bp -> {
-                            if (bp.enabled()) {
-                                applyBreakpointChange(event.virtualMachine(), bp.filePath(), bp.lineNumber(), true);
-                            }
-                        });
+                bpList.forEach(bp -> {
+                    if (bp.enabled()) {
+                        applyBreakpointChange(event.virtualMachine(), bp.filePath(), bp.lineNumber(), true);
+                    }
+                });
             }
         }
     }
@@ -475,50 +437,52 @@ public class DebugService {
         try {
             LocationInfo location = createLocationData(event.location());
             List<StackFrameInfo> callStack = getCallStack(event.thread());
-            List<VariableInfo> variables = getVariables(event.thread().frame(0)); // 获取顶层栈帧的变量
+            List<VariableInfo> variables = getVariables(event.thread().frame(0));
             var pausedData = new PausedEventData(location, variables, callStack);
-
             notificationService.sendDebugEvent(new WsDebugEvent<>("PAUSED", pausedData));
         } catch (Exception e) {
             LOGGER.error("处理断点或单步事件时出错", e);
-            // 尝试恢复VM，避免卡死
             event.virtualMachine().resume();
         }
     }
 
     private LocationInfo createLocationData(Location loc) {
         try {
-            return new LocationInfo(
-                    guessFilePathFromClassName(loc.declaringType().name()), loc.sourceName(), loc.lineNumber());
+            String className = loc.declaringType().name();
+            // ========================= 关键修改 START =========================
+            // 检查是否为JDK核心类。如果是，则不构造项目内的文件路径。
+            if (isJdkClass(className)) {
+                // 对于JDK类，我们没有其在项目中的路径，所以filePath为null
+                // 但我们仍然可以提供文件名 (sourceName) 和行号。
+                return new LocationInfo(null, loc.sourceName(), loc.lineNumber());
+            } else {
+                // 对于项目内的类，使用旧的逻辑。
+                return new LocationInfo(guessFilePathFromClassName(className), loc.sourceName(), loc.lineNumber());
+            }
+            // ========================= 关键修改 END ===========================
         } catch (AbsentInformationException e) {
-            // 如果没有源文件名信息，也尽量提供路径和行号
-            return new LocationInfo(
-                    guessFilePathFromClassName(loc.declaringType().name()), "Unknown Source", loc.lineNumber());
+            return new LocationInfo(guessFilePathFromClassName(loc.declaringType().name()), "Unknown Source", loc.lineNumber());
         }
     }
 
-    private List<VariableInfo> getVariables(StackFrame frame)
-            throws IncompatibleThreadStateException, AbsentInformationException {
+    private List<VariableInfo> getVariables(StackFrame frame) throws IncompatibleThreadStateException, AbsentInformationException {
         var vars = new ArrayList<VariableInfo>();
         for (LocalVariable variable : frame.visibleVariables()) {
-            com.sun.jdi.Value jdiValue = frame.getValue(variable);
+            Value jdiValue = frame.getValue(variable);
             vars.add(new VariableInfo(variable.name(), variable.typeName(), valueToString(jdiValue)));
         }
         return vars;
     }
 
-    private String valueToString(com.sun.jdi.Value jdiValue) {
+    private String valueToString(Value jdiValue) {
         if (jdiValue == null) return "null";
         if (jdiValue instanceof StringReference strRef) return "\"" + strRef.value() + "\"";
         if (jdiValue instanceof PrimitiveValue) return jdiValue.toString();
-        if (jdiValue instanceof ObjectReference objRef) {
-            return objRef.type().name() + " (id=" + objRef.uniqueID() + ")";
-        }
+        if (jdiValue instanceof ObjectReference objRef) return objRef.type().name() + " (id=" + objRef.uniqueID() + ")";
         return "N/A";
     }
 
-    private List<StackFrameInfo> getCallStack(ThreadReference thread)
-            throws IncompatibleThreadStateException {
+    private List<StackFrameInfo> getCallStack(ThreadReference thread) throws IncompatibleThreadStateException {
         var stack = new ArrayList<StackFrameInfo>();
         for (StackFrame frame : thread.frames()) {
             Location loc = frame.location();
@@ -531,14 +495,27 @@ public class DebugService {
         return stack;
     }
 
+    private void setMainMethodEntryBreakpoint(ReferenceType classType) throws AbsentInformationException {
+        List<Method> methods = classType.methodsByName("main");
+        if (methods.isEmpty()) {
+            throw new IllegalStateException("在类 " + classType.name() + " 中找不到 main 方法");
+        }
+        Method mainMethod = methods.get(0);
+        Location location = mainMethod.location();
+        if (location == null || location.codeIndex() == -1) {
+            throw new IllegalStateException("无法为 main 方法的入口找到一个有效的位置。");
+        }
+        BreakpointRequest bpReq = classType.virtualMachine().eventRequestManager().createBreakpointRequest(location);
+        bpReq.setSuspendPolicy(EventRequest.SUSPEND_ALL);
+        bpReq.enable();
+        LOGGER.info("已成功在 {} 创建入口断点", location);
+    }
+
     private ThreadReference getSuspendedThread(VirtualMachine vm) {
         return vm.allThreads().stream().filter(ThreadReference::isSuspended).findFirst().orElse(null);
     }
 
-    private boolean isDebugging() {
-        return vm.get() != null;
-    }
-
+    private boolean isDebugging() { return vm.get() != null; }
     private boolean isDebugging(VirtualMachine currentVm) {
         if (currentVm == null) {
             LOGGER.warn("操作失败：没有活动的调试会话。");
@@ -549,12 +526,8 @@ public class DebugService {
 
     private String guessClassNameFromFilePath(String filePath) {
         String path = filePath.replace("\\", "/");
-        if (path.startsWith("src/main/java/")) {
-            path = path.substring("src/main/java/".length());
-        } else if (path.startsWith("src/test/java/")) {
-            path = path.substring("src/test/java/".length());
-        }
-
+        if (path.startsWith("src/main/java/")) path = path.substring("src/main/java/".length());
+        else if (path.startsWith("src/test/java/")) path = path.substring("src/test/java/".length());
         String pathWithoutExt = path.endsWith(".java") ? path.substring(0, path.length() - 5) : path;
         return pathWithoutExt.replace("/", ".");
     }
@@ -562,4 +535,19 @@ public class DebugService {
     private String guessFilePathFromClassName(String className) {
         return "src/main/java/" + className.replace(".", "/") + ".java";
     }
+
+    // ========================= 关键修改 START =========================
+    /**
+     * 判断一个类名是否属于JDK核心库。
+     * @param className 完全限定类名。
+     * @return 如果是JDK类，则为true。
+     */
+    private boolean isJdkClass(String className) {
+        return className.startsWith("java.") ||
+                className.startsWith("javax.") ||
+                className.startsWith("jdk.") ||
+                className.startsWith("sun.") ||
+                className.startsWith("com.sun.");
+    }
+    // ========================= 关键修改 END ===========================
 }
