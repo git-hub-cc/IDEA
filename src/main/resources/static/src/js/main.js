@@ -14,8 +14,9 @@ import ProblemsManager from './managers/ProblemsManager.js';
 import TerminalManager from './managers/TerminalManager.js';
 import DebuggerManager from './managers/DebuggerManager.js';
 import DebugConsoleManager from './managers/DebugConsoleManager.js';
-// ========================= 新增 START =========================
 import AiChatManager from './managers/AiChatManager.js';
+// ========================= 新增 START =========================
+import DockerManager from './managers/DockerManager.js';
 // ========================= 新增 END ===========================
 import ActionManager from './managers/ActionManager.js';
 import KeyboardManager from './managers/KeyboardManager.js';
@@ -59,8 +60,9 @@ const App = {
         TerminalManager.init();
         DebuggerManager.init();
         DebugConsoleManager.init();
-        // ========================= 新增 START =========================
         AiChatManager.init();
+        // ========================= 新增 START =========================
+        DockerManager.init();
         // ========================= 新增 END ===========================
         MonitorManager.init();
         await CommandPaletteManager.init();

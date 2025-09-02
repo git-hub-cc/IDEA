@@ -2,9 +2,7 @@
  * TerminalService.java
  *
  * 该服务负责管理后端的伪终端 (pseudo-terminal) 会话。
- * 它为每个WebSocket连接创建一个独立的系统进程（如 cmd.exe 或 bash），
- * 并通过WebSocket将输入输出流与前端的 xterm.js 组件连接起来。
- * 它依赖 SettingsService 来确定终端启动时的工作目录。
+ * 已修改，新增了对 `docker exec` 的支持。
  */
 package club.ppmc.idea.service;
 
@@ -22,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -50,29 +49,26 @@ public class TerminalService {
 
     public void startSession(String sessionId, String relativePath) {
         if (sessions.containsKey(sessionId)) {
-            log.info("终端会话 {} 已存在。在启动新会话前将先结束旧会话。", sessionId);
+            log.info("系统终端会话 {} 已存在。在启动新会话前将先结束旧会话。", sessionId);
             endSession(sessionId);
         }
 
         try {
             ProcessBuilder processBuilder;
             if (IS_WINDOWS) {
-                // 在Windows上，启动cmd并执行chcp 65001将代码页切换为UTF-8，以支持中文
                 processBuilder = new ProcessBuilder("cmd.exe", "/K", "chcp 65001 > nul");
             } else {
-                // 在Linux/macOS上，启动一个交互式的bash会话
                 processBuilder = new ProcessBuilder("bash", "-i");
                 Map<String, String> env = processBuilder.environment();
-                env.put("LANG", "en_US.UTF-8"); // 设置环境变量以支持UTF-8
+                env.put("LANG", "en_US.UTF-8");
             }
 
-            // 确定工作目录
             Path workspaceRoot = getWorkspaceRoot();
             Path workingDirectory;
             if (StringUtils.hasText(relativePath)) {
                 workingDirectory = workspaceRoot.resolve(relativePath).normalize();
                 if (!Files.isDirectory(workingDirectory)) {
-                    log.warn("终端路径未找到或不是目录: {}. 将默认使用工作区根目录。", workingDirectory);
+                    log.warn("终端路径未找到: {}. 将默认使用工作区根目录。", workingDirectory);
                     notificationService.sendTerminalOutput(sessionId, "[错误] 目录未找到: " + relativePath + "\n");
                     workingDirectory = workspaceRoot;
                 }
@@ -83,34 +79,98 @@ public class TerminalService {
             processBuilder.directory(workingDirectory.toFile()).redirectErrorStream(true);
 
             Process process = processBuilder.start();
-            log.info("已在目录 {} 中为会话 {} 启动新终端进程", workingDirectory, sessionId);
+            log.info("已在目录 {} 中为会话 {} 启动新系统终端进程", workingDirectory, sessionId);
 
             var writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
-            var session = new TerminalSession(process, writer);
+            var session = new TerminalSession(process, writer, false); // isDocker = false
             sessions.put(sessionId, session);
 
-            // 异步读取进程输出并发送到前端
-            executorService.submit(() -> readAndForwardOutput(sessionId, process));
+            executorService.submit(() -> readAndForwardOutput(sessionId, process, false));
 
         } catch (IOException e) {
-            log.error("为 {} 启动终端会话失败: {}", sessionId, e.getMessage());
+            log.error("为 {} 启动系统终端会话失败: {}", sessionId, e.getMessage());
             notificationService.sendTerminalOutput(sessionId, "错误: 启动终端失败。 " + e.getMessage());
         }
     }
 
-    private void readAndForwardOutput(String sessionId, Process process) {
+    /**
+     * ========================= START: 启动 Docker Exec 会话 =========================
+     */
+    public void startDockerExecSession(String sessionId, String containerId) {
+        if (sessions.containsKey(sessionId)) {
+            log.info("Docker 终端会话 {} 已存在。在启动新会话前将先结束旧会话。", sessionId);
+            endSession(sessionId);
+        }
+
+        try {
+            String[] shellsToTry = {"/bin/bash", "sh"};
+            Process process = null;
+            boolean success = false;
+
+            for (String shell : shellsToTry) {
+                ProcessBuilder processBuilder = new ProcessBuilder("docker", "exec", "-i", containerId, shell);
+                processBuilder.redirectErrorStream(true);
+                log.info("尝试为会话 {} 在容器 {} 中启动 Docker Exec: {}", sessionId, containerId, String.join(" ", processBuilder.command()));
+                try {
+                    process = processBuilder.start();
+                    if (process.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS) && process.exitValue() != 0) {
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                        String errorOutput = reader.lines().collect(Collectors.joining("\n"));
+                        if (errorOutput.toLowerCase().contains("executable file not found")) {
+                            log.warn("Shell '{}' 在容器 {} 中不存在，尝试下一个...", shell, containerId);
+                            continue;
+                        }
+                    }
+                    success = true;
+                    break;
+                } catch (IOException e) {
+                    log.warn("启动 shell '{}' 失败，尝试下一个...", shell, e);
+                }
+            }
+
+            if (!success || process == null) {
+                throw new IOException("无法在容器中启动任何一个有效的 shell (bash, sh)。");
+            }
+
+            // ========================= 关键修复 START =========================
+            // 创建一个新的 final 变量来捕获 process 的当前值，以便在 lambda 中使用。
+            final Process finalProcess = process;
+            log.info("已为会话 {} 在容器 {} 中成功启动 Docker Exec 进程", sessionId, containerId);
+
+            var writer = new BufferedWriter(new OutputStreamWriter(finalProcess.getOutputStream(), StandardCharsets.UTF_8));
+            var session = new TerminalSession(finalProcess, writer, true); // isDocker = true
+            sessions.put(sessionId, session);
+
+            executorService.submit(() -> readAndForwardOutput(sessionId, finalProcess, true));
+            // ========================= 关键修复 END ===========================
+
+        } catch (IOException | InterruptedException e) {
+            log.error("为 {} 启动 Docker Exec 会话失败: {}", sessionId, e.getMessage());
+            notificationService.sendDockerTerminalOutput(sessionId, "错误: 启动容器终端失败。 " + e.getMessage());
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+        }
+    }
+    /**
+     * ========================= END ================================================
+     */
+
+    private void readAndForwardOutput(String sessionId, Process process, boolean isDocker) {
         try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             char[] buffer = new char[4096];
             int charsRead;
             while ((charsRead = reader.read(buffer)) != -1) {
-                notificationService.sendTerminalOutput(sessionId, new String(buffer, 0, charsRead));
+                String output = new String(buffer, 0, charsRead);
+                if (isDocker) {
+                    notificationService.sendDockerTerminalOutput(sessionId, output);
+                } else {
+                    notificationService.sendTerminalOutput(sessionId, output);
+                }
             }
         } catch (IOException e) {
-            // 当进程被销毁时，读取流会关闭并抛出异常，这是正常行为
             log.info("读取终端进程输出时出错 (可能是会话已正常结束): {}", e.getMessage());
         } finally {
             log.info("会话 {} 的终端输出流已关闭。", sessionId);
-            endSession(sessionId); // 确保在流结束后清理会话
+            endSession(sessionId);
         }
     }
 
@@ -125,16 +185,17 @@ public class TerminalService {
             session.writer.flush();
         } catch (IOException e) {
             log.error("向会话 {} 的终端进程写入失败: {}", sessionId, e.getMessage());
-            endSession(sessionId); // 写入失败意味着连接已断开，清理会话
+            endSession(sessionId);
         }
     }
 
     public void endSession(String sessionId) {
         TerminalSession session = sessions.remove(sessionId);
         if (session != null) {
-            log.info("正在结束会话 {} 的终端。", sessionId);
+            String type = session.isDocker ? "Docker Exec" : "系统";
+            log.info("正在结束会话 {} 的 {} 终端。", sessionId, type);
             if (session.process.isAlive()) {
-                session.process.destroy();
+                session.process.destroyForcibly();
             }
             try {
                 session.writer.close();
@@ -151,5 +212,5 @@ public class TerminalService {
         executorService.shutdownNow();
     }
 
-    private record TerminalSession(Process process, BufferedWriter writer) {}
+    private record TerminalSession(Process process, BufferedWriter writer, boolean isDocker) {}
 }

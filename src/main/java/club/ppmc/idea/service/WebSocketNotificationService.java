@@ -61,6 +61,19 @@ public class WebSocketNotificationService {
     }
 
     /**
+     * ========================= 新增 START: 发送 Docker 终端输出 =========================
+     * 发送 Docker Exec 终端的输出到特定会话的前端。
+     * @param sessionId 用户的 WebSocket 会话ID。
+     * @param output 终端输出内容。
+     */
+    public void sendDockerTerminalOutput(String sessionId, String output) {
+        String destination = String.format("/topic/docker/terminal-output/%s", sessionId);
+        sendMessage(destination, output);
+    }
+    /** ========================= 新增 END ============================================== */
+
+
+    /**
      * 向指定的WebSocket主题发送一个通用载荷(payload)。
      * 这是一个底层的、类型安全的方法。
      *

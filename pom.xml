@@ -5,25 +5,21 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version> <!-- 请根据您的环境选择合适的Spring Boot版本 -->
+        <version>3.2.5</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>club.ppmc.idea</groupId>
+    <groupId>club.ppmc</groupId>
     <artifactId>web-idea-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>WebIdeaBackend</name>
-    <description>Backend for Web IDEA project</description>
-
+    <name>web-idea-backend</name>
+    <description>web-idea-backend</description>
     <properties>
         <java.version>17</java.version>
+        <!-- ========================= 新增 START ========================= -->
+        <docker-java.version>3.3.6</docker-java.version>
+        <!-- ========================= 新增 END =========================== -->
     </properties>
-
     <dependencies>
-        <!-- Spring Boot Starters -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -32,48 +28,35 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
-
-        <!-- Lombok for cleaner code -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-
-        <!-- JSON Processing -->
         <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>2.10.1</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
-
-        <!-- JGit for Git operations -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>1.3.2</version>
+        </dependency>
         <dependency>
             <groupId>org.eclipse.jgit</groupId>
             <artifactId>org.eclipse.jgit</artifactId>
             <version>6.9.0.202403050737-r</version>
         </dependency>
-
-        <!-- Apache Commons IO for file utilities -->
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-            <version>2.16.1</version>
-        </dependency>
-
-        <!-- JavaParser for code analysis -->
         <dependency>
             <groupId>com.github.javaparser</groupId>
             <artifactId>javaparser-core</artifactId>
             <version>3.25.10</version>
         </dependency>
-        <dependency>
-            <groupId>com.github.javaparser</groupId>
-            <artifactId>javaparser-symbol-solver-core</artifactId>
-            <version>3.25.10</version>
-        </dependency>
-
-        <!-- Maven Model Reader for pom.xml parsing -->
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-model</artifactId>
@@ -84,29 +67,46 @@
             <artifactId>maven-model-builder</artifactId>
             <version>3.9.6</version>
         </dependency>
-
-
-        <!-- ========================= 新增依赖 START ========================= -->
-        <!-- Oshi for System Monitoring -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.17.0</version>
+        </dependency>
         <dependency>
             <groupId>com.github.oshi</groupId>
             <artifactId>oshi-core</artifactId>
-            <version>6.6.1</version>
+            <version>6.4.13</version>
         </dependency>
-        <!-- ========================= 新增依赖 END =========================== -->
-
-        <!-- https://mvnrepository.com/artifact/com.google.googlejavaformat/google-java-format -->
         <dependency>
             <groupId>com.google.googlejavaformat</groupId>
             <artifactId>google-java-format</artifactId>
-            <version>1.28.0</version>
+            <version>1.22.0</version>
         </dependency>
-        <!-- Spring Boot Test Starter -->
+
+        <!-- ========================= 新增 START: Docker Java 客户端依赖 ========================= -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
+            <groupId>com.github.docker-java</groupId>
+            <artifactId>docker-java</artifactId>
+            <version>${docker-java.version}</version>
         </dependency>
+        <!-- docker-java 需要一个传输层实现，我们选择 Apache HttpClient5 -->
+        <dependency>
+            <groupId>com.github.docker-java</groupId>
+            <artifactId>docker-java-transport-httpclient5</artifactId>
+            <version>${docker-java.version}</version>
+        </dependency>
+        <!-- docker-java 内部依赖 Jackson，确保版本与 Spring Boot 兼容 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- ========================= 新增 END ================================================= -->
+
     </dependencies>
 
     <build>

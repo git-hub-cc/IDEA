@@ -229,3 +229,136 @@
         </button>
     </form>
 </template>
+
+
+<!-- ========================= 新增 START: Docker 面板相关模板 ========================= -->
+
+<!-- Docker 面板主布局模板 -->
+<template id="docker-panel-template">
+    <div class="docker-panel-wrapper">
+        <div class="docker-resource-list">
+            <div class="docker-resource-header">
+                <h3><i class="fab fa-docker"></i> Docker 资源</h3>
+                <button class="icon-btn" data-action="docker-refresh" title="刷新列表"><i class="fas fa-sync-alt"></i></button>
+            </div>
+            <div class="docker-resource-body">
+                <!-- 资源分类将在此处动态填充 -->
+            </div>
+        </div>
+        <div class="docker-details-panel">
+            <!-- 详情内容将在此处动态填充 -->
+            <div class="docker-details-welcome">
+                <i class="fab fa-docker"></i>
+                <p>从左侧选择一个资源以查看详情。</p>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Docker 资源分类模板 -->
+<template id="docker-resource-category-template">
+    <details class="docker-resource-category" open>
+        <summary>
+            <span class="category-name"></span>
+            <span class="category-count"></span>
+        </summary>
+        <ul class="resource-list-ul">
+            <!-- 列表项将在此填充 -->
+        </ul>
+    </details>
+</template>
+
+<!-- Docker 容器列表项模板 -->
+<template id="docker-container-item-template">
+    <li class="resource-item" tabindex="0">
+        <div class="resource-item-main">
+            <span class="status-indicator" title="状态"></span>
+            <div class="resource-item-info">
+                <strong class="resource-name"></strong>
+                <span class="resource-subtext"></span>
+            </div>
+        </div>
+        <div class="resource-item-actions">
+            <!-- 快捷操作按钮 -->
+        </div>
+    </li>
+</template>
+
+<!-- Docker 镜像列表项模板 -->
+<template id="docker-image-item-template">
+    <li class="resource-item" tabindex="0">
+        <div class="resource-item-main">
+            <i class="fas fa-layer-group resource-icon"></i>
+            <div class="resource-item-info">
+                <strong class="resource-name"></strong>
+                <span class="resource-subtext"></span>
+            </div>
+        </div>
+        <div class="resource-item-actions">
+            <button class="icon-btn" data-action="docker-remove-image" title="删除镜像"><i class="fas fa-trash-alt"></i></button>
+        </div>
+    </li>
+</template>
+
+
+<!-- Docker 容器详情面板模板 -->
+<template id="docker-container-details-template">
+    <div class="docker-details-header">
+        <h4 class="details-title">
+            <span class="status-indicator"></span>
+            <span class="container-name"></span>
+            <small class="container-id"></small>
+        </h4>
+        <div class="details-actions">
+            <button class="modal-action-btn secondary-btn" data-action="docker-start-container"><i class="fas fa-play"></i> 启动</button>
+            <button class="modal-action-btn secondary-btn" data-action="docker-stop-container"><i class="fas fa-stop"></i> 停止</button>
+            <button class="modal-action-btn secondary-btn" data-action="docker-restart-container"><i class="fas fa-sync-alt"></i> 重启</button>
+            <button class="modal-action-btn secondary-btn danger-btn" data-action="docker-remove-container"><i class="fas fa-trash-alt"></i> 删除</button>
+        </div>
+    </div>
+    <div class="docker-details-content">
+        <div class="modal-tabs">
+            <button class="modal-tab active" data-tab="docker-overview-pane">概览</button>
+            <button class="modal-tab" data-tab="docker-logs-pane">日志</button>
+            <button class="modal-tab" data-tab="docker-terminal-pane">终端</button>
+            <button class="modal-tab" data-tab="docker-inspect-pane">检查</button>
+        </div>
+        <div class="modal-tab-content">
+            <div id="docker-overview-pane" class="tab-pane active"></div>
+            <div id="docker-logs-pane" class="tab-pane"></div>
+            <div id="docker-terminal-pane" class="tab-pane"></div>
+            <div id="docker-inspect-pane" class="tab-pane"></div>
+        </div>
+    </div>
+</template>
+
+<!-- Docker 概览标签页模板 -->
+<template id="docker-overview-pane-template">
+    <div class="docker-overview-grid">
+        <div class="info-card">
+            <div class="info-card-header">状态</div>
+            <div class="info-card-body status-text"></div>
+        </div>
+        <div class="info-card">
+            <div class="info-card-header">镜像</div>
+            <div class="info-card-body image-text"></div>
+        </div>
+        <div class="info-card">
+            <div class="info-card-header">创建于</div>
+            <div class="info-card-body created-text"></div>
+        </div>
+        <div class="info-card full-width">
+            <div class="info-card-header">端口映射</div>
+            <div class="info-card-body ports-list"></div>
+        </div>
+        <div class="info-card full-width">
+            <div class="info-card-header">资源监控</div>
+            <div class="info-card-body monitor-charts">
+                <div class="chart-container"><canvas class="docker-cpu-chart"></canvas></div>
+                <div class="chart-container"><canvas class="docker-mem-chart"></canvas></div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- ========================= 新增 END ======================================================= -->

@@ -69,6 +69,11 @@ const NetworkManager = {
         this.stompClient.subscribe(`/topic/terminal-output/${this.sessionId}`, (message) => {
             EventBus.emit('terminal:data', message.body);
         });
+        // ========================= 新增 START =========================
+        this.stompClient.subscribe(`/topic/docker/terminal-output/${this.sessionId}`, (message) => {
+            EventBus.emit('docker:terminal:data', message.body);
+        });
+        // ========================= 新增 END ===========================
         this.stompClient.subscribe('/user/queue/session/status', this.onSessionStatusReceived);
         this.stompClient.subscribe('/topic/system-metrics', this.onSystemMetricsReceived);
         EventBus.emit('log:info', '已成功订阅后端日志、调试和运行状态事件。');
@@ -190,12 +195,10 @@ const NetworkManager = {
     formatJavaCode: function(code) { return this._rawFetchApi('api/java/format', { method: 'POST', body: JSON.stringify({ code }) }); },
     deleteProject: function(projectName) { return this._rawFetchApi(`api/projects/${encodeURIComponent(projectName)}`, { method: 'DELETE' }); },
 
-    // ========================= 新增 START =========================
     getAiChatCompletion: function(request) {
         // AI聊天请求不显示全局繁忙光标，因为它有自己的加载指示器
         return this._rawFetchApi('api/ai/chat', { method: 'POST', body: JSON.stringify(request) }, 'json', false);
     },
-    // ========================= 新增 END ===========================
 
 
     // --- Git Methods with Authentication ---
@@ -288,29 +291,51 @@ const NetworkManager = {
         for await (const entry of dirHandle.values()) {
             if (['.git', '.idea', 'node_modules', 'target', 'dist', 'build', '.DS_Store'].includes(entry.name)) continue;
             const newPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
-if (entry.kind === 'file') {
-    const file = await entry.getFile();
-    files.push({ file: file, path: newPath });
-} else if (entry.kind === 'directory') {
-    files.push(...await this._getFilesRecursively(entry, newPath));
-}
-}
-return files;
-},
-uploadFilesToPath: function(files, destinationPath) {
-    if (!Config.currentProject) {
-        return Promise.reject(new Error("没有活动的项来粘贴文件。"));
-    }
+            if (entry.kind === 'file') {
+                const file = await entry.getFile();
+                files.push({ file: file, path: newPath });
+            } else if (entry.kind === 'directory') {
+                files.push(...await this._getFilesRecursively(entry, newPath));
+            }
+        }
+        return files;
+    },
+    uploadFilesToPath: function(files, destinationPath) {
+        if (!Config.currentProject) {
+            return Promise.reject(new Error("没有活动的项来粘贴文件。"));
+        }
 
-    const formData = new FormData();
-    formData.append('projectPath', Config.currentProject);
-    formData.append('destinationPath', destinationPath);
-    files.forEach(file => {
-        formData.append('files', file, file.name);
-    });
+        const formData = new FormData();
+        formData.append('projectPath', Config.currentProject);
+        formData.append('destinationPath', destinationPath);
+        files.forEach(file => {
+            formData.append('files', file, file.name);
+        });
 
-    return this._uploadWithXHR('api/files/upload-to-path', formData);
-},
+        return this._uploadWithXHR('api/files/upload-to-path', formData);
+    },
+    // ========================= 新增 START: Docker API 方法 =========================
+    getDockerContainers: function() { return this._rawFetchApi('api/docker/containers', {}, 'json', false); },
+    getDockerImages: function() { return this._rawFetchApi('api/docker/images', {}, 'json', false); },
+    startDockerContainer: function(id) { return this._rawFetchApi(`api/docker/containers/${id}/start`, { method: 'POST' }); },
+    stopDockerContainer: function(id) { return this._rawFetchApi(`api/docker/containers/${id}/stop`, { method: 'POST' }); },
+    restartDockerContainer: function(id) { return this._rawFetchApi(`api/docker/containers/${id}/restart`, { method: 'POST' }); },
+    removeDockerContainer: function(id) { return this._rawFetchApi(`api/docker/containers/${id}`, { method: 'DELETE' }); },
+    getDockerContainerInspect: function(id) { return this._rawFetchApi(`api/docker/containers/${id}/inspect`); },
+    attachDockerLogs: function(id) { return this._rawFetchApi(`api/docker/containers/${id}/logs/attach`, { method: 'POST' }); },
+    removeDockerImage: function(id) { return this._rawFetchApi(`api/docker/images/${id}`, { method: 'DELETE' }); },
+
+    startDockerTerminal: function(containerId) {
+        if (this.stompClient && this.isConnected) {
+            this.stompClient.send('/app/terminal/docker/start', {}, JSON.stringify({ containerId: containerId }));
+        }
+    },
+    sendDockerTerminalInput: function(data) {
+        if (this.stompClient && this.isConnected) {
+            this.stompClient.send('/app/terminal/docker/input', {}, data);
+        }
+    },
+    // ========================= 新增 END ============================================
 };
 
 export default NetworkManager;

@@ -26,6 +26,9 @@ const ContextMenuManager = {
         document.addEventListener('contextmenu', function(e) {
             const fileTreeItem = e.target.closest('#file-tree li[data-path]');
             const editorTabItem = e.target.closest('.editor-tab[data-file-path]');
+            // ========================= 新增 START =========================
+            const dockerContainerItem = e.target.closest('.resource-item[data-type="container"]');
+            // ========================= 新增 END ===========================
 
             if (fileTreeItem) {
                 e.preventDefault();
@@ -40,7 +43,15 @@ const ContextMenuManager = {
                 // 确保右键点击的tab被激活
                 EventBus.emit('file:openRequest', filePath);
                 this.show({ x: e.clientX, y: e.clientY, item: { filePath }, type: 'editor-tab' });
+                // ========================= 新增 START =========================
+            } else if (dockerContainerItem) {
+                e.preventDefault();
+                const id = dockerContainerItem.dataset.id;
+                const name = dockerContainerItem.dataset.name;
+                const state = dockerContainerItem.dataset.state;
+                this.show({ x: e.clientX, y: e.clientY, item: { id, name, state }, type: 'docker-container' });
             }
+            // ========================= 新增 END ===========================
         }.bind(this));
     },
 
@@ -53,7 +64,10 @@ const ContextMenuManager = {
             const menuItem = e.target.closest('.context-menu-item');
             if (menuItem && menuItem.dataset.action) {
                 const action = menuItem.dataset.action;
-                EventBus.emit(`context-action:${action}`, this.currentItem);
+                // ========================= 修改 START =========================
+                const eventPrefix = menuItem.dataset.eventPrefix || 'context-action';
+                EventBus.emit(`${eventPrefix}:${action}`, this.currentItem);
+                // ========================= 修改 END ===========================
                 this.hide();
             }
         }.bind(this));
@@ -95,6 +109,11 @@ const ContextMenuManager = {
                 const li = document.createElement('li');
                 li.className = 'context-menu-item';
                 li.dataset.action = item.action;
+                // ========================= 新增 START =========================
+                if(item.eventPrefix) {
+                    li.dataset.eventPrefix = item.eventPrefix;
+                }
+                // ========================= 新增 END ===========================
                 li.innerHTML = `<i class="${item.icon}"></i><span>${item.label}</span>`;
                 this.menuElement.appendChild(li);
             }
@@ -124,6 +143,10 @@ const ContextMenuManager = {
                 return this.getFileTreeMenuItems(this.currentItem.type);
             case 'editor-tab':
                 return this.getEditorTabMenuItems();
+            // ========================= 新增 START =========================
+            case 'docker-container':
+                return this.getDockerContainerMenuItems(this.currentItem.state);
+            // ========================= 新增 END ===========================
             default:
                 return null;
         }
@@ -174,6 +197,34 @@ const ContextMenuManager = {
             { label: '关闭左侧', action: 'close-tabs-to-the-left', icon: 'fas fa-arrow-left' },
         ];
     },
+
+    // ========================= 新增 START =========================
+    /**
+     * @description 获取 Docker 容器的菜单项。
+     * @param {string} state - 容器的状态 ('running', 'exited', etc.)。
+     * @returns {Array<object>}
+     */
+    getDockerContainerMenuItems: function(state) {
+        const isRunning = state === 'running';
+        const items = [];
+        const eventPrefix = 'docker-action'; // 使用自定义前缀避免与全局 action 冲突
+
+        if (isRunning) {
+            items.push({ label: '停止', action: 'stop-container', icon: 'fas fa-stop', eventPrefix });
+            items.push({ label: '重启', action: 'restart-container', icon: 'fas fa-sync-alt', eventPrefix });
+        } else {
+            items.push({ label: '启动', action: 'start-container', icon: 'fas fa-play', eventPrefix });
+        }
+
+        items.push({ separator: true });
+        items.push({ label: '查看日志', action: 'view-logs', icon: 'fas fa-file-alt', eventPrefix });
+        items.push({ label: '进入终端', action: 'exec-terminal', icon: 'fas fa-terminal', eventPrefix });
+        items.push({ separator: true });
+        items.push({ label: '删除', action: 'remove-container', icon: 'fas fa-trash-alt', eventPrefix });
+
+        return items;
+    },
+    // ========================= 新增 END ===========================
 };
 
 export default ContextMenuManager;

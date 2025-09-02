@@ -19,21 +19,13 @@ const MonitorManager = {
      */
     init: function() {
         this.bindAppEvents();
-        // ========================= 修改 START =========================
-        // 监控面板现在始终可见，因此在 app:ready 后立即初始化图表
         EventBus.on('app:ready', this.setupCharts.bind(this));
-        // ========================= 修改 END ===========================
     },
 
     /**
      * @description 绑定应用事件。
      */
     bindAppEvents: function() {
-        // ========================= 修改 START =========================
-        // 移除基于标签页激活的惰性初始化逻辑
-        // EventBus.on('ui:activateBottomPanelTab', ...);
-        // ========================= 修改 END ===========================
-
         // 监听来自后端的数据更新
         EventBus.on('monitor:data-update', this.handleDataUpdate.bind(this));
     },
@@ -67,7 +59,8 @@ const MonitorManager = {
         };
 
 
-        this.cpuChart = this.createChart('cpu-chart', 'CPU 使用率 (%)', {
+        // ========================= 修改 START: 调用重构后的 createChart 方法 =========================
+        this.cpuChart = this.createChart(document.getElementById('cpu-chart'), 'CPU 使用率 (%)', {
             y: { min: 0, max: 100, ticks: { callback: value => `${value.toFixed(0)}%` } }
         }, [{
             label: 'CPU',
@@ -75,7 +68,7 @@ const MonitorManager = {
             backgroundColor: (ctx) => createGradient(ctx, chartColors.cpu)
         }]);
 
-        this.memChart = this.createChart('mem-chart', '内存使用情况', {
+        this.memChart = this.createChart(document.getElementById('mem-chart'), '内存使用情况', {
             y: { min: 0, ticks: { callback: value => this.formatBytes(value) } }
         }, [
             {
@@ -88,11 +81,11 @@ const MonitorManager = {
                 borderColor: chartColors.memTotal.border,
                 backgroundColor: chartColors.memTotal.background,
                 borderDash: [5, 5],
-                fill: false // 总量线不填充背景
+                fill: false
             }
         ]);
 
-        this.netChart = this.createChart('net-chart', '网络速率', {
+        this.netChart = this.createChart(document.getElementById('net-chart'), '网络速率', {
             y: { min: 0, ticks: { callback: value => `${this.formatBytes(value)}/s` } }
         }, [
             {
@@ -106,21 +99,26 @@ const MonitorManager = {
                 backgroundColor: (ctx) => createGradient(ctx, chartColors.netUp)
             }
         ]);
+        // ========================= 修改 END =====================================================
 
         this.isInitialized = true;
         EventBus.emit('log:info', '系统监控面板已初始化。');
     },
 
     /**
-     * @description 创建一个 Chart.js 实例的辅助函数。
-     * @param {string} canvasId - canvas 元素的 ID。
+     * @description 创建一个 Chart.js 实例的辅助函数。已重构为可复用。
+     * @param {HTMLCanvasElement} canvasElement - canvas 元素。
      * @param {string} title - 图表标题。
      * @param {object} scales - 图表的刻度配置。
      * @param {Array<object>} datasets - 数据集配置数组。
      * @returns {Chart} Chart.js 实例。
      */
-    createChart: function(canvasId, title, scales, datasets) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
+    createChart: function(canvasElement, title, scales, datasets) {
+        if (!canvasElement) {
+            console.error('提供给 createChart 的 canvas 元素无效');
+            return null;
+        }
+        const ctx = canvasElement.getContext('2d');
 
         const styles = getComputedStyle(document.body);
         const textPrimary = styles.getPropertyValue('--text-primary').trim();
@@ -137,7 +135,7 @@ const MonitorManager = {
                     data: [],
                     borderColor: d.borderColor,
                     backgroundColor: d.backgroundColor,
-                    borderWidth: 2, // 线条加粗一点
+                    borderWidth: 2,
                     fill: d.fill !== false,
                     borderDash: d.borderDash || [],
                 }))
@@ -146,7 +144,7 @@ const MonitorManager = {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
-                interaction: { // 优化交互
+                interaction: {
                     mode: 'index',
                     intersect: false,
                 },
@@ -181,8 +179,8 @@ const MonitorManager = {
                     }
                 },
                 elements: {
-                    point: { radius: 0, hoverRadius: 4 }, // 悬停时显示点
-                    line: { tension: 0.3 } // 线条更平滑
+                    point: { radius: 0, hoverRadius: 4 },
+                    line: { tension: 0.3 }
                 }
             }
         });
@@ -197,16 +195,8 @@ const MonitorManager = {
 
         const timestamp = new Date(data.timestamp);
 
-        // ========================= 修正 START =========================
-        // 更新 CPU 图表
-        // 修正：后端传来的 data.cpuUsage 已经是百分比值，无需再乘以100。
         this.updateChartData(this.cpuChart, timestamp, [data.cpuUsage]);
-        // ========================= 修正 END ===========================
-
-        // 更新内存图表
         this.updateChartData(this.memChart, timestamp, [data.memoryUsed, data.memoryTotal]);
-
-        // 更新网络图表
         this.updateChartData(this.netChart, timestamp, [data.networkDown, data.networkUp]);
     },
 
@@ -217,6 +207,7 @@ const MonitorManager = {
      * @param {Array<number>} values - 新数据点的值数组，顺序与数据集对应。
      */
     updateChartData: function(chart, label, values) {
+        if (!chart) return;
         chart.data.labels.push(label);
         values.forEach((value, index) => {
             if (chart.data.datasets[index]) {
@@ -224,7 +215,6 @@ const MonitorManager = {
             }
         });
 
-        // 维持数据窗口大小
         if (chart.data.labels.length > this.maxDataPoints) {
             chart.data.labels.shift();
             chart.data.datasets.forEach(dataset => {
