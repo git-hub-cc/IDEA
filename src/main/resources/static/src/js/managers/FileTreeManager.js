@@ -9,12 +9,16 @@ import TemplateLoader from '../utils/TemplateLoader.js';
 /**
  * @description 管理左侧文件树的显示、交互（点击、展开、折叠）
  * 以及拖放和粘贴等文件上传功能。
+ * 采用增量更新（Reconciliation）策略来高效、稳定地更新UI。
  */
 const FileTreeManager = {
     container: null,
     treeData: [],
     focusedElement: null,
     hoveredElement: null,
+    // ========================= 新增 START =========================
+    isLoading: false, // Mutex flag to prevent concurrent updates
+    // ========================= 新增 END ===========================
 
     /**
      * @description 初始化文件树管理器。
@@ -29,7 +33,7 @@ const FileTreeManager = {
      * @description 绑定文件树容器相关的DOM事件。
      */
     bindDOMEvents: function() {
-        this.container.addEventListener('click', function(e) {
+        this.container.addEventListener('click', (e) => {
             const listItem = e.target.closest('li[data-path]');
             if (listItem) {
                 this.handleNodeClick(listItem);
@@ -40,7 +44,7 @@ const FileTreeManager = {
                 const action = actionBtn.dataset.action;
                 EventBus.emit(`action:${action}`);
             }
-        }.bind(this));
+        });
 
         document.addEventListener('paste', this._handlePaste.bind(this));
         this.container.addEventListener('dragenter', this._handleDragEnter.bind(this));
@@ -59,6 +63,239 @@ const FileTreeManager = {
     },
 
     /**
+     * @description 加载并渲染当前活动项目的文件树。
+     * 如果文件树已存在，则执行增量更新；否则进行初始渲染。
+     * 使用 isLoading 标志防止并发执行。
+     */
+    loadProjectTree: async function() {
+        // ========================= 修改 START =========================
+        if (this.isLoading) {
+            EventBus.emit('log:info', '文件树正在更新中，忽略此次请求。');
+            return;
+        }
+        this.isLoading = true;
+        // ========================= 修改 END ===========================
+
+        if (!Config.currentProject) {
+            this.showWelcomeView();
+            EventBus.emit('git:statusChanged');
+            this.isLoading = false; // 释放锁
+            return;
+        }
+        document.querySelector('#left-panel .panel-header h3').textContent = Config.activeProjectName;
+
+        try {
+            EventBus.emit('log:info', `正在加载项目 '${Config.activeProjectName}' 的文件树...`);
+            const newTreeData = await NetworkManager.getFileTree('');
+
+            if (!newTreeData) {
+                this.container.innerHTML = `<li style="padding: 10px;">项目 '${Config.activeProjectName}' 为空或无法加载。</li>`;
+                this.treeData = [];
+                return;
+            }
+
+            const newRootNode = this._transformObjectToFileNode(newTreeData);
+            const previouslyFocusedPath = this.focusedElement ? this.focusedElement.dataset.path : null;
+
+            if (this.treeData.length === 0) {
+                this._renderInitialTree(newRootNode);
+                this.treeData = [newRootNode];
+            } else {
+                const oldRootNode = this.treeData[0];
+                const rootUl = this.container.querySelector('.file-tree');
+
+                this._reconcileNodeProperties(oldRootNode, newRootNode);
+
+                if (rootUl) {
+                    this._reconcileChildren(rootUl, oldRootNode, newRootNode);
+                }
+            }
+
+            EventBus.emit('log:info', '项目文件树加载成功。');
+            EventBus.emit('git:statusChanged');
+
+            if (previouslyFocusedPath) {
+                const elementToFocus = this.container.querySelector(`li[data-path="${previouslyFocusedPath}"]`);
+                if (elementToFocus) {
+                    this.setFocus(elementToFocus);
+                }
+            } else if (this.treeData.length > 0 && this.treeData[0].children.length > 0) {
+                this.openDefaultFile();
+            }
+
+        } catch (error) {
+            EventBus.emit('log:error', `加载项目树失败: ${error.message}`);
+            this.container.innerHTML = `<li style="color: var(--color-error); padding: 10px;">加载项目树失败: ${error.message}</li>`;
+        } finally {
+            // ========================= 新增 START =========================
+            this.isLoading = false; // 确保在函数结束时总是释放锁
+            // ========================= 新增 END ===========================
+        }
+    },
+
+    /**
+     * @description 递归地协调（diff & patch）文件树的子节点，以实现最小化DOM更新。
+     * @param {HTMLUListElement} parentElement - 包含子节点DOM的父UL元素。
+     * @param {FileNode} oldParentNode - 当前的（旧的）父节点数据模型。
+     * @param {FileNode} newParentNodeData - 从服务器获取的新的父节点数据。
+     * @private
+     */
+    _reconcileChildren: function(parentElement, oldParentNode, newParentNodeData) {
+        const oldChildren = oldParentNode.children;
+        const newChildrenData = newParentNodeData.children;
+
+        const oldNodesMap = new Map(oldChildren.map(node => [node.path, node]));
+        const domChildrenMap = new Map();
+        for (const child of parentElement.children) {
+            domChildrenMap.set(child.dataset.path, child);
+        }
+
+        const newChildren = [];
+        let lastDomElement = null;
+
+        for (const newNodeData of newChildrenData) {
+            const oldNode = oldNodesMap.get(newNodeData.path);
+
+            if (oldNode) {
+                // ========================= 修改 START: 增加防御性编程 =========================
+                const domElement = domChildrenMap.get(oldNode.path);
+                if (!domElement) {
+                    console.warn(`Reconciliation inconsistency: Data model has node "${oldNode.path}" but DOM does not. Skipping.`);
+                    oldNodesMap.delete(newNodeData.path); // 从待删除列表中移除，因为它实际已不在DOM中
+                    continue; // 跳过此节点的处理
+                }
+                // ========================= 修改 END =========================================
+
+                newNodeData.isExpanded = oldNode.isExpanded;
+                this._reconcileNodeProperties(oldNode, newNodeData);
+
+                if (oldNode.isFolder()) {
+                    const childUl = domElement.querySelector('ul');
+                    if (childUl) {
+                        this._reconcileChildren(childUl, oldNode, newNodeData);
+                    }
+                }
+
+                newChildren.push(oldNode);
+                oldNodesMap.delete(newNodeData.path);
+                lastDomElement = domElement;
+            } else {
+                const newDomElement = this._createNodeElement(newNodeData);
+
+                if (lastDomElement) {
+                    lastDomElement.after(newDomElement);
+                } else {
+                    parentElement.prepend(newDomElement);
+                }
+                newChildren.push(newNodeData);
+                lastDomElement = newDomElement;
+            }
+        }
+
+        for (const [path] of oldNodesMap.entries()) {
+            const domToRemove = domChildrenMap.get(path);
+            if (domToRemove) {
+                parentElement.removeChild(domToRemove);
+            }
+        }
+
+        oldParentNode.children = newChildren;
+    },
+
+    /**
+     * @description 协调单个节点的属性（如名称、图标），并更新其DOM。
+     * @param {FileNode} oldNode - 旧节点（活动数据模型中的节点）。
+     * @param {FileNode} newNodeData - 从服务器获取的新节点数据。
+     * @private
+     */
+    _reconcileNodeProperties: function(oldNode, newNodeData) {
+        if (oldNode.name !== newNodeData.name) {
+            oldNode.name = newNodeData.name;
+            const domElement = this.container.querySelector(`li[data-path="${oldNode.path}"]`);
+            if (domElement) {
+                const span = domElement.querySelector('.node-label > span');
+                if (span) span.textContent = oldNode.name;
+                const icon = domElement.querySelector('.node-label > i');
+                if (icon) icon.className = oldNode.isFolder() ? 'fas fa-folder' : this.getFileIcon(oldNode.name);
+            }
+        }
+    },
+
+    /**
+     * @description 初始渲染整个文件树。
+     * @param {FileNode} rootNode - 项目的根节点。
+     * @private
+     */
+    _renderInitialTree: function(rootNode) {
+        const fragment = document.createDocumentFragment();
+        const rootUl = document.createElement('ul');
+        rootUl.className = 'file-tree';
+
+        const rootLi = this._createNodeElement(rootNode);
+        rootUl.appendChild(rootLi);
+
+        fragment.appendChild(rootUl);
+        this.container.innerHTML = '';
+        this.container.appendChild(fragment);
+    },
+
+    /**
+     * @description 创建一个文件或文件夹节点的 DOM 元素及其所有子元素（递归）。
+     * @param {FileNode} node - 要渲染的节点。
+     * @returns {HTMLLIElement} 渲染出的 `<li>` 元素。
+     * @private
+     */
+    _createNodeElement: function(node) {
+        const li = document.createElement('li');
+        li.dataset.path = node.path;
+        li.dataset.type = node.type;
+        li.className = node.type;
+
+        if (node.isFolder() && node.isExpanded) {
+            li.classList.add('expanded');
+        }
+
+        const iconClass = node.isFolder() ? 'fas fa-folder' : this.getFileIcon(node.name);
+
+        const nodeLabel = document.createElement('div');
+        nodeLabel.className = 'node-label';
+        nodeLabel.innerHTML = `<i class="${iconClass}"></i><span>${node.name}</span>`;
+        li.appendChild(nodeLabel);
+
+        if (node.isFolder() && node.children && node.children.length > 0) {
+            const nestedUl = document.createElement('ul');
+            node.children.forEach(child => {
+                const childElement = this._createNodeElement(child);
+                nestedUl.appendChild(childElement);
+            });
+            li.appendChild(nestedUl);
+        }
+        return li;
+    },
+
+    /**
+     * @description 处理文件树节点的点击事件。
+     * @param {HTMLElement} listItem - 被点击的 `<li>` 元素。
+     */
+    handleNodeClick: function(listItem) {
+        const path = listItem.dataset.path;
+        const node = FileNode.findNodeByPath(this.treeData, path);
+        if (!node) {
+            console.error(`点击的节点路径 "${path}" 在数据模型中未找到。数据可能已不同步。`);
+            return;
+        }
+
+        this.setFocus(listItem);
+
+        if (node.isFile()) {
+            EventBus.emit('file:openRequest', path);
+        } else if (node.isFolder()) {
+            node.isExpanded = !node.isExpanded;
+            listItem.classList.toggle('expanded', node.isExpanded);
+        }
+    },
+
+    /**
      * @description 处理文件粘贴事件。
      * @param {ClipboardEvent} e - 粘贴事件对象。
      * @private
@@ -69,13 +306,12 @@ const FileTreeManager = {
         const isInputFocused = activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.isContentEditable;
 
         if (isEditorFocused || isInputFocused) {
-            return; // 如果焦点在编辑器或输入框内，则不处理粘贴
+            return;
         }
 
         const items = e.clipboardData.items;
         if (!items || items.length === 0) return;
 
-        // 检查剪贴板中是否包含文件夹（目前不支持）
         let containsDirectory = Array.from(items).some(item =>
             (typeof item.webkitGetAsEntry === 'function' && item.webkitGetAsEntry()?.isDirectory)
         );
@@ -293,38 +529,6 @@ const FileTreeManager = {
     },
 
     /**
-     * @description 加载并渲染当前活动项目的文件树。
-     */
-    loadProjectTree: async function() {
-        if (!Config.currentProject) {
-            this.showWelcomeView();
-            EventBus.emit('git:statusChanged');
-            return;
-        }
-        document.querySelector('#left-panel .panel-header h3').textContent = Config.activeProjectName;
-        try {
-            EventBus.emit('log:info', `正在加载项目 '${Config.activeProjectName}' 的文件树...`);
-            const treeData = await NetworkManager.getFileTree('');
-            if (!treeData) {
-                this.container.innerHTML = `<li style="padding: 10px;">项目 '${Config.activeProjectName}' 为空或无法加载。</li>`;
-                return;
-            }
-            const expansionState = this.getExpansionState(this.treeData);
-            const previouslyFocused = this.focusedElement ? this.focusedElement.dataset.path : null;
-            this.treeData = [this._transformObjectToFileNode(treeData)];
-            this.render(expansionState, previouslyFocused);
-            EventBus.emit('log:info', '项目文件树加载成功。');
-            EventBus.emit('git:statusChanged');
-            if (!this.focusedElement) {
-                this.openDefaultFile();
-            }
-        } catch (error) {
-            EventBus.emit('log:error', `加载项目树失败: ${error.message}`);
-            this.container.innerHTML = `<li style="color: var(--color-error); padding: 10px;">加载项目树失败: ${error.message}</li>`;
-        }
-    },
-
-    /**
      * @description 当没有活动项目时，显示欢迎界面。
      */
     showWelcomeView: function() {
@@ -334,90 +538,8 @@ const FileTreeManager = {
         if (welcomeFragment) {
             this.container.appendChild(welcomeFragment);
         }
-    },
-
-    /**
-     * @description 渲染整个文件树。
-     * @param {object} expansionState - 包含需要保持展开状态的文件夹路径的对象。
-     * @param {string|null} previouslyFocusedPath - 之前拥有焦点的文件或文件夹的路径。
-     */
-    render: function(expansionState, previouslyFocusedPath) {
-        const fragment = document.createDocumentFragment();
-        const rootUl = document.createElement('ul');
-        rootUl.className = 'file-tree';
-
-        if (this.treeData && this.treeData.length > 0) {
-            this.treeData.forEach(function(item) {
-                const nodeElement = this.renderNode(item, expansionState);
-                rootUl.appendChild(nodeElement);
-            }, this);
-        }
-
-        fragment.appendChild(rootUl);
-        this.container.innerHTML = '';
-        this.container.appendChild(fragment);
-
-        if (previouslyFocusedPath) {
-            const elementToFocus = this.container.querySelector(`li[data-path="${previouslyFocusedPath}"]`);
-            if (elementToFocus) {
-                this.setFocus(elementToFocus);
-            }
-        }
-    },
-
-    /**
-     * @description 递归渲染单个文件或文件夹节点。
-     * @param {FileNode} node - 要渲染的节点。
-     * @param {object} expansionState - 展开状态对象。
-     * @returns {HTMLElement} 渲染出的 `<li>` 元素。
-     */
-    renderNode: function(node, expansionState) {
-        if (expansionState[node.path]) {
-            node.isExpanded = true;
-        }
-
-        const li = document.createElement('li');
-        li.dataset.path = node.path;
-        li.dataset.type = node.type;
-        li.className = node.type;
-
-        if (node.isFolder() && node.isExpanded) {
-            li.classList.add('expanded');
-        }
-
-        const iconClass = node.isFolder() ? 'fas fa-folder' : this.getFileIcon(node.name);
-        // ========================= 修改 START =========================
-        // Wrap icon and span in a div to allow for targeted highlighting
-        li.innerHTML = `<div class="node-label"><i class="${iconClass}"></i><span>${node.name}</span></div>`;
-        // ========================= 修改 END ===========================
-
-        if (node.isFolder() && node.children) {
-            const nestedUl = document.createElement('ul');
-            node.children.forEach(function(child) {
-                const childElement = this.renderNode(child, expansionState);
-                nestedUl.appendChild(childElement);
-            }, this);
-            li.appendChild(nestedUl);
-        }
-
-        return li;
-    },
-
-    /**
-     * @description 处理文件树节点的点击事件。
-     * @param {HTMLElement} listItem - 被点击的 `<li>` 元素。
-     */
-    handleNodeClick: function(listItem) {
-        const path = listItem.dataset.path;
-        const node = FileNode.findNodeByPath(this.treeData, path);
-        if (!node) return;
-        this.setFocus(listItem);
-        if (node.isFile()) {
-            EventBus.emit('file:openRequest', path);
-        } else if (node.isFolder()) {
-            node.isExpanded = !node.isExpanded;
-            listItem.classList.toggle('expanded');
-        }
+        this.treeData = [];
+        this.focusedElement = null;
     },
 
     /**
@@ -444,26 +566,6 @@ const FileTreeManager = {
             };
         }
         return null;
-    },
-
-    /**
-     * @description 获取并返回当前文件树的展开状态。
-     * @param {FileNode[]} nodes - 要遍历的节点数组。
-     * @param {object} [state={}] - 用于存储状态的对象。
-     * @returns {object}
-     */
-    getExpansionState: function(nodes, state = {}) {
-        for (const node of nodes) {
-            if (node.isFolder()) {
-                if (node.isExpanded) {
-                    state[node.path] = true;
-                }
-                if (node.children) {
-                    this.getExpansionState(node.children, state);
-                }
-            }
-        }
-        return state;
     },
 
     /**
@@ -523,7 +625,7 @@ const FileTreeManager = {
     },
 
     /**
-     * @description 将后端返回的普通对象转换为 FileNode 实例。
+     * @description 将后端返回的普通对象递归地转换为 FileNode 实例。
      * @param {object} obj - 后端返回的文件树对象。
      * @returns {FileNode|null}
      * @private
